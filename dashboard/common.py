@@ -242,14 +242,13 @@ def quarterly(ticker: str) -> pd.DataFrame:
 
 @st.cache_data(ttl=TTL, show_spinner="Running factor regressions...")
 def exposures(model: str) -> list[dict]:
-    factors = qm.CARHART if model == "Carhart" else qm.FF3
-    return [asdict(e) for e in qm.universe_exposures(context().universe, factors)]
+    return [asdict(e) for e in qm.universe_exposures(context().universe, qm.MODELS[model])]
 
 
 @st.cache_data(ttl=TTL, show_spinner=False)
 def rolling_betas(ticker: str, model: str) -> pd.DataFrame:
     u = context().universe
-    return qm.rolling_exposures(u.returns[ticker], u.factors, qm.CARHART if model == "Carhart" else qm.FF3)
+    return qm.rolling_exposures(u.returns[ticker], u.factors, qm.MODELS[model])
 
 
 @st.cache_data(ttl=TTL, show_spinner="Scoring the watchlist...")

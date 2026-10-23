@@ -14,8 +14,9 @@ pal = c.palette()
 
 f1, f2, _ = st.columns([1.1, 1.4, 3])
 ticker = c.pick_ticker(f1)
-model = f2.segmented_control("Factor model", ["FF3", "Carhart"], default="FF3", key="fr_model",
-                             help="Fama & French (1993) three factors; Carhart (1997) adds momentum") or "FF3"
+model = f2.segmented_control("Factor model", ["FF3", "Carhart", "FF5"], default="FF3", key="fr_model",
+                             help="Fama & French (1993) three factors; Carhart (1997) adds momentum; "
+                                  "Fama & French (2015) add profitability (RMW) and investment (CMA)") or "FF3"
 
 # =============================================================================
 # SEC filings
@@ -111,7 +112,8 @@ if e is None:
 else:
     st.caption(f"Daily excess returns, {e['start']} to {e['end']} ({e['n_obs']} days; the French library lags 1-2 "
                f"months). Newey-West t-statistics; |t| ≥ 2 is significant.")
-    names = {"mkt_rf": "Market β", "smb": "Size β (SMB)", "hml": "Value β (HML)", "mom": "Momentum β"}
+    names = {"mkt_rf": "Market β", "smb": "Size β (SMB)", "smb5": "Size β (SMB)", "hml": "Value β (HML)",
+             "mom": "Momentum β", "rmw": "Profitability β (RMW)", "cma": "Investment β (CMA)"}
     k = st.columns(2 + len(e["betas"]))
     k[0].metric("Alpha / year", c.pct(e["alpha_annual"]), f"t = {e['alpha_t']:.1f}", delta_color="off", delta_arrow="off", border=True,
                 help="Return not explained by the factors")

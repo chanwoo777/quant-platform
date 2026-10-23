@@ -126,7 +126,7 @@ def ingest_factors(settings: Settings, engine: Engine, result: StepResult) -> No
     with session_scope(engine) as session:
         result.rows, backend = factors.update_factors(session, settings.factor_start, settings.http_timeout)
         latest = session.scalar(select(func.max(FactorReturn.date)))
-    result.detail = f"Fama-French 3 factors + momentum via {backend}, through {latest}"
+    result.detail = f"Fama-French 3 and 5 factors + momentum via {backend}, through {latest}"
 
 
 def ingest_fundamentals(settings: Settings, engine: Engine, result: StepResult) -> None:

@@ -669,9 +669,9 @@ watchlist for the full treatment.
 
 ## Live website (GitHub Pages)
 
-**https://chanwoo777.github.io/quant-platform/** is a static, read-only copy of the
-dashboard, refreshed once a day. GitHub Pages can't run Python, so the PC that runs
-the pipeline exports the data as JSON and pushes it.
+**https://chanwoo777.github.io/quant-platform/** is a static copy of the dashboard,
+refreshed once a day, plus tools that run in the browser. GitHub Pages can't run
+Python, so the PC that runs the pipeline exports the data as JSON and pushes it.
 
 ```bash
 python -m quant.web.export                     # build the site in data/site (~1 min)
@@ -679,15 +679,84 @@ python -m quant.web.publish                    # export + push to the gh-pages b
 python -m quant.scheduler --run-now --publish-site   # daily cycle, then publish
 ```
 
+| Page | What it does |
+|---|---|
+| **Global** | The screener (every stock ≥ $1B, liquid US ETF and top coin) with filters, per-symbol charts and signal reasons. ★ adds a name to your watchlist. |
+| **Markets** | Regime and stance, the S&P 500 stance chart, FRED tiles and news. **Your watchlist**: search to add any stock, ETF, coin or index, ✕ to remove. It is saved in the browser (localStorage). |
+| **Stock** (`#/stock/<ticker>`) | Any of ~11,400 symbols. Deep-tier names get candlesticks with news markers and explained moves. Everything else gets a close-price chart with 50/200-day MAs, Bollinger bands and RSI computed in the browser, plus returns, risk and peer percentiles. |
+| **Financials** (`#/financials/<ticker>`) | A research view for any ticker: fundamentals, analyst consensus, a peer table, financial statements and the factor model. Statements come from SEC filings for the deep tier, or Finnhub's reported statements for US names when a key is set. |
+| **Paper bot** | The paper and backtest portfolios with a risk dashboard: Sharpe, Sortino, max drawdown, Calmar, alpha and beta vs SPY, win rate, win/loss ratio and profit factor. Also the **strategy lab**. |
+| **Live** (`#/live/<symbol>`) | Real-time candlesticks (TradingView Lightweight Charts) over WebSocket, for desktop and phone. |
+
+The header search autocompletes over the whole universe. Pretty links such as
+`/quant-platform/stock/AAPL` also work: `404.html` turns them into the hash route.
+
+**Factor models in the browser.** `docs/assets/quant.js` reimplements
+`quant_models.factor_regression` and `rolling_exposures`: OLS with Newey-West
+(5-lag) errors, variance shares, return attribution and tilts. So FF3, Carhart and
+FF5 run for any stock, from `factors.json` and the symbol's adjusted closes. The
+loadings chart shows 95% confidence intervals. `tests/test_site_js.py` runs the
+JavaScript under Node.js against the Python models, on synthetic data with missing
+values; they agree to about one part in a million. Fixes in this round:
+- *Rolling betas:* the site's rolling-beta chart sampled an already monthly series
+  a second time, leaving about 22 points over 9 years. It now keeps every monthly
+  point.
+- *FF5:* Fama & French (2015) is supported end to end. Ingestion stores the
+  five-factor file's RMW, CMA and size factor (`smb5`, built from more sorts than
+  SMB). `quant_models.FF5` and the Streamlit Financials page offer it, and the site
+  estimates it per ticker.
+
+**Strategy lab** (Paper bot → Strategy lab). The strategies are modules in
+`quant.js` (`Q.STRATEGIES`):
+- *Buy and hold:* equal weight.
+- *Cross-sectional momentum:* lookback, skip, top N and rebalance settings,
+  optionally long/short.
+- *Trend following:* moving-average crossover.
+- *Mean reversion:* Bollinger z-score.
+- *Statistical arbitrage:* pairs trading with a rolling hedge ratio and z-score
+  entry, exit and stop. It also reports the Engle-Granger ADF statistic and the
+  spread's half-life.
+
+Each strategy returns target weights decided with data up to the close. The engine
+applies them to the next day's return, charges costs on turnover, and pays the
+T-bill rate on idle cash. It reports the metrics above, monthly returns and every
+round trip. A new strategy is an object with `params` and `weights(P, params)`.
+On the site, Sharpe uses the standard daily definition: mean daily excess return
+÷ its standard deviation × √252. The Phase 4 table instead uses (CAGR − T-bill
+rate) ÷ volatility, which is why the 2018– backtest shows 0.51 on the site and
+0.46 there.
+
+**Data sources and keys:**
+- *No key needed:* prices, fundamentals and analytics come from the nightly
+  export, and crypto charts stream from Binance's public market data
+  (`data-api.binance.vision`, `data-stream.binance.vision`).
+- *Optional Finnhub key:* entered in ⚙ on the site, it adds live US trades in
+  Live, plus live quotes, recommendation trends and reported statements in
+  Financials. It also enables lookups for US tickers outside the universe. The key
+  stays in that visitor's browser and is sent only to finnhub.io. Nothing is
+  stored in the repository, because anyone can read a key placed in a public site.
+- *Yahoo:* Yahoo Finance has no browser API (no CORS), so symbols outside the
+  universe can't be fetched from it live.
+
 **How it works:**
-- *Code:* the site's code is versioned on `main` under `docs/`: `index.html`, `assets/app.js`
-  and `assets/app.css`, plus `about.html` for the project page. It is plain JavaScript
-  with Plotly from jsDelivr and no build step.
+- *Code:* the site's code is versioned on `main` under `docs/`:
+  - `index.html`, `about.html` and `404.html`
+  - `assets/app.js`: the pages
+  - `assets/quant.js`: statistics, factor models and the backtester
+  - `assets/live.js`: the live charts
+  - `assets/app.css`
+
+  It is plain JavaScript, with Plotly and Lightweight Charts from jsDelivr and no
+  build step.
 - *Data:* `quant/web/export.py` calls the same functions as the Streamlit pages
   (`dashboard/common.py`), so both show the same numbers. It writes JSON to
-  `data/site/data/`: the screener (columnar), ~400 daily closes per symbol in 256
-  hash buckets, and one file per deep-tier stock. The total is about 50 MB raw;
-  GitHub Pages compresses it.
+  `data/site/data/`:
+  - `meta`, `global` (the screener), `symbols` (search) and `indices`
+  - `sym/<xx>`: about two years of adjusted closes plus fundamentals per symbol,
+    in 256 FNV-1a buckets
+  - `factors`, `market`, `deep/<T>`, `research` and `bot`
+
+  The total is about 60 MB raw; GitHub Pages compresses it.
 - *Publishing:* `quant/web/publish.py` commits `data/site` as a fresh one-commit
   history and force-pushes it to `gh-pages`. Each day's snapshot replaces the last,
   so data never piles up in the repository. Pushing uses your normal git
@@ -696,10 +765,11 @@ python -m quant.scheduler --run-now --publish-site   # daily cycle, then publish
   updates after each 07:30 KST cycle.
 
 **What differs from the local dashboard:**
-- The site is read-only. "Add to watchlist" becomes ★ *Saved*, kept in the
-  visitor's browser only, and analysis runs only on the PC.
-- The Stock and Financials pages cover the deep-tier names; the screener covers
-  everything.
+- The site is read-only. The watchlist and the strategy lab live in the
+  visitor's browser. Promoting a name to the deep tier (news, SEC filings, the
+  bot) still happens on the PC.
+- Candlesticks, news markers and explained moves cover the deep tier. Other names
+  get close-price charts, because the universe store keeps only closes and volume.
 - There are no 15-minute bars.
 
 The site republishes data from Yahoo Finance, whose terms allow personal use only.

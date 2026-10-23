@@ -62,6 +62,9 @@ class FactorReturn(Base):
     hml: Mapped[float | None] = mapped_column(Float)  # high minus low book-to-market (value)
     rf: Mapped[float | None] = mapped_column(Float)  # 1-month T-bill, daily
     mom: Mapped[float | None] = mapped_column(Float)  # winners minus losers (Carhart momentum)
+    smb5: Mapped[float | None] = mapped_column(Float)  # size, five-factor (2x3) construction
+    rmw: Mapped[float | None] = mapped_column(Float)  # robust minus weak operating profitability
+    cma: Mapped[float | None] = mapped_column(Float)  # conservative minus aggressive investment
 
 
 class MacroSeries(Base):

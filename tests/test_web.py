@@ -60,9 +60,12 @@ def test_export_global_writes_screener_and_price_buckets(tmp_path, monkeypatch):
     assert stats["symbols"] == 2 and rows[0]["s"] == "AAA" and rows[0]["a"] == "s" and rows[0]["sc"] == 71.2
     assert rows[0]["u"] == 1 and rows[0]["cap"] == 2.5 and rows[0]["sp"] == [0, 50, 99] and rows[1]["sp"] is None
     assert g["regimes"][0]["market"] == "US"
-    bucket = json.loads((tmp_path / "px" / f"{export.bucket('AAA')}.json").read_text(encoding="utf-8"))
-    start, gaps, values = bucket["AAA"]
+    bucket = json.loads((tmp_path / "sym" / f"{export.bucket('AAA')}.json").read_text(encoding="utf-8"))
+    start, gaps, values = bucket["AAA"]["p"]
     assert start == "2025-01-01" and len(values) == 29 and 3 in gaps  # the holiday spans a weekend + 1 day
+    assert bucket["AAA"]["i"] == {}  # every fundamental is NaN here, and NaNs are left out
+    symbols = json.loads((tmp_path / "symbols.json").read_text(encoding="utf-8"))
+    assert symbols == [["AAA", "Aaa Corp", "s", "US"], ["BTC-USD", "Bitcoin", "c", "Crypto"]]
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="needs git")

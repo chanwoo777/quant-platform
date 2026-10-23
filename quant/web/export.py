@@ -9,11 +9,15 @@ data/site/data/:
 
   meta.json       freshness dates and counts
   global.json     regimes + the screener (every stock, ETF and coin, columnar)
-  px/<xx>.json    ~400 daily closes per screener symbol, in 256 buckets (FNV-1a hash)
+  indices.json    the market-regime benchmark indices with returns and trend
+  symbols.json    [symbol, name, class, market] for search and autocomplete
+  sym/<xx>.json   per symbol: ~2 years of adjusted daily closes + fundamentals, in 256
+                  buckets keyed by FNV-1a(symbol), so any ticker's page loads one small file
+  factors.json    daily Fama-French factors (FF3, momentum, FF5) for in-browser regressions
   market.json     regime, S&P 500 with stance history, FRED tiles, watchlist movers, news
-  deep/<T>.json   per deep-tier ticker: OHLCV + indicators, news markers, unusual moves,
-                  headlines, SEC financials, rolling factor betas
-  research.json   factor exposures (FF3, Carhart), composite scores, strategy backtests
+  deep/<T>.json   per deep-tier ticker: OHLCV + adjusted close + indicators, news markers,
+                  unusual moves, headlines, SEC financials, rolling factor betas
+  research.json   factor exposures (FF3, Carhart, FF5), composite scores, strategy backtests
   bot.json        paper and backtest portfolios: equity, positions, signals, ledger
 """
 
@@ -36,8 +40,22 @@ log = logging.getLogger("quant.web")
 
 ROOT = Path(__file__).resolve().parents[2]
 SITE_SRC = ROOT / "docs"
-PX_ROWS = 420  # daily closes per symbol for the screener detail chart (~1.7 years)
+PX_ROWS = 600  # daily closes per symbol (the store keeps ~800 calendar days, about 550 sessions)
 BUCKETS = 256
+FACTOR_YEARS = 5
+INDEX_NAMES = {"^GSPC": "S&P 500", "^GSPTSE": "S&P/TSX Composite", "^STOXX": "STOXX Europe 600",
+               "^N225": "Nikkei 225", "^KS11": "KOSPI", "^HSI": "Hang Seng", "^TWII": "TAIEX",
+               "^NSEI": "Nifty 50", "^AXJO": "S&P/ASX 200", "^VIX": "CBOE Volatility Index"}
+# Per-symbol fundamentals for the research view: short key -> scores column.
+INFO_FIELDS = {
+    "ex": "exchange", "reg": "region", "ind": "industry", "cat": "category", "fpe": "forward_pe",
+    "tpe": "trailing_pe", "pecy": "pe_current_year", "pb": "price_to_book", "eve": "ev_to_ebitda",
+    "dy": "dividend_yield", "roe": "return_on_equity", "pm": "profit_margin", "de": "debt_to_equity",
+    "rg": "revenue_growth", "eg": "earnings_growth", "beta": "beta", "er": "expense_ratio",
+    "aum": "fund_assets_usd", "ar": "analyst_rating", "al": "analyst_label", "w52": "fifty_two_week_change",
+    "vol": "volatility", "mdd": "max_drawdown_1y", "adv": "adv_usd", "m61": "mom_6_1", "cross": "cross_type",
+    "cross_ago": "cross_sessions_ago", "cg": "coingecko_id", "rank": "rank",
+}
 FRED_TILES = [  # (series, label, unit, transform, inverse, digits) as on the Market Overview page
     ("DGS10", "10Y Treasury", "%", None, False, 2), ("DGS2", "2Y Treasury", "%", None, False, 2),
     ("T10Y2Y", "10Y-2Y curve", "pp", None, False, 2), ("DFF", "Fed funds", "%", None, False, 2),
@@ -144,7 +162,7 @@ def _spark(points) -> list[int] | None:
 
 def export_global(out: Path) -> dict:
     from quant.universe.prices import load as load_prices
-    from quant.universe.scoring import load_regimes, load_scores
+    from quant.universe.scoring import BENCHMARKS, load_regimes, load_scores, price_metrics
 
     scores = load_scores()
     regimes = load_regimes().reset_index()
@@ -170,22 +188,57 @@ def export_global(out: Path) -> dict:
         "cols": SCREENER_COLS, "rows": rows,
     })
 
-    # Price history for the detail chart, bucketed so a click loads ~1/256 of it.
-    close = load_prices("close")
+    # Indices (benchmarks of the market regimes) join the search and the watchlist.
+    close, volume = load_prices("close"), load_prices("volume")
+    screened = set(scores.symbol)
+    idx_syms = [s for s in INDEX_NAMES if s in close and s not in screened]
+    market_of = {sym: m for m, sym in BENCHMARKS.items() if m != "US ETFs"}
+    imetrics = price_metrics(close[idx_syms], volume.reindex(columns=idx_syms), set()) if idx_syms else pd.DataFrame()
+    indices = []
+    for sym in idx_syms:
+        if sym not in imetrics.index:
+            continue
+        m = imetrics.loc[sym]
+        indices.append({"s": sym, "n": INDEX_NAMES[sym], "a": "i", "m": market_of.get(sym, "US"),
+                        "px": sig(m.last_close, 6), "r1d": rnd(m.ret_1d), "r1w": rnd(m.ret_1w), "r1m": rnd(m.ret_1m),
+                        "r3m": rnd(m.ret_3m), "ytd": rnd(m.ret_ytd), "d200": rnd(m.dist_200), "rsi": rnd(m.rsi_14, 0),
+                        "vol": rnd(m.volatility), "mdd": rnd(m.max_drawdown_1y), "sp": _spark(m.sparkline)})
+    size += write(out / "indices.json", indices)
+    size += write(out / "symbols.json", [r[:4] for r in rows] + [[i["s"], i["n"], "i", i["m"]] for i in indices])
+
+    # Per-symbol prices + fundamentals, bucketed so any ticker's page loads ~1/256 of the data.
+    info = scores.drop_duplicates("symbol").set_index("symbol")
     buckets: dict[str, dict] = {}
-    for sym in scores.symbol:
-        if sym not in close:
-            continue
-        s = close[sym].dropna().tail(PX_ROWS)
-        if len(s) < 2:
-            continue
-        days = pd.DatetimeIndex(s.index)
-        gaps = np.diff(days.values).astype("timedelta64[D]").astype(int).tolist()
-        buckets.setdefault(bucket(sym), {})[sym] = [f"{days[0]:%Y-%m-%d}", gaps, series(s.to_numpy(), 5)]
-    px_dir = out / "px"
-    shutil.rmtree(px_dir, ignore_errors=True)
-    px_size = sum(write(px_dir / f"{b}.json", content) for b, content in buckets.items())
-    return {"global": size, "px": px_size, "symbols": len(rows)}
+    for sym in list(scores.symbol) + [i["s"] for i in indices]:
+        entry: dict = {}
+        if sym in close:
+            s = close[sym].dropna().tail(PX_ROWS)
+            if len(s) >= 2:
+                days = pd.DatetimeIndex(s.index)
+                gaps = np.diff(days.values).astype("timedelta64[D]").astype(int).tolist()
+                entry["p"] = [f"{days[0]:%Y-%m-%d}", gaps, series(s.to_numpy(), 6)]
+        if sym in info.index:
+            row = info.loc[sym]
+            fields = {k: clean(row[col]) for k, col in INFO_FIELDS.items() if col in row.index}
+            entry["i"] = {k: v for k, v in fields.items() if v is not None}
+        if entry:
+            buckets.setdefault(bucket(sym), {})[sym] = entry
+    for old in ("px", "sym"):
+        shutil.rmtree(out / old, ignore_errors=True)
+    sym_size = sum(write(out / "sym" / f"{b}.json", content) for b, content in buckets.items())
+    return {"global": size, "sym": sym_size, "symbols": len(rows), "indices": len(indices)}
+
+
+def export_factors(out: Path) -> int:
+    """Daily factors for in-browser regressions (the same series the Python models use)."""
+    from quant.db import init_db, session_scope
+    from quant.ingestion.factors import STORED, load_factors
+
+    with session_scope(init_db()) as s:
+        f = load_factors(s)
+    if len(f):
+        f = f.loc[f.index >= f.index.max() - pd.DateOffset(years=FACTOR_YEARS)]
+    return write(out / "factors.json", {"d": dates(f.index), **{col: series(f[col], 5) for col in STORED if col in f}})
 
 
 # --- deep tier ------------------------------------------------------------------------------------
@@ -269,13 +322,13 @@ def export_deep(out: Path, c) -> dict:
         news = news_all[news_all.ticker == t].copy()
         moves = c.anomalies(t, "1d", days=3 * 365 + 30)
         row = scores.loc[t] if t in scores.index else None
-        cols = {"o": "open", "h": "high", "l": "low", "c": "close", "v": "volume", "ma50": "sma_50",
+        cols = {"o": "open", "h": "high", "l": "low", "c": "close", "ac": "adj_close", "v": "volume", "ma50": "sma_50",
                 "ma200": "sma_200", "rsi": "rsi_14", "bbu": "bb_upper", "bbl": "bb_lower"}
         bars = {k: series(daily[col].to_numpy(), 6 if k != "rsi" else 3) for k, col in cols.items() if col in daily}
         rolling = {}
-        for model in ("FF3", "Carhart"):
-            try:
-                roll = c.rolling_betas(t, model).dropna(how="all").iloc[::5]
+        for model in qm.MODELS:
+            try:  # rolling_exposures already steps monthly; keep every point
+                roll = c.rolling_betas(t, model).dropna(how="all")
                 rolling[model] = {"d": dates(roll.index), **{f: series(roll[f], 3) for f in roll.columns}}
             except Exception:
                 log.exception("rolling betas failed for %s %s", t, model)
@@ -362,7 +415,7 @@ def export_market(out: Path, c) -> int:
 def export_research(out: Path, c) -> int:
     from quant import quant_models as qm
 
-    exposures = {model: c.exposures(model) for model in ("FF3", "Carhart")}
+    exposures = {model: c.exposures(model) for model in qm.MODELS}
     s = c.scores()
     scores = [{"rank": r["rank"], "ticker": t, "composite": r.composite, "value": r.value, "quality": r.quality,
                "momentum": r.momentum, "ep": r.earnings_yield, "fcfp": r.fcf_yield, "bm": r.book_to_market,
@@ -428,7 +481,8 @@ def build(site_dir: Path | None = None) -> dict:
     shutil.copytree(SITE_SRC, site_dir, dirs_exist_ok=True)
     out = site_dir / "data"
     stats, started = {}, time.perf_counter()
-    for name, fn in (("global", lambda: export_global(out)), ("deep", lambda: export_deep(out, c)),
+    for name, fn in (("global", lambda: export_global(out)), ("factors", lambda: export_factors(out)),
+                     ("deep", lambda: export_deep(out, c)),
                      ("market", lambda: export_market(out, c)), ("research", lambda: export_research(out, c)),
                      ("bot", lambda: export_bot(out, c))):
         t0 = time.perf_counter()

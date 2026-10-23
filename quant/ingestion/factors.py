@@ -3,7 +3,8 @@
     https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html
 
 Daily Mkt-RF, SMB, HML and RF come from the 3-factor file, MOM from the momentum
-file. ``pandas-datareader``'s famafrench reader is tried first; if it fails the
+file, and RMW (profitability) and CMA (investment) from the 5-factor (2x3) file,
+whose size factor is stored separately as SMB5 (it is built from more sorts). ``pandas-datareader``'s famafrench reader is tried first; if it fails the
 zipped CSVs are downloaded and parsed directly. The library is rebuilt from CRSP
 roughly monthly, so the latest factor date usually trails today by 1-2 months.
 """
@@ -28,8 +29,10 @@ from quant.models import FactorReturn
 log = logging.getLogger(__name__)
 
 FRENCH_FTP = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/{name}_CSV.zip"
-DATASETS = ("F-F_Research_Data_Factors_daily", "F-F_Momentum_Factor_daily")
-COLUMNS = {"mkt-rf": "mkt_rf", "smb": "smb", "hml": "hml", "rf": "rf", "mom": "mom"}
+DATASETS = ("F-F_Research_Data_Factors_daily", "F-F_Momentum_Factor_daily", "F-F_Research_Data_5_Factors_2x3_daily")
+COLUMNS = {"mkt-rf": "mkt_rf", "smb": "smb", "hml": "hml", "rf": "rf", "mom": "mom", "rmw": "rmw", "cma": "cma"}
+STORED = ("mkt_rf", "smb", "hml", "rf", "mom", "smb5", "rmw", "cma")
+FIVE_FACTOR = "F-F_Research_Data_5_Factors_2x3_daily"
 REVISION_WINDOW = timedelta(days=60)
 
 
@@ -74,19 +77,27 @@ def fetch_factors(start: date, timeout: float = 30.0) -> tuple[pd.DataFrame, str
     frames, backend = [], "pandas-datareader"
     for name in DATASETS:
         try:
-            frames.append(_via_datareader(name, start))
+            table = _via_datareader(name, start)
         except Exception as exc:
             log.info("famafrench reader failed for %s (%s); downloading the CSV", name, exc)
-            frames.append(_via_zip(name, start, session, timeout))
+            table = _via_zip(name, start, session, timeout)
             backend = "French library CSV"
+        if name == FIVE_FACTOR:  # Mkt-RF, HML and RF repeat the 3-factor file; SMB differs
+            table = table[["smb", "rmw", "cma"]].rename(columns={"smb": "smb5"})
+        frames.append(table)
     return pd.concat(frames, axis=1, sort=True), backend
 
 
 def update_factors(session: Session, default_start: date, timeout: float = 30.0) -> tuple[int, str]:
     last = session.scalar(select(func.max(FactorReturn.date)))
     start = max(default_start, last - REVISION_WINDOW) if last else default_start
+    # Backfill columns added later (the five-factor file) over the whole history once.
+    unfilled = session.scalar(select(func.count()).select_from(FactorReturn)
+                              .where(FactorReturn.rmw.is_(None), FactorReturn.date >= default_start))
+    if last and unfilled and unfilled > REVISION_WINDOW.days:
+        start = default_start
     table, backend = fetch_factors(start, timeout)
-    cols = [c for c in COLUMNS.values() if c in table]
+    cols = [c for c in STORED if c in table]
     rows = [
         {"date": ts.date(), **{c: (None if pd.isna(row[c]) else float(row[c])) for c in cols}}
         for ts, row in table.iterrows()
@@ -99,7 +110,7 @@ def load_factors(session: Session, start: date | None = None) -> pd.DataFrame:
     stmt = select(FactorReturn).order_by(FactorReturn.date)
     if start:
         stmt = stmt.where(FactorReturn.date >= start)
-    cols = ["mkt_rf", "smb", "hml", "rf", "mom"]
+    cols = list(STORED)
     records = [{"date": f.date, **{c: getattr(f, c) for c in cols}} for f in session.scalars(stmt)]
     if not records:
         return pd.DataFrame(columns=cols, index=pd.DatetimeIndex([], name="date"))

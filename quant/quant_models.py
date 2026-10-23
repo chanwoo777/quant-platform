@@ -41,7 +41,10 @@ from quant.models import Company, StockSplit
 TRADING_DAYS = 252
 FF3 = ("mkt_rf", "smb", "hml")
 CARHART = ("mkt_rf", "smb", "hml", "mom")
-FACTOR_LABELS = {"mkt_rf": "market", "smb": "size", "hml": "value", "mom": "momentum", "idiosyncratic": "stock-specific"}
+FF5 = ("mkt_rf", "smb5", "hml", "rmw", "cma")  # Fama & French (2015); size uses the five-factor sorts
+MODELS = {"FF3": FF3, "Carhart": CARHART, "FF5": FF5}
+FACTOR_LABELS = {"mkt_rf": "market", "smb": "size", "smb5": "size", "hml": "value", "mom": "momentum",
+                 "rmw": "profitability", "cma": "investment", "idiosyncratic": "stock-specific"}
 SURVIVORSHIP_NOTE = (
     "The universe is today's watchlist of mega-caps, chosen with hindsight, so backtests are "
     "survivorship-biased and illustrative only."
@@ -233,12 +236,17 @@ def _tilts(betas: dict[str, float], t: dict[str, float], alpha_t: float) -> list
         out.append(f"aggressive (market beta {mkt:.2f})")
     elif mkt <= 0.8:
         out.append(f"defensive (market beta {mkt:.2f})")
-    if abs(t["smb"]) >= 2:
-        out.append("large-cap" if betas["smb"] < 0 else "small-cap")
+    size = "smb5" if "smb5" in betas else "smb"
+    if abs(t[size]) >= 2:
+        out.append("large-cap" if betas[size] < 0 else "small-cap")
     if abs(t["hml"]) >= 2:
         out.append("growth" if betas["hml"] < 0 else "value")
     if "mom" in betas and abs(t["mom"]) >= 2:
         out.append("momentum" if betas["mom"] > 0 else "anti-momentum")
+    if "rmw" in betas and abs(t["rmw"]) >= 2:
+        out.append("robust profitability" if betas["rmw"] > 0 else "weak profitability")
+    if "cma" in betas and abs(t["cma"]) >= 2:
+        out.append("conservative investment" if betas["cma"] > 0 else "aggressive investment")
     if abs(alpha_t) >= 2:
         out.append("significant positive alpha" if alpha_t > 0 else "significant negative alpha")
     return out
@@ -281,7 +289,7 @@ def factor_regression(
     alpha_t = float(fit.tvalues["const"])
     return FactorExposure(
         ticker=ticker,
-        model="Carhart" if "mom" in model else "FF3",
+        model=next((name for name, cols in MODELS.items() if tuple(model) == cols), "custom"),
         start=data.index[0].date(),
         end=data.index[-1].date(),
         n_obs=len(data),
