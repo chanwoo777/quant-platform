@@ -1,0 +1,40 @@
+# Free Quant Platform - dependencies
+# Everything here is open source; no paid data providers or API keys required.
+
+# --- Core data stack -------------------------------------------------------
+pandas>=2.2
+numpy>=1.26
+requests>=2.31
+python-dotenv>=1.0
+SQLAlchemy>=2.0            # SQLite by default, PostgreSQL via DATABASE_URL
+
+# --- Phase 1: data ingestion ----------------------------------------------
+yfinance>=0.2.54           # Yahoo Finance OHLCV (daily + intraday), VIX, indices
+pandas-datareader>=0.10    # FRED reader (optional: the code falls back to FRED's
+                           # public CSV endpoint because this package is
+                           # unmaintained and fails to import on pandas 3 / Python 3.12+)
+feedparser>=6.0            # Google News / Yahoo Finance / CNBC / MarketWatch RSS
+beautifulsoup4>=4.12       # HTML cleanup of RSS summaries
+
+# --- Phase 1: NLP sentiment (FinBERT via HuggingFace) ----------------------
+# ~600 MB on first run (torch CPU wheel + ProsusAI/finbert weights).
+# If these are missing the platform falls back to a finance lexicon scorer.
+transformers>=4.40
+torch>=2.2
+
+# --- Phase 2: technical indicators ----------------------------------------
+ta>=0.11
+
+# --- Phase 3: quant models (Fama-French regressions) -----------------------
+statsmodels>=0.14
+scipy>=1.11
+
+# --- Phase 4: automation ---------------------------------------------------
+APScheduler>=3.10,<4
+
+# --- Phase 5: web dashboard ------------------------------------------------
+streamlit>=1.35
+plotly>=5.20
+
+# --- Dev --------------------------------------------------------------------
+pytest>=8
