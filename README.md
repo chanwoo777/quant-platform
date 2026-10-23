@@ -666,3 +666,42 @@ watchlist for the full treatment.
 - Analyst consensus stands in for news sentiment in the broad tier.
 - Crypto in the broad tier updates on scheduled weekdays only.
 - Rankings are relative to peers, not predictions; see the Phase 3 evaluation.
+
+## Live website (GitHub Pages)
+
+**https://chanwoo777.github.io/quant-platform/** is a static, read-only copy of the
+dashboard, refreshed once a day. GitHub Pages can't run Python, so the PC that runs
+the pipeline exports the data as JSON and pushes it.
+
+```bash
+python -m quant.web.export                     # build the site in data/site (~1 min)
+python -m quant.web.publish                    # export + push to the gh-pages branch
+python -m quant.scheduler --run-now --publish-site   # daily cycle, then publish
+```
+
+**How it works:**
+- *Code:* the site's code is versioned on `main` under `docs/`: `index.html`, `assets/app.js`
+  and `assets/app.css`, plus `about.html` for the project page. It is plain JavaScript
+  with Plotly from jsDelivr and no build step.
+- *Data:* `quant/web/export.py` calls the same functions as the Streamlit pages
+  (`dashboard/common.py`), so both show the same numbers. It writes JSON to
+  `data/site/data/`: the screener (columnar), ~400 daily closes per symbol in 256
+  hash buckets, and one file per deep-tier stock. The total is about 50 MB raw;
+  GitHub Pages compresses it.
+- *Publishing:* `quant/web/publish.py` commits `data/site` as a fresh one-commit
+  history and force-pushes it to `gh-pages`. Each day's snapshot replaces the last,
+  so data never piles up in the repository. Pushing uses your normal git
+  credentials (the GitHub CLI's credential helper here).
+- *Schedule:* the Windows scheduled task runs `--run-now --publish-site`, so the site
+  updates after each 07:30 KST cycle.
+
+**What differs from the local dashboard:**
+- The site is read-only. "Add to watchlist" becomes ★ *Saved*, kept in the
+  visitor's browser only, and analysis runs only on the PC.
+- The Stock and Financials pages cover the deep-tier names; the screener covers
+  everything.
+- There are no 15-minute bars.
+
+The site republishes data from Yahoo Finance, whose terms allow personal use only.
+Publishing it is the owner's decision. To take the site down, disable Pages in the
+repository settings or delete the `gh-pages` branch.

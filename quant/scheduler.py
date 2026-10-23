@@ -8,7 +8,8 @@ Jobs (US/Eastern):
   Mon-Fri 17:30       daily cycle: ingest prices, macro, factors, SEC filings and news for the
                       deep tier (default watchlist + names promoted in Global Overview), then the
                       bot processes the session (stops, signals, trades, ledger), then the global
-                      universe refresh (~30 min; skip with --no-universe)
+                      universe refresh (~30 min; skip with --no-universe); with --publish-site,
+                      the static website is exported and pushed to GitHub Pages (~2 min)
   Mon-Fri 08:00-20:00 news refresh every 2 hours (headlines, FinBERT, relevance)
   Sat 10:00           weekly backtest refresh (dashboard history and Kelly statistics)
 
@@ -53,7 +54,7 @@ def _deep_tier() -> tuple[list[str], list[str]]:
         return equities, equities
 
 
-def daily_cycle(sizing: str = "vol_parity", universe: bool = True) -> None:
+def daily_cycle(sizing: str = "vol_parity", universe: bool = True, publish_site: bool = False) -> None:
     deep, tradable = _deep_tier()
     settings = dataclasses.replace(get_settings(), equities=tuple(deep))
     log.info("daily cycle: ingesting data for %d deep-tier names", len(deep))
@@ -68,6 +69,8 @@ def daily_cycle(sizing: str = "vol_parity", universe: bool = True) -> None:
             log.info("  %s %g %s @ %.2f [%s] %s", f.side, f.shares, f.ticker, f.price, f.reason, f.rationale)
     if universe:
         universe_refresh()
+    if publish_site:
+        site_publish()
 
 
 def universe_refresh() -> None:
@@ -79,6 +82,16 @@ def universe_refresh() -> None:
             (log.info if ok else log.error)("universe %s: %s (%.0fs)", step, detail, secs)
     except Exception:
         log.exception("universe refresh failed")
+
+
+def site_publish() -> None:
+    """Export the dashboard data and push the static site to the gh-pages branch."""
+    try:
+        from quant.web.publish import run as publish
+
+        log.info("website published: %s", publish())
+    except Exception:
+        log.exception("website publish failed")
 
 
 def news_refresh() -> None:
@@ -107,10 +120,11 @@ def _guarded(fn, *args):
     return run
 
 
-def build_scheduler(scheduler: BaseScheduler | None = None, sizing: str = "vol_parity") -> BaseScheduler:
+def build_scheduler(scheduler: BaseScheduler | None = None, sizing: str = "vol_parity",
+                    publish_site: bool = False) -> BaseScheduler:
     sched = scheduler or BlockingScheduler(timezone=EASTERN)
     common = {"max_instances": 1, "coalesce": True, "misfire_grace_time": 6 * 3600}
-    sched.add_job(_guarded(daily_cycle, sizing), CronTrigger(day_of_week="mon-fri", hour=17, minute=30, timezone=EASTERN),
+    sched.add_job(_guarded(daily_cycle, sizing, True, publish_site), CronTrigger(day_of_week="mon-fri", hour=17, minute=30, timezone=EASTERN),
                   id="daily_cycle", name="ingest data, then run the paper-trading bot", **common)
     sched.add_job(_guarded(news_refresh), CronTrigger(day_of_week="mon-fri", hour="8-20/2", minute=0, timezone=EASTERN),
                   id="news_refresh", name="refresh headlines and sentiment", **common)
@@ -138,7 +152,7 @@ def _configure_logging() -> None:
         console.setFormatter(fmt)
         handlers.append(console)
     logging.basicConfig(level=logging.INFO, handlers=handlers)
-    for noisy in ("yfinance", "urllib3", "peewee", "httpx", "httpx2", "huggingface_hub", "filelock"):
+    for noisy in ("yfinance", "urllib3", "peewee", "httpx", "httpx2", "huggingface_hub", "filelock", "streamlit"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
@@ -148,17 +162,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--run-now", action="store_true", help="run one daily cycle now and exit")
     parser.add_argument("--sizing", choices=("vol_parity", "kelly"), default="vol_parity")
     parser.add_argument("--no-universe", action="store_true", help="skip the global universe refresh")
+    parser.add_argument("--publish-site", action="store_true", help="after the daily cycle, publish the GitHub Pages site")
     args = parser.parse_args(argv)
     _configure_logging()
 
     if args.run_now:
         try:
-            daily_cycle(args.sizing, universe=not args.no_universe)
+            daily_cycle(args.sizing, universe=not args.no_universe, publish_site=args.publish_site)
         except Exception:
             log.exception("daily cycle failed")
             return 1  # shows up as the task's "Last Run Result"
         return 0
-    sched = build_scheduler(sizing=args.sizing)
+    sched = build_scheduler(sizing=args.sizing, publish_site=args.publish_site)
     now = datetime.now(EASTERN)
     for job in sched.get_jobs():
         nxt = job.trigger.get_next_fire_time(None, now)
