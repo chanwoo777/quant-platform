@@ -794,7 +794,7 @@ async function viewBot(view, arg) {
     ], layout(460, {
       xaxis: { type: "date", showgrid: false, linecolor: c.axis, tickfont: { color: c.muted } },
       yaxis: yaxis({ domain: [0.32, 1], title: { text: "Growth of 100", font: { size: 11 } } }),
-      yaxis2: yaxis({ domain: [0, 0.26], tickformat: ".0%", title: { text: "Drawdown", font: { size: 11 } } }),
+      yaxis2: yaxis({ domain: [0, 0.26], tickformat: Math.min(...dd) > -0.05 ? ".1%" : ".0%", title: { text: "Drawdown", font: { size: 11 } } }),
       shapes: [{ type: "line", xref: "paper", x0: 0, x1: 1, yref: "y", y0: 100, y1: 100, line: { color: c.axis, width: 1 } }],
     }));
   }
@@ -809,7 +809,7 @@ async function viewBot(view, arg) {
     const lines = [[params.buy_threshold ?? 0.25, "buy"], [params.sell_threshold ?? -0.1, "sell"]];
     plot($("#b-signals"), traces, layout(70 + 34 * sig.length, { barmode: "relative", bargap: 0.35, hovermode: "closest",
       shapes: lines.map(([xv]) => ({ type: "line", xref: "x", x0: xv, x1: xv, yref: "paper", y0: 0, y1: 1, line: { color: c.muted, width: 1 } })),
-      annotations: lines.map(([xv, text]) => ({ x: xv, y: 1, xref: "x", yref: "paper", text, showarrow: false, yanchor: "bottom", font: { color: c.muted, size: 11 } })) }));
+      annotations: lines.map(([xv, text]) => ({ x: xv, y: 1, xref: "x", yref: "paper", text, showarrow: false, yanchor: "top", xanchor: "left", xshift: 4, font: { color: c.muted, size: 11 } })) }));
   }
   if (closed.length >= 5) {
     const r = closed.map((v) => 100 * v);
