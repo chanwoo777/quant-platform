@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Free Quant Platform</title>
+<script>
+  // GitHub Pages serves this file for unknown paths. Turn /quant-platform/stock/AAPL into the
+  // app's hash route (#/stock/AAPL) so pretty links work on a static host.
+  (function () {
+    var base = "/quant-platform/";
+    var path = location.pathname.indexOf(base) === 0 ? location.pathname.slice(base.length) : "";
+    var route = /^(global|markets|stock|financials|bot|live)(\/[^/]+)?\/?$/.test(path) ? "#/" + path.replace(/\/$/, "") : "";
+    location.replace(base + route);
+  })();
+</script>
+</head>
+<body><p>Redirecting… <a href="/quant-platform/">Open the dashboard</a></p></body>
+</html>
