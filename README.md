@@ -683,10 +683,10 @@ python -m quant.scheduler --run-now --publish-site   # daily cycle, then publish
 |---|---|
 | **Global** | The screener (every stock ≥ $1B, liquid US ETF and top coin) with filters, per-symbol charts and signal reasons. ★ adds a name to your watchlist. |
 | **Markets** | Regime and stance, the S&P 500 stance chart, FRED tiles and news. **Your watchlist**: search to add any stock, ETF, coin or index, ✕ to remove. It is saved in the browser (localStorage). |
-| **Stock** (`#/stock/<ticker>`) | Any of ~11,400 symbols. Deep-tier names get candlesticks with news markers and explained moves. Everything else gets a close-price chart with 50/200-day MAs, Bollinger bands and RSI computed in the browser, plus returns, risk and peer percentiles. |
+| **Stock** (`#/stock/<ticker>`) | Any of ~11,400 symbols. Deep-tier names get candlesticks with news markers, explained moves and every indicator below. Everything else gets a close-price chart with the close-based indicators, plus returns, risk and peer percentiles. |
 | **Financials** (`#/financials/<ticker>`) | A research view for any ticker: fundamentals, analyst consensus, a peer table, financial statements and the factor model. Statements come from SEC filings for the deep tier, or Finnhub's reported statements for US names when a key is set. |
 | **Paper bot** | The paper and backtest portfolios with a risk dashboard: Sharpe, Sortino, max drawdown, Calmar, alpha and beta vs SPY, win rate, win/loss ratio and profit factor. Also the **strategy lab**. |
-| **Live** (`#/live/<symbol>`) | Real-time candlesticks (TradingView Lightweight Charts) over WebSocket, for desktop and phone. |
+| **Live** (`#/live/<symbol>`) | Real-time charts with indicators, for desktop and phone. US stocks and ETFs (plus XETRA, TSX and ASX) open TradingView's free real-time chart (Cboe One feed, no key). Crypto streams from Binance over WebSocket into a Lightweight Charts view. Other markets show the nightly daily bars, with a link to TradingView. |
 
 The header search autocompletes over the whole universe. Pretty links such as
 `/quant-platform/stock/AAPL` also work: `404.html` turns them into the hash route.
@@ -706,13 +706,41 @@ values; they agree to about one part in a million. Fixes in this round:
   SMB). `quant_models.FF5` and the Streamlit Financials page offer it, and the site
   estimates it per ticker.
 
+**Indicators.** These are the popular TradingView indicators, implemented in
+`quant.js` from the Pine Script built-ins:
+- *Overlays:* SMA 50/200, EMA 9/21, Bollinger Bands (20, 2), VWAP (session),
+  Ichimoku Cloud, Supertrend (10, 3) and Parabolic SAR.
+- *Oscillators:* volume, RSI 14, MACD (12, 26, 9), Stoch RSI, Stochastic
+  (14, 3, 3), ATR 14, ADX/DMI 14 and OBV.
+
+They are drawn on the Stock pages, the Markets S&P 500 chart and the native Live
+charts. Your choices are remembered in the browser. `tests/test_site_js.py` checks
+each one under Node.js against Python versions of the Pine definitions, and
+against the `ta` library where it uses the same formulas. Indicators that need
+highs, lows or volume only appear where those exist: the deep tier and the live
+feeds; the universe store keeps closes only. On the TradingView chart the same
+picks are preloaded as studies. Its free widget keeps at most 5, and drops entries
+when plain study ids and `{id, inputs}` objects are mixed, so the site always
+sends objects and says which picks were left out.
+
+**Why US stocks needed a different live source.** The first Live page streamed US
+stocks only through Finnhub. Without a key it showed an error. With one, the
+chart still started empty, because candles were built only from trades arriving
+after the page opened, and the US market is closed during the day in Asia.
+Browsers can't call Yahoo directly (no CORS), and an API key in a public site
+would be exposed. TradingView's free embeddable chart is keyless and real-time
+for US listings and carries full history. The Finnhub tick stream remains as the
+optional "Native" view.
+
 **Strategy lab** (Paper bot → Strategy lab). The strategies are modules in
 `quant.js` (`Q.STRATEGIES`):
 - *Buy and hold:* equal weight.
 - *Cross-sectional momentum:* lookback, skip, top N and rebalance settings,
   optionally long/short.
 - *Trend following:* moving-average crossover.
-- *Mean reversion:* Bollinger z-score.
+- *Mean reversion:* Bollinger z-score, and RSI (Connors' RSI 2 with a 200-day
+  trend filter).
+- *MACD crossover:* in the market while the MACD line is above its signal line.
 - *Statistical arbitrage:* pairs trading with a rolling hedge ratio and z-score
   entry, exit and stop. It also reports the Engle-Granger ADF statistic and the
   spread's half-life.
@@ -743,11 +771,12 @@ rate) ÷ volatility, which is why the 2018– backtest shows 0.51 on the site an
   - `index.html`, `about.html` and `404.html`
   - `assets/app.js`: the pages
   - `assets/quant.js`: statistics, factor models and the backtester
-  - `assets/live.js`: the live charts
+  - `assets/live.js`: the live charts (TradingView widget, Binance and Finnhub
+    WebSockets, native indicators)
   - `assets/app.css`
 
-  It is plain JavaScript, with Plotly and Lightweight Charts from jsDelivr and no
-  build step.
+  It is plain JavaScript, with Plotly and Lightweight Charts from jsDelivr and
+  TradingView's `tv.js`, and no build step.
 - *Data:* `quant/web/export.py` calls the same functions as the Streamlit pages
   (`dashboard/common.py`), so both show the same numbers. It writes JSON to
   `data/site/data/`:

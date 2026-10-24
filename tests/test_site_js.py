@@ -106,3 +106,174 @@ def test_backtest_has_no_lookahead_and_counts_trades(tmp_path):
     assert len([t for t in js["trades"] if not t.get("open")]) >= 2
     assert js["bh"][0] == pytest.approx(-0.001)  # entering costs 10 bps on 100% turnover
     assert js["bh"][1] == pytest.approx(0.0)  # +10% and -10% at 50/50
+
+
+# --- TradingView-style indicators ---------------------------------------------------------------
+# Python references written from the Pine Script built-ins, cross-checked against the `ta`
+# library where it uses the same formulas.
+
+def _ohlcv(n=400, seed=11):
+    rng = np.random.default_rng(seed)
+    c = 100 * np.cumprod(1 + rng.normal(0.0004, 0.018, n))
+    o = c * (1 + rng.normal(0, 0.004, n))
+    h = np.maximum(o, c) * (1 + np.abs(rng.normal(0, 0.006, n)))
+    lo = np.minimum(o, c) * (1 - np.abs(rng.normal(0, 0.006, n)))
+    v = rng.integers(1_000, 50_000, n).astype(float)
+    return pd.DataFrame({"open": o, "high": h, "low": lo, "close": c, "volume": v})
+
+
+def _rma(x: pd.Series, n: int) -> pd.Series:
+    out, r, seed = [], None, []
+    for v in x:
+        if not np.isnan(v):
+            if r is None:
+                seed.append(v)
+                if len(seed) == n:
+                    r = float(np.mean(seed))
+            else:
+                r = (r * (n - 1) + v) / n
+        out.append(np.nan if r is None else r)
+    return pd.Series(out, index=x.index)
+
+
+def _ema(x: pd.Series, n: int) -> pd.Series:
+    return x.ewm(span=n, adjust=False).mean()
+
+
+def _tr(df, handle_na=True):
+    prev = df.close.shift()
+    tr = pd.concat([df.high - df.low, (df.high - prev).abs(), (df.low - prev).abs()], axis=1).max(axis=1)
+    tr.iloc[0] = df.high.iloc[0] - df.low.iloc[0] if handle_na else np.nan
+    return tr
+
+
+def _supertrend(df, period=10, factor=3):
+    atr = _rma(_tr(df), period)
+    src = (df.high + df.low) / 2
+    line, direction = [np.nan] * len(df), [np.nan] * len(df)
+    prev_upper = prev_lower = prev_st = None
+    for i in range(len(df)):
+        if np.isnan(atr.iloc[i]):
+            continue
+        upper, lower = src.iloc[i] + factor * atr.iloc[i], src.iloc[i] - factor * atr.iloc[i]
+        pl, pu = prev_lower or 0.0, prev_upper or 0.0
+        lower = lower if lower > pl or (i > 0 and df.close.iloc[i - 1] < pl) else pl
+        upper = upper if upper < pu or (i > 0 and df.close.iloc[i - 1] > pu) else pu
+        if i == 0 or np.isnan(atr.iloc[i - 1]):
+            d = 1
+        elif prev_st == prev_upper:
+            d = -1 if df.close.iloc[i] > upper else 1
+        else:
+            d = 1 if df.close.iloc[i] < lower else -1
+        line[i], direction[i] = (lower if d == -1 else upper), d
+        prev_upper, prev_lower, prev_st = upper, lower, line[i]
+    return np.array(line), np.array(direction)
+
+
+def _js_series(values):
+    return [np.nan if v is None else v for v in values]
+
+
+def test_indicators_match_pine_definitions(tmp_path):
+    import ta
+
+    df = _ohlcv()
+    js = run_js(tmp_path, """
+        const d = data, m = Q.macd(d.close), s = Q.stochastic(d.high, d.low, d.close), sr = Q.stochRsi(d.close);
+        const dm = Q.dmi(d.high, d.low, d.close), st = Q.supertrend(d.high, d.low, d.close, 10, 3), ich = Q.ichimoku(d.high, d.low, d.close);
+        return { ema: Q.ema(d.close, 21), atr: Q.atr(d.high, d.low, d.close, 14), macd: m.macd, signal: m.signal, hist: m.hist,
+          k: s.k, d: s.d, srk: sr.k, srd: sr.d, plus: dm.plus, minus: dm.minus, adx: dm.adx, st: st.line, dir: st.dir,
+          sar: Q.psar(d.high, d.low, d.close), conv: ich.conversion, base: ich.base, spanA: ich.spanA, spanB: ich.spanB, lag: ich.lagging,
+          vwap: Q.vwap(d.high, d.low, d.close, d.volume, (i) => Math.floor(i / 20)), obv: Q.obv(d.close, d.volume) };""",
+        {k: df[k].tolist() for k in df})
+    close, high, low = df.close, df.high, df.low
+
+    # EMA, ATR, MACD: exact against the Pine definitions and against `ta`.
+    assert _js_series(js["ema"]) == pytest.approx(_ema(close, 21).tolist(), rel=1e-12)
+    atr = _rma(_tr(df), 14)
+    assert _js_series(js["atr"])[13:] == pytest.approx(atr.tolist()[13:], rel=1e-12)
+    assert js["atr"][-1] == pytest.approx(ta.volatility.AverageTrueRange(high, low, close, 14).average_true_range().iloc[-1], rel=1e-9)
+    macd = _ema(close, 12) - _ema(close, 26)
+    assert _js_series(js["macd"]) == pytest.approx(macd.tolist(), rel=1e-12)
+    assert _js_series(js["signal"]) == pytest.approx(_ema(macd, 9).tolist(), rel=1e-12)
+    assert js["macd"][-1] == pytest.approx(ta.trend.MACD(close).macd().iloc[-1], rel=1e-9)
+
+    # Stochastic (14, 1, 3) and Stoch RSI (14, 14, 3, 3).
+    k = 100 * (close - low.rolling(14).min()) / (high.rolling(14).max() - low.rolling(14).min())
+    assert _js_series(js["k"])[13:] == pytest.approx(k.tolist()[13:], rel=1e-12)
+    assert _js_series(js["d"])[15:] == pytest.approx(k.rolling(3).mean().tolist()[15:], rel=1e-12)
+    assert js["k"][-1] == pytest.approx(ta.momentum.StochasticOscillator(high, low, close, 14, 3).stoch().iloc[-1], rel=1e-9)
+    delta = close.diff()
+    up, down = _rma(delta.clip(lower=0), 14), _rma((-delta).clip(lower=0), 14)
+    rsi = 100 - 100 / (1 + up / down)
+    srk = (100 * (rsi - rsi.rolling(14).min()) / (rsi.rolling(14).max() - rsi.rolling(14).min())).rolling(3).mean()
+    assert _js_series(js["srk"])[40:] == pytest.approx(srk.tolist()[40:], rel=1e-9)
+    assert _js_series(js["srd"])[42:] == pytest.approx(srk.rolling(3).mean().tolist()[42:], rel=1e-9)
+
+    # DMI / ADX (TradingView's script: ta.tr without the first bar, Wilder smoothing).
+    upm, dnm = high.diff(), -low.diff()
+    plus_dm = pd.Series(np.where((upm > dnm) & (upm > 0), upm, 0.0), index=df.index).where(upm.notna())
+    minus_dm = pd.Series(np.where((dnm > upm) & (dnm > 0), dnm, 0.0), index=df.index).where(dnm.notna())
+    trur = _rma(_tr(df, handle_na=False), 14)
+    plus, minus = 100 * _rma(plus_dm, 14) / trur, 100 * _rma(minus_dm, 14) / trur
+    adx = 100 * _rma((plus - minus).abs() / (plus + minus).replace(0, 1), 14)
+    assert _js_series(js["plus"])[15:] == pytest.approx(plus.tolist()[15:], rel=1e-9)
+    assert _js_series(js["adx"])[30:] == pytest.approx(adx.tolist()[30:], rel=1e-9)
+
+    # Supertrend and Parabolic SAR.
+    line, direction = _supertrend(df)
+    assert _js_series(js["st"])[10:] == pytest.approx(line.tolist()[10:], rel=1e-12)
+    assert js["dir"][10:] == direction.tolist()[10:]
+    assert set(js["dir"][10:]) == {1, -1}  # both regimes occur in this sample
+    sar = np.array(_js_series(js["sar"]))
+    up_trend = sar[1:] < close.to_numpy()[1:]
+    assert up_trend.any() and (~up_trend).any()  # it flips sides
+    assert np.all(np.where(up_trend, sar[1:] <= low.to_numpy()[1:] + 1e-9, sar[1:] >= high.to_numpy()[1:] - 1e-9))
+
+    # Ichimoku: lines exact vs `ta`, spans shifted forward 25 bars, lagging span back 25.
+    ich = ta.trend.IchimokuIndicator(high, low, 9, 26, 52, visual=False)
+    assert _js_series(js["conv"])[60:] == pytest.approx(ich.ichimoku_conversion_line().tolist()[60:], rel=1e-12)
+    assert _js_series(js["base"])[60:] == pytest.approx(ich.ichimoku_base_line().tolist()[60:], rel=1e-12)
+    assert _js_series(js["spanA"])[100:] == pytest.approx(ich.ichimoku_a().shift(25).tolist()[100:], rel=1e-12)
+    assert _js_series(js["spanB"])[100:] == pytest.approx(ich.ichimoku_b().shift(25).tolist()[100:], rel=1e-12)
+    assert _js_series(js["lag"])[:-25] == pytest.approx(close.shift(-25).tolist()[:-25], rel=1e-12)
+
+    # Session VWAP resets per session; OBV accumulates signed volume.
+    tp = (high + low + close) / 3
+    session = df.index // 20
+    vwap = (tp * df.volume).groupby(session).cumsum() / df.volume.groupby(session).cumsum()
+    assert js["vwap"] == pytest.approx(vwap.tolist(), rel=1e-12)
+    obv = (np.sign(close.diff()).fillna(0) * df.volume).cumsum()
+    assert js["obv"] == pytest.approx(obv.tolist(), rel=1e-12)
+
+
+def test_every_strategy_runs_and_stays_within_bounds(tmp_path):
+    rng = np.random.default_rng(5)
+    P = (100 * np.cumprod(1 + rng.normal(0.0003, 0.015, (600, 3)), axis=0)).tolist()
+    js = run_js(tmp_path, """
+        const dates = data.map((_, i) => new Date(Date.UTC(2023, 0, 2) + i * 864e5).toISOString().slice(0, 10));
+        return Q.STRATEGIES.map((s) => {
+          const params = Object.fromEntries(s.params.map((p) => [p.key, p.def]));
+          const syms = ["A", "B", "C"].slice(0, s.maxAssets || 3), P = data.map((row) => row.slice(0, syms.length));
+          const bt = Q.backtest({ dates, symbols: syms, P, strategy: s, params, costBps: 5 });
+          const gross = Math.max(...bt.W.map((w) => w.reduce((a, x) => a + Math.abs(x), 0)));
+          return { id: s.id, n: bt.rets.length, finite: bt.rets.every(Number.isFinite), gross, trades: bt.trades.length };
+        });""", P)
+    assert {s["id"] for s in js} == {"buyhold", "momentum", "trend", "meanrev", "rsi", "macd", "pairs"}
+    for s in js:
+        assert s["n"] == 600 and s["finite"] and s["gross"] <= 1 + 1e-9, s
+        assert s["trades"] > 0, s
+
+
+def test_indicator_catalogue_runs_on_partial_data(tmp_path):
+    df = _ohlcv(260)
+    js = run_js(tmp_path, """
+        const full = Object.assign({}, data, { session: (i) => Math.floor(i / 50), intraday: true });
+        const closeOnly = { close: data.close };
+        return Q.INDICATORS.map((ind) => ({ id: ind.id, kind: ind.kind, tv: ind.tv.length,
+          full: Q.indicatorFits(ind, full) ? ind.calc(full).lines.map((l) => l.values.filter((v) => v !== null).length) : null,
+          closeOnly: Q.indicatorFits(ind, closeOnly) }));""", {k: df[k].tolist() for k in df})
+    by_id = {x["id"]: x for x in js}
+    assert set(by_id) >= {"sma", "ema", "bb", "vwap", "ichimoku", "supertrend", "psar", "rsi", "macd", "stochrsi", "stoch", "atr", "adx", "obv"}
+    assert all(x["tv"] >= 1 and x["full"] and all(n > 0 for n in x["full"]) for x in js)
+    assert {i for i, x in by_id.items() if x["closeOnly"]} == {"sma", "ema", "bb", "rsi", "macd", "stochrsi"}

@@ -494,6 +494,81 @@ function priceChart(el, px, span, { height = 360, bollinger = false, rsiPanel = 
   plot(el, traces, layout(height, lay));
 }
 
+// --- indicator charts (Stock pages): any mix of TradingView-style overlays and oscillator panes ---
+const S_IND = new Set(store.get("stockIndicators", ["sma", "volume", "rsi"]));
+const PANE_VOLUME = { id: "volume", name: "Volume", kind: "pane" };
+const colorOf = (key) => { const c = pal(); return { s0: c.series[0], s1: c.series[1], s2: c.series[2], s3: c.series[3], s4: c.series[4], s5: c.series[5], s6: c.series[6], s7: c.series[7] }[key] || c[key] || key; };
+function withAlpha(hex, a) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
+function indicatorChipsHtml(d) {
+  const fit = (i) => (i.id === "volume" ? !!d.volume : Q.indicatorFits(i, d));
+  return [["Overlays", "overlay"], ["Oscillators", "pane"]].map(([label, kind]) => `<div class="control"><span class="label">${label}</span>
+    <div class="chips" data-ind="${kind}">${[...(kind === "pane" ? [PANE_VOLUME] : []), ...Q.INDICATORS.filter((i) => i.kind === kind && !i.intraday)].map((i) =>
+      `<button type="button" class="chip${S_IND.has(i.id) && fit(i) ? " on" : ""}" data-v="${i.id}"${fit(i) ? ""
+        : ' disabled style="opacity:.45" title="Needs high/low prices or volume, which are kept for the deep-tier stocks; open the Live chart for TradingView\'s version"'}>${esc(i.name)}</button>`).join("")}</div></div>`).join("");
+}
+function bindIndicatorChips(root, redraw) {
+  root.querySelectorAll("[data-ind] .chip").forEach((b) => b.addEventListener("click", () => {
+    const id = b.dataset.v;
+    S_IND.has(id) ? S_IND.delete(id) : S_IND.add(id);
+    store.set("stockIndicators", [...S_IND]);
+    b.classList.toggle("on", S_IND.has(id));
+    redraw();
+  }));
+}
+/** Price chart with the selected indicators. d = {time, open?, high?, low?, close, volume?} over the
+ * full history (indicators warm up on it), drawn from `span`. extra(x) adds traces on the price axis. */
+function indicatorChart(el, d, span, { candles = false, height = 560, extra = null, rangebreaks = false, shapes = [] } = {}) {
+  const c = pal();
+  const start = span === "All" ? d.time[0] : startFor(d.time[d.time.length - 1], span);
+  const i0 = Math.max(0, d.time.findIndex((t) => t >= start));
+  const sl = (a) => (a ? a.slice(i0) : []);
+  const x = sl(d.time), active = Q.INDICATORS.filter((i) => S_IND.has(i.id) && Q.indicatorFits(i, d) && !i.intraday);
+  const panes = [...(S_IND.has("volume") && d.volume ? [PANE_VOLUME] : []), ...active.filter((i) => i.kind === "pane")];
+  const traces = [];
+  if (candles) {
+    traces.push({ type: "candlestick", x, open: sl(d.open), high: sl(d.high), low: sl(d.low), close: sl(d.close), name: "Price",
+      increasing: { line: { color: c.up, width: 1 }, fillcolor: c.up }, decreasing: { line: { color: c.down, width: 1 }, fillcolor: c.down } });
+  } else traces.push({ x, y: sl(d.close), name: "Close", line: { color: c.ink, width: 1.5 }, hovertemplate: "%{y:,.4~f}" });
+  for (const ind of active.filter((i) => i.kind === "overlay")) {
+    const out = ind.calc(d), order = out.fill ? [out.fill[0], out.fill[1], ...out.lines.keys()].filter((k, j, a) => a.indexOf(k) === j) : [...out.lines.keys()];
+    for (const k of order) {
+      const ln = out.lines[k], col = colorOf(ln.color);
+      const t = { x, y: sl(ln.values), name: ln.name, legendgroup: ind.id, line: { color: col, width: 1.5, dash: ln.dash ? "dot" : "solid" }, hovertemplate: "%{y:,.4~f}" };
+      if (ln.dots) Object.assign(t, { mode: "markers", marker: { size: 3.5, color: col } });
+      if (out.fill && k === out.fill[1]) Object.assign(t, { fill: "tonexty", fillcolor: withAlpha(col.startsWith("#") ? col : "#898781", 0.08) });
+      traces.push(t);
+    }
+  }
+  if (extra) traces.push(...extra(x));
+  const n = panes.length, paneH = n ? Math.min(0.2, 0.56 / n) : 0, total = paneH * n;
+  const lay = { xaxis: dateAxis({ rangeslider: { visible: false }, ...(rangebreaks ? { rangebreaks: [{ bounds: ["sat", "mon"] }, { values: missingWeekdays(x) }] } : {}) }),
+    yaxis: yaxis({ domain: [total + (n ? 0.03 : 0), 1] }), shapes: [...shapes] };
+  if (candles) {
+    const lows = sl(d.low).filter(ok), highs = sl(d.high).filter(ok);
+    lay.yaxis.range = [Math.min(...lows) * 0.95, Math.max(...highs) * 1.06];
+  }
+  panes.forEach((p, j) => {
+    const ax = `y${j + 2}`, key = `yaxis${j + 2}`, top = total - j * paneH, bottom = top - paneH;
+    lay[key] = yaxis({ domain: [bottom + 0.012, top - 0.006], title: { text: p.id === "volume" ? "Volume" : p.name.split(" ")[0], font: { size: 10 } } });
+    if (p.id === "volume") {
+      const o = sl(d.open || d.close), cl = sl(d.close);
+      traces.push({ type: "bar", x, y: sl(d.volume), yaxis: ax, name: "Volume", showlegend: false, hovertemplate: "%{y:,.0f}",
+        marker: { color: cl.map((v, i) => (v >= o[i] ? c.up : c.down)), opacity: 0.5 } });
+      return;
+    }
+    const out = p.calc(d);
+    if (out.hist) traces.push({ type: "bar", x, y: sl(out.hist), yaxis: ax, name: `${p.name.split(" ")[0]} histogram`, showlegend: false,
+      marker: { color: sl(out.hist).map((v) => (v >= 0 ? withAlpha(c.up, 0.55) : withAlpha(c.down, 0.55))) }, hovertemplate: "%{y:.3f}" });
+    out.lines.forEach((ln) => traces.push({ x, y: sl(ln.values), yaxis: ax, name: ln.name, legendgroup: p.id, line: { color: colorOf(ln.color), width: 1.5 }, hovertemplate: "%{y:.2f}" }));
+    if (out.range) lay[key].range = out.range;
+    (out.levels || []).forEach((lv) => lay.shapes.push({ type: "line", xref: "paper", x0: 0, x1: 1, yref: ax, y0: lv, y1: lv, line: { color: c.axis, width: 1, dash: "dot" } }));
+  });
+  plot(el, traces, layout(height + 95 * Math.max(0, n - 1), lay));
+}
+
 // ====================================================================================================
 // Markets (with the customizable watchlist)
 // ====================================================================================================
@@ -530,6 +605,7 @@ async function viewMarkets(view) {
     </div>
     <div id="w-table"></div>
     <div class="controls"><div class="control"><span class="label">Range</span>${chips("span", [["1Y", "1Y"], ["3Y", "3Y"], ["5Y", "5Y"], ["10Y", "10Y"]], M.span, false)}</div></div>
+    <div class="controls" style="margin-top:0">${indicatorChipsHtml({ time: m.spx.d, close: m.spx.c })}</div>
     <div class="chart-title">S&amp;P 500 with regime stance</div>
     <div class="chart" id="m-spx"></div>
     <h2>Economic indicators (FRED)</h2>
@@ -546,12 +622,7 @@ async function viewMarkets(view) {
       fillcolor: STANCE[stance], opacity: 0.1, layer: "below" }));
     const legend = Object.entries(STANCE).map(([s, col]) => ({ x: [x[x.length - 1]], y: [null], mode: "markers", name: `${s} (shading)`,
       hoverinfo: "skip", marker: { symbol: "square", size: 10, color: col, opacity: 0.4 } }));
-    plot($("#m-spx"), [
-      { x, y: m.spx.c.slice(i0), name: "S&P 500", line: { color: c.ink, width: 1.5 }, hovertemplate: "%{y:,.0f}" },
-      { x, y: m.spx.ma50.slice(i0), name: "50-day MA", line: { color: c.ma50, width: 2 }, hovertemplate: "%{y:,.0f}" },
-      { x, y: m.spx.ma200.slice(i0), name: "200-day MA", line: { color: c.ma200, width: 2 }, hovertemplate: "%{y:,.0f}" },
-      ...legend,
-    ], layout(380, { shapes, xaxis: dateAxis(), yaxis: yaxis({ tickformat: ",.0f" }) }));
+    indicatorChart($("#m-spx"), { time: m.spx.d, close: m.spx.c }, span, { height: 400, extra: () => legend, shapes });
   };
   const drawNews = () => {
     const scope = [...M.scope][0];
@@ -573,6 +644,7 @@ async function viewMarkets(view) {
     store.del("watchlist"); store.del("saved"); watchCache = null; await watchlist(); drawWatchlist();
   });
   bindChips(view, "span", M.span, false, drawSpx);
+  bindIndicatorChips(view, drawSpx);
   bindChips(view, "scope", M.scope, false, drawNews);
   await drawWatchlist();
   drawSpx(); drawNews();
@@ -626,11 +698,9 @@ function bindAssetHeader(view, sym, route) {
     b.classList.toggle("on", on); b.textContent = on ? "★ In watchlist" : "☆ Add to watchlist";
   });
 }
-/** Symbol for the Live page: Binance USDT pairs for coins, Finnhub for US listings. */
-function liveSymbolFor(sym) {
-  if (/-USD$/.test(sym)) return sym.replace(/\d*-USD$/, "").replace(/[^A-Z0-9]/g, "") + "USDT";
-  return usTicker(sym) ? sym : null;
-}
+/** Every symbol has a Live page: TradingView's real-time chart where its free widget carries the
+ * market, Binance for coins, and the nightly daily bars elsewhere (live.js decides). */
+const liveSymbolFor = (sym) => sym;
 
 async function viewStock(view, arg) {
   const meta = await load("meta.json");
@@ -653,8 +723,9 @@ async function viewStockDeep(view, ticker) {
     ${assetHeader(ticker, d.name, `${esc(d.sic || "")}${d.exchange ? " · " + esc(d.exchange) : ""} · deep tier: candlesticks, news and explained moves`, "stock")}
     <div class="controls">
       <div class="control"><span class="label">Range</span>${chips("span", ["3M", "6M", "1Y", "3Y", "All"].map((s) => [s, s]), S.span, false)}</div>
-      <div class="control"><span class="label">Overlays</span>${chips("layers", ["News", "Unusual moves", "Bollinger"].map((s) => [s, s]), S.layers)}</div>
+      <div class="control"><span class="label">Annotations</span>${chips("layers", ["News", "Unusual moves"].map((s) => [s, s]), S.layers)}</div>
     </div>
+    <div class="controls" style="margin-top:0">${indicatorChipsHtml(deepSeries(d))}</div>
     <div class="grid g5">
       ${kpi("Close", num(snap.close, 2), `${signed(chg, 2)} · ${esc(snap.date)}`)}
       ${kpi("50 vs 200-day MA", pct(spread), spread > 0 ? '<span class="pos">golden-cross alignment</span>' : '<span class="neg">death-cross alignment</span>')}
@@ -689,57 +760,37 @@ async function viewStockDeep(view, ticker) {
   const draw = () => drawStockChart(d);
   bindChips(view, "span", S.span, false, draw);
   bindChips(view, "layers", S.layers, true, draw);
+  bindIndicatorChips(view, draw);
   draw();
 }
 
+const deepSeries = (d) => ({ time: d.d, open: d.o, high: d.h, low: d.l, close: d.c, volume: d.v });
 function drawStockChart(d) {
   const c = pal(), span = [...S.span][0];
-  const start = span === "All" ? d.d[0] : startFor(d.d[d.d.length - 1], span);
-  const i0 = Math.max(0, d.d.findIndex((x) => x >= start));
-  const sl = (a) => (a ? a.slice(i0) : []);
-  const x = sl(d.d), hi = sl(d.h), lo = sl(d.l), open = sl(d.o), close = sl(d.c);
-  const inRange = new Set(x), at = new Map(x.map((v, i) => [v, i]));
-  const traces = [
-    { type: "candlestick", x, open, high: hi, low: lo, close, name: "Price", xaxis: "x", yaxis: "y",
-      increasing: { line: { color: c.up, width: 1 }, fillcolor: c.up }, decreasing: { line: { color: c.down, width: 1 }, fillcolor: c.down } },
-    { x, y: sl(d.ma50), name: "50-day MA", line: { color: c.ma50, width: 2 }, hovertemplate: "%{y:.2f}" },
-    { x, y: sl(d.ma200), name: "200-day MA", line: { color: c.ma200, width: 2 }, hovertemplate: "%{y:.2f}" },
-  ];
-  if (S.layers.has("Bollinger") && d.bbu) {
-    traces.push({ x, y: sl(d.bbu), name: "Bollinger (20, 2)", line: { color: c.muted, width: 1 }, hoverinfo: "skip" });
-    traces.push({ x, y: sl(d.bbl), showlegend: false, line: { color: c.muted, width: 1 }, fill: "tonexty", fillcolor: "rgba(137,135,129,0.08)", hoverinfo: "skip" });
-  }
-  if (S.layers.has("News")) {
-    const pts = d.markers.filter((m) => inRange.has(m.d));
-    for (const [label, symbol, color] of [["bullish", "triangle-up", c.up], ["bearish", "triangle-down", c.down], ["neutral", "circle", c.muted]]) {
-      const p = pts.filter((m) => m.tone === label);
-      if (!p.length) continue;
-      traces.push({ x: p.map((m) => m.d), y: p.map((m) => hi[at.get(m.d)] * 1.02), mode: "markers", name: `News: ${label}`,
-        marker: { symbol, size: 11, color, line: { color: c.surface, width: 2 } },
-        customdata: p.map((m) => [m.n, ok(m.score) ? m.score.toFixed(2) : "–", m.titles.map((t) => "• " + esc(t).slice(0, 90)).join("<br>")]),
-        hovertemplate: "%{customdata[0]} headline(s), FinBERT %{customdata[1]}<br>%{customdata[2]}<extra></extra>" });
+  const extra = (x) => {
+    const i0 = d.d.indexOf(x[0]), hi = d.h.slice(i0), lo = d.l.slice(i0);
+    const inRange = new Set(x), at = new Map(x.map((v, i) => [v, i])), out = [];
+    if (S.layers.has("News")) {
+      const pts = d.markers.filter((m) => inRange.has(m.d));
+      for (const [label, symbol, color] of [["bullish", "triangle-up", c.up], ["bearish", "triangle-down", c.down], ["neutral", "circle", c.muted]]) {
+        const p = pts.filter((m) => m.tone === label);
+        if (!p.length) continue;
+        out.push({ x: p.map((m) => m.d), y: p.map((m) => hi[at.get(m.d)] * 1.02), mode: "markers", name: `News: ${label}`,
+          marker: { symbol, size: 11, color, line: { color: c.surface, width: 2 } },
+          customdata: p.map((m) => [m.n, ok(m.score) ? m.score.toFixed(2) : "–", m.titles.map((t) => "• " + esc(t).slice(0, 90)).join("<br>")]),
+          hovertemplate: "%{customdata[0]} headline(s), FinBERT %{customdata[1]}<br>%{customdata[2]}<extra></extra>" });
+      }
     }
-  }
-  if (S.layers.has("Unusual moves")) {
-    const mv = d.moves.filter((m) => inRange.has(m.d));
-    if (mv.length) {
-      traces.push({ x: mv.map((m) => m.d), y: mv.map((m) => (m.ret > 0 ? hi[at.get(m.d)] * 1.045 : lo[at.get(m.d)] * 0.96)),
+    if (S.layers.has("Unusual moves")) {
+      const mv = d.moves.filter((m) => inRange.has(m.d));
+      if (mv.length) out.push({ x: mv.map((m) => m.d), y: mv.map((m) => (m.ret > 0 ? hi[at.get(m.d)] * 1.045 : lo[at.get(m.d)] * 0.96)),
         mode: "markers", name: "Unusual move", marker: { symbol: "star", size: 14, color: c.ink, line: { color: c.surface, width: 2 } },
         customdata: mv.map((m) => (m.why || "").replace(/(.{1,70})(\s|$)/g, "$1<br>")), hovertemplate: "%{customdata}<extra></extra>" });
     }
-  }
-  traces.push({ type: "bar", x, y: sl(d.v), name: "Volume", yaxis: "y2", showlegend: false, hovertemplate: "%{y:,.0f}",
-    marker: { color: close.map((v, i) => (v >= open[i] ? c.up : c.down)), opacity: 0.5 } });
-  traces.push({ x, y: sl(d.rsi), name: "RSI (14)", yaxis: "y3", showlegend: false, line: { color: c.ink2, width: 1.5 }, hovertemplate: "%{y:.0f}" });
-  const lows = lo.filter(ok), highs = hi.filter(ok);
+    return out;
+  };
   $("#s-title").textContent = `${d.ticker} · ${span} daily`;
-  plot($("#s-chart"), traces, layout(640, {
-    xaxis: dateAxis({ rangeslider: { visible: false }, rangebreaks: [{ bounds: ["sat", "mon"] }, { values: missingWeekdays(x) }] }),
-    yaxis: yaxis({ domain: [0.37, 1], range: [Math.min(...lows) * 0.95, Math.max(...highs) * 1.06] }),
-    yaxis2: yaxis({ domain: [0.24, 0.35], title: { text: "Volume", font: { size: 11 } } }),
-    yaxis3: yaxis({ domain: [0, 0.21], range: [0, 100], tickvals: [30, 70], title: { text: "RSI", font: { size: 11 } } }),
-    shapes: [30, 70].map((y) => ({ type: "line", xref: "paper", x0: 0, x1: 1, yref: "y3", y0: y, y1: y, line: { color: c.axis, width: 1 } })),
-  }));
+  indicatorChart($("#s-chart"), deepSeries(d), span, { candles: true, height: 560, extra, rangebreaks: true });
 }
 
 const U = { span: new Set(["1Y"]), bollinger: new Set() };
@@ -756,8 +807,8 @@ async function viewStockUniverse(view, sym, row) {
     ${assetHeader(sym, row.n, sub, "stock")}
     <div class="controls">
       <div class="control"><span class="label">Range</span>${chips("uspan", ["3M", "6M", "1Y", "All"].map((s) => [s, s]), U.span, false)}</div>
-      <div class="control"><span class="label">Overlays</span>${chips("ubb", [["bb", "Bollinger"]], U.bollinger)}</div>
     </div>
+    <div class="controls" style="margin-top:0">${indicatorChipsHtml(px ? { time: px.dates, close: px.values } : { close: [] })}</div>
     <div class="grid g5">
       ${kpi("Last close", num(last, last >= 1000 ? 0 : 2), `${signed(chg, 2)}${px ? " · " + esc(px.dates[n - 1]) : ""}`)}
       ${kpi("50 vs 200-day MA", pct(spread), spread == null ? "" : spread > 0 ? '<span class="pos">golden-cross alignment</span>' : '<span class="neg">death-cross alignment</span>')}
@@ -782,9 +833,9 @@ async function viewStockUniverse(view, sym, row) {
       <p class="caption">${await isDeep(sym) ? "" : "Candlesticks, news and explained unusual moves are kept for the deep-tier names; add this one to the deep tier from the local dashboard to get them."}</p></div>
     </div>`;
   bindAssetHeader(view, sym, "stock");
-  const draw = () => { if (px) priceChart($("#u-chart"), px, [...U.span][0], { height: 460, bollinger: U.bollinger.has("bb"), rsiPanel: true }); };
+  const draw = () => { if (px) indicatorChart($("#u-chart"), { time: px.dates, close: px.values }, [...U.span][0], { height: 460 }); };
   bindChips(view, "uspan", U.span, false, draw);
-  bindChips(view, "ubb", U.bollinger, true, draw);
+  bindIndicatorChips(view, draw);
   draw();
 }
 
