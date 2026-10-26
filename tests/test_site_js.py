@@ -277,3 +277,79 @@ def test_indicator_catalogue_runs_on_partial_data(tmp_path):
     assert set(by_id) >= {"sma", "ema", "bb", "vwap", "ichimoku", "supertrend", "psar", "rsi", "macd", "stochrsi", "stoch", "atr", "adx", "obv"}
     assert all(x["tv"] >= 1 and x["full"] and all(n > 0 for n in x["full"]) for x in js)
     assert {i for i, x in by_id.items() if x["closeOnly"]} == {"sma", "ema", "bb", "rsi", "macd", "stochrsi"}
+
+
+# --- Pro chart studies ---------------------------------------------------------------------------
+
+def test_pro_chart_studies_match_references(tmp_path):
+    import ta
+
+    df = _ohlcv(450, seed=21)
+    times = (pd.Timestamp("2025-01-01").value // 10**9 + np.arange(len(df)) * 86400).tolist()
+    data = {k: df[k].tolist() for k in df} | {"time": times}
+    js = run_js(tmp_path, """
+        const d = data, kc = Q.keltner(d.high, d.low, d.close, 20, 2, 10), dc = Q.donchian(d.high, d.low, 20);
+        const piv = Q.pivots(d.high, d.low, d.close, (i) => Math.floor(i / 5)), rg = Q.rangeByTime(d.high, d.low, d.time, 30 * 86400);
+        return { wma: Q.wma(d.close, 9), hma: Q.hma(d.close, 16), vwma: Q.vwma(d.close, d.volume, 20), kcu: kc.upper, kcl: kc.lower,
+          dcu: dc.upper, dcl: dc.lower, willr: Q.willr(d.high, d.low, d.close, 14), cci: Q.cci(Q.source(d, "hlc3"), 20),
+          roc: Q.roc(d.close, 9), mfi: Q.mfi(d.high, d.low, d.close, d.volume, 14), P: piv.P, R1: piv.R1, S3: piv.S3,
+          hi30: rg.high, lo30: rg.low, avwap: Q.anchoredVwap(d.high, d.low, d.close, d.volume, 100) };""", data)
+    high, low, close, vol = df.high, df.low, df.close, df.volume
+
+    def wma(x, n):
+        w = np.arange(1, n + 1)
+        return x.rolling(n).apply(lambda a: np.dot(a, w) / w.sum(), raw=True)
+
+    assert _js_series(js["wma"])[8:] == pytest.approx(ta.trend.WMAIndicator(close, 9).wma().tolist()[8:], rel=1e-9)
+    hma = wma(2 * wma(close, 8) - wma(close, 16), 4)
+    assert _js_series(js["hma"])[20:] == pytest.approx(hma.tolist()[20:], rel=1e-9)
+    vwma = (close * vol).rolling(20).mean() / vol.rolling(20).mean()
+    assert _js_series(js["vwma"])[19:] == pytest.approx(vwma.tolist()[19:], rel=1e-12)
+    kc = ta.volatility.KeltnerChannel(high, low, close, window=20, window_atr=10, original_version=False, multiplier=2)
+    assert _js_series(js["kcu"])[30:] == pytest.approx(kc.keltner_channel_hband().tolist()[30:], rel=1e-9)
+    assert _js_series(js["kcl"])[30:] == pytest.approx(kc.keltner_channel_lband().tolist()[30:], rel=1e-9)
+    dc = ta.volatility.DonchianChannel(high, low, close, window=20)
+    assert _js_series(js["dcu"])[19:] == pytest.approx(dc.donchian_channel_hband().tolist()[19:], rel=1e-12)
+    assert _js_series(js["dcl"])[19:] == pytest.approx(dc.donchian_channel_lband().tolist()[19:], rel=1e-12)
+    assert _js_series(js["willr"])[13:] == pytest.approx(ta.momentum.WilliamsRIndicator(high, low, close, 14).williams_r().tolist()[13:], rel=1e-9)
+    assert _js_series(js["cci"])[19:] == pytest.approx(ta.trend.CCIIndicator(high, low, close, 20, 0.015).cci().tolist()[19:], rel=1e-9)
+    assert _js_series(js["roc"])[9:] == pytest.approx(ta.momentum.ROCIndicator(close, 9).roc().tolist()[9:], rel=1e-9)
+    assert _js_series(js["mfi"])[14:] == pytest.approx(ta.volume.MFIIndicator(high, low, close, vol, 14).money_flow_index().tolist()[14:], rel=1e-6)
+
+    # Pivots from the previous 5-bar period; 30-day calendar range; VWAP anchored at bar 100.
+    grp = pd.Series(np.arange(len(df)) // 5)
+    agg = pd.DataFrame({"h": high.groupby(grp).max(), "l": low.groupby(grp).min(), "c": close.groupby(grp).last()})
+    pp = ((agg.h + agg.l + agg.c) / 3).shift(1).reindex(grp).to_numpy()
+    assert _js_series(js["P"])[5:] == pytest.approx(pp[5:].tolist(), rel=1e-12)
+    prev = agg.shift(1).reindex(grp).reset_index(drop=True)
+    assert _js_series(js["R1"])[5:] == pytest.approx((2 * pp - prev.l).tolist()[5:], rel=1e-12)
+    assert _js_series(js["S3"])[5:] == pytest.approx((prev.l - 2 * (prev.h - pp)).tolist()[5:], rel=1e-12)
+    assert js["hi30"] == pytest.approx(high.rolling(31, min_periods=1).max().tolist(), rel=1e-12)
+    assert js["lo30"] == pytest.approx(low.rolling(31, min_periods=1).min().tolist(), rel=1e-12)
+    tp = (high + low + close) / 3
+    av = ((tp * vol).iloc[100:].cumsum() / vol.iloc[100:].cumsum()).tolist()
+    assert _js_series(js["avwap"])[100:] == pytest.approx(av, rel=1e-12)
+
+
+def test_every_study_and_playbook_runs(tmp_path):
+    df = _ohlcv(400, seed=4)
+    times = (pd.Timestamp("2025-01-01").value // 10**9 + np.arange(len(df)) * 3600).tolist()
+    data = {k: df[k].tolist() for k in df} | {"time": times}
+    js = run_js(tmp_path, """
+        const d = Object.assign({}, data, { intraday: true, session: (i) => Math.floor(i / 24), bench: data.close.map((c) => c * 0.9) });
+        const defaults = (st) => Object.fromEntries(st.params.map((p) => [p.key, p.def]));
+        const studies = Q.STUDIES.map((st) => { const out = st.calc(d, defaults(st));
+          return { id: st.id, kind: st.kind, fits: Q.studyFits(st, d), label: st.label(defaults(st)),
+            lines: out.lines.map((l) => [l.name, l.values.length, l.values.filter((v) => v !== null && Number.isFinite(v)).length]) }; });
+        const ids = new Set(Q.STUDIES.map((x) => x.id));
+        const books = Q.PLAYBOOKS.map((b) => ({ id: b.id, interval: b.interval, bad: b.studies.filter((x) => !ids.has(x.id)
+          || Object.keys(x.params).some((k) => !Q.STUDIES.find((st) => st.id === x.id).params.some((p) => p.key === k))).map((x) => x.id) }));
+        return { studies, books };""", data)
+    assert len(js["studies"]) >= 24
+    for st in js["studies"]:
+        assert st["fits"], st["id"]
+        for name, n, finite in st["lines"]:
+            assert n == 400 and finite > 50, (st["id"], name, finite)
+    assert len(js["books"]) >= 12
+    assert all(not b["bad"] for b in js["books"]), [b for b in js["books"] if b["bad"]]
+    assert {b["interval"] for b in js["books"]} <= {"1m", "5m", "15m", "1h", "1d", "1w"}

@@ -323,6 +323,330 @@
     { id: "obv", name: "OBV", kind: "pane", needs: "cv", tv: ["STD;On_Balance_Volume"],
       calc: (d) => ({ lines: [{ name: "OBV", values: obv(d.close, d.volume), color: "s0" }] }) },
   ];
+  // ------------------------------------------------------------------------------------------
+  // More TradingView built-ins for the Pro chart (parametric studies below).
+  // ------------------------------------------------------------------------------------------
+  /** ta.wma: linearly weighted, the newest bar weighs n. */
+  function wma(values, n) {
+    const out = new Array(values.length).fill(null), den = (n * (n + 1)) / 2;
+    for (let i = n - 1; i < values.length; i++) {
+      let s = 0, okw = true;
+      for (let k = 0; k < n; k++) { const v = values[i - k]; if (!isNum(v)) { okw = false; break; } s += v * (n - k); }
+      if (okw) out[i] = s / den;
+    }
+    return out;
+  }
+  /** ta.hma: wma(2 * wma(src, n/2) - wma(src, n), floor(sqrt(n))). */
+  function hma(values, n) {
+    const half = wma(values, Math.max(1, Math.floor(n / 2))), full = wma(values, n);
+    return wma(half.map((h, i) => (h === null || full[i] === null ? null : 2 * h - full[i])), Math.max(1, Math.floor(Math.sqrt(n))));
+  }
+  /** ta.vwma: sma(src * volume) / sma(volume). */
+  function vwma(values, volume, n) {
+    const pv = sma(values.map((v, i) => v * (volume[i] || 0)), n), vv = sma(volume.map((x) => x || 0), n);
+    return pv.map((x, i) => (x === null || !vv[i] ? null : x / vv[i]));
+  }
+  function maOf(type, values, n, volume) {
+    if (type === "EMA") return ema(values, n);
+    if (type === "WMA") return wma(values, n);
+    if (type === "HMA") return hma(values, n);
+    if (type === "VWMA" && volume) return vwma(values, volume, n);
+    if (type === "RMA") return rma(values, n);
+    return sma(values, n);
+  }
+  /** Price source by name, as in TradingView's "Source" input. */
+  function source(d, s = "close") {
+    if (s === "hl2") return d.high.map((h, i) => (h + d.low[i]) / 2);
+    if (s === "hlc3") return d.high.map((h, i) => (h + d.low[i] + d.close[i]) / 3);
+    if (s === "ohlc4") return d.high.map((h, i) => (d.open[i] + h + d.low[i] + d.close[i]) / 4);
+    return d[s] || d.close;
+  }
+  /** Keltner Channels (TradingView defaults: EMA 20, ATR 10, multiplier 2). */
+  function keltner(h, l, c, length = 20, mult = 2, atrLength = 10) {
+    const basis = ema(c, length), range = atr(h, l, c, atrLength);
+    return { basis, upper: basis.map((b, i) => (b === null || range[i] === null ? null : b + mult * range[i])),
+      lower: basis.map((b, i) => (b === null || range[i] === null ? null : b - mult * range[i])) };
+  }
+  function donchian(h, l, length = 20) {
+    const upper = highest(h, length), lower = lowest(l, length);
+    return { upper, lower, basis: upper.map((u, i) => (u === null || lower[i] === null ? null : (u + lower[i]) / 2)) };
+  }
+  /** Williams %R: -100..0. */
+  function willr(h, l, c, length = 14) {
+    const hh = highest(h, length), ll = lowest(l, length);
+    return c.map((v, i) => (hh[i] === null || ll[i] === null || hh[i] === ll[i] ? null : (100 * (v - hh[i])) / (hh[i] - ll[i])));
+  }
+  /** Commodity Channel Index: (src - sma) / (0.015 * mean deviation). */
+  function cci(src, length = 20) {
+    const m = sma(src, length);
+    return src.map((v, i) => {
+      if (m[i] === null) return null;
+      let dev = 0;
+      for (let k = 0; k < length; k++) dev += Math.abs(src[i - k] - m[i]);
+      dev /= length;
+      return dev === 0 ? 0 : (v - m[i]) / (0.015 * dev);
+    });
+  }
+  function roc(src, length = 9) {
+    return src.map((v, i) => (i < length || !src[i - length] ? null : (100 * (v - src[i - length])) / src[i - length]));
+  }
+  /** Money Flow Index on hlc3 (TradingView's ta.mfi). */
+  function mfi(h, l, c, v, length = 14) {
+    const tp = h.map((x, i) => (x + l[i] + c[i]) / 3), out = new Array(c.length).fill(null);
+    for (let i = length; i < c.length; i++) {
+      let up = 0, down = 0;
+      for (let k = i - length + 1; k <= i; k++) {
+        const ch = tp[k] - tp[k - 1], flow = tp[k] * (v[k] || 0);
+        if (ch > 0) up += flow; else if (ch < 0) down += flow;
+      }
+      out[i] = down === 0 ? 100 : 100 - 100 / (1 + up / down);
+    }
+    return out;
+  }
+  /** Highest high / lowest low over a calendar window (e.g. 52 weeks), whatever the bar size. */
+  function rangeByTime(h, l, t, seconds) {
+    const hi = new Array(t.length).fill(null), lo = new Array(t.length).fill(null);
+    let start = 0;
+    for (let i = 0; i < t.length; i++) {
+      while (t[i] - t[start] > seconds) start++;
+      let mx = -Infinity, mn = Infinity;
+      for (let k = start; k <= i; k++) { if (h[k] > mx) mx = h[k]; if (l[k] < mn) mn = l[k]; }
+      hi[i] = mx; lo[i] = mn;
+    }
+    return { high: hi, low: lo };
+  }
+  /** Classic floor-trader pivots from the previous period's high, low and close. */
+  function pivots(h, l, c, periodKey) {
+    const keys = h.map((_, i) => periodKey(i)), out = { P: [], R1: [], S1: [], R2: [], S2: [], R3: [], S3: [] };
+    let prev = null, cur = null;
+    for (let i = 0; i < h.length; i++) {
+      if (!cur || keys[i] !== cur.key) { if (cur) prev = cur; cur = { key: keys[i], h: h[i], l: l[i], c: c[i] }; }
+      else { cur.h = Math.max(cur.h, h[i]); cur.l = Math.min(cur.l, l[i]); cur.c = c[i]; }
+      if (!prev) { Object.keys(out).forEach((k) => out[k].push(null)); continue; }
+      const P = (prev.h + prev.l + prev.c) / 3, r = prev.h - prev.l;
+      out.P.push(P); out.R1.push(2 * P - prev.l); out.S1.push(2 * P - prev.h); out.R2.push(P + r); out.S2.push(P - r);
+      out.R3.push(prev.h + 2 * (P - prev.l)); out.S3.push(prev.l - 2 * (prev.h - P));
+    }
+    return out;
+  }
+  /** VWAP anchored at bar index `from` (hlc3 weighted by volume). */
+  function anchoredVwap(h, l, c, v, from) {
+    let pv = 0, vol = 0;
+    return c.map((x, i) => {
+      if (i < from) return null;
+      const tp = (h[i] + l[i] + x) / 3;
+      pv += tp * (v[i] || 0); vol += v[i] || 0;
+      return vol ? pv / vol : tp;
+    });
+  }
+
+  /**
+   * Parametric studies for the Pro chart, modelled on TradingView's built-ins and their default
+   * inputs. Each: id, name, group, kind (overlay | pane | volume), needs (c / hlc / hlcv / cv /
+   * b = benchmark), params [{key, label, type: int|float|select|date, def, min, max, options}],
+   * label(p) for the legend, calc(d, p) -> {lines: [{name, values, color, dash?, dots?, width?}],
+   * hist?, levels?, range?, fill?: [lineIndexA, lineIndexB], segments?}. d holds aligned arrays
+   * time (UTC seconds), open, high, low, close, volume, plus intraday, session(i), bench?.
+   */
+  const SRC = ["close", "open", "high", "low", "hl2", "hlc3", "ohlc4"];
+  const MA_TYPES = ["SMA", "EMA", "WMA", "HMA", "VWMA", "RMA"];
+  const P = {
+    len: (def, label = "Length") => ({ key: "length", label, type: "int", def, min: 1, max: 1000 }),
+    src: (def = "close") => ({ key: "source", label: "Source", type: "select", options: SRC, def }),
+    mult: (def, label = "Multiplier") => ({ key: "mult", label, type: "float", def, min: 0.1, max: 10, step: 0.1 }),
+  };
+  const STUDIES = [
+    // --- trend ---
+    { id: "ma", name: "Moving Average", group: "Trend", kind: "overlay", needs: "c",
+      params: [{ key: "type", label: "Type", type: "select", options: MA_TYPES, def: "EMA" }, P.len(20), P.src()],
+      label: (p) => `${p.type} ${p.length}`,
+      calc: (d, p) => ({ lines: [{ name: `${p.type} ${p.length}`, values: maOf(p.type, source(d, p.source), p.length, d.volume), color: "s0" }] }) },
+    { id: "bb", name: "Bollinger Bands", group: "Volatility", kind: "overlay", needs: "c", params: [P.len(20), P.mult(2, "StdDev"), P.src()],
+      label: (p) => `BB ${p.length} ${p.mult}`,
+      calc: (d, p) => { const b = bollingerK(source(d, p.source), p.length, p.mult);
+        return { lines: [{ name: "Upper", values: b.upper, color: "s0" }, { name: "Basis", values: b.mid, color: "s1" }, { name: "Lower", values: b.lower, color: "s0" }], fill: [0, 2] }; } },
+    { id: "keltner", name: "Keltner Channels", group: "Volatility", kind: "overlay", needs: "hlc", params: [P.len(20), P.mult(2), { key: "atr", label: "ATR length", type: "int", def: 10, min: 1, max: 500 }],
+      label: (p) => `KC ${p.length} ${p.mult}`,
+      calc: (d, p) => { const k = keltner(d.high, d.low, d.close, p.length, p.mult, p.atr);
+        return { lines: [{ name: "Upper", values: k.upper, color: "s0" }, { name: "Basis", values: k.basis, color: "s1" }, { name: "Lower", values: k.lower, color: "s0" }], fill: [0, 2] }; } },
+    { id: "donchian", name: "Donchian Channels", group: "Trend", kind: "overlay", needs: "hlc", params: [P.len(20)],
+      label: (p) => `DC ${p.length}`,
+      calc: (d, p) => { const k = donchian(d.high, d.low, p.length);
+        return { lines: [{ name: "Upper", values: k.upper, color: "s0" }, { name: "Basis", values: k.basis, color: "s3", dash: true }, { name: "Lower", values: k.lower, color: "s0" }], fill: [0, 2] }; } },
+    { id: "vwap", name: "VWAP (session)", group: "Volume", kind: "overlay", needs: "hlcv", intraday: true, params: [],
+      label: () => "VWAP",
+      calc: (d) => ({ lines: [{ name: "VWAP", values: vwap(d.high, d.low, d.close, d.volume, (i) => d.session(i)), color: "s4", width: 2 }] }) },
+    { id: "avwap", name: "Anchored VWAP", group: "Volume", kind: "overlay", needs: "hlcv",
+      params: [{ key: "anchor", label: "Anchor date (YYYY-MM-DD, blank = start of year)", type: "date", def: "" }],
+      label: (p) => `AVWAP ${p.anchor || "YTD"}`,
+      calc: (d, p) => {
+        const iso = (t) => new Date(t * 1000).toISOString().slice(0, 10);
+        const anchor = p.anchor || `${iso(d.time[d.time.length - 1]).slice(0, 4)}-01-01`;
+        const from = Math.max(0, d.time.findIndex((t) => iso(t) >= anchor));
+        return { lines: [{ name: `AVWAP ${anchor}`, values: anchoredVwap(d.high, d.low, d.close, d.volume, from), color: "s6", width: 2 }] };
+      } },
+    { id: "ichimoku", name: "Ichimoku Cloud", group: "Trend", kind: "overlay", needs: "hlc",
+      params: [{ key: "conv", label: "Conversion", type: "int", def: 9, min: 1, max: 200 }, { key: "base", label: "Base", type: "int", def: 26, min: 1, max: 200 },
+        { key: "spanB", label: "Leading span B", type: "int", def: 52, min: 1, max: 400 }, { key: "disp", label: "Displacement", type: "int", def: 26, min: 1, max: 200 }],
+      label: (p) => `Ichimoku ${p.conv} ${p.base} ${p.spanB} ${p.disp}`,
+      calc: (d, p) => { const k = ichimoku(d.high, d.low, d.close, p.conv, p.base, p.spanB, p.disp);
+        return { lines: [{ name: "Span A", values: k.spanA, color: "s2" }, { name: "Span B", values: k.spanB, color: "s7" },
+          { name: "Conversion", values: k.conversion, color: "s0" }, { name: "Base", values: k.base, color: "s1" }, { name: "Lagging", values: k.lagging, color: "muted" }], fill: [0, 1] }; } },
+    { id: "supertrend", name: "Supertrend", group: "Trend", kind: "overlay", needs: "hlc", params: [{ key: "atr", label: "ATR length", type: "int", def: 10, min: 1, max: 500 }, P.mult(3, "Factor")],
+      label: (p) => `Supertrend ${p.atr} ${p.mult}`,
+      calc: (d, p) => { const s = supertrend(d.high, d.low, d.close, p.atr, p.mult);
+        return { lines: [{ name: "Up trend", values: s.line.map((v, i) => (s.dir[i] === -1 ? v : null)), color: "good" }, { name: "Down trend", values: s.line.map((v, i) => (s.dir[i] === 1 ? v : null)), color: "bad" }],
+          segments: { name: "Supertrend", values: s.line, up: s.dir.map((x) => x === -1) } }; } },
+    { id: "psar", name: "Parabolic SAR", group: "Trend", kind: "overlay", needs: "hlc",
+      params: [{ key: "start", label: "Start", type: "float", def: 0.02, min: 0.001, max: 1, step: 0.01 }, { key: "inc", label: "Increment", type: "float", def: 0.02, min: 0.001, max: 1, step: 0.01 },
+        { key: "max", label: "Max", type: "float", def: 0.2, min: 0.01, max: 1, step: 0.01 }],
+      label: (p) => `SAR ${p.start} ${p.inc} ${p.max}`,
+      calc: (d, p) => ({ lines: [{ name: "SAR", values: psar(d.high, d.low, d.close, p.start, p.inc, p.max), color: "s0", dots: true }] }) },
+    { id: "pivots", name: "Pivot Points (classic)", group: "Trend", kind: "overlay", needs: "hlc",
+      params: [{ key: "period", label: "Period", type: "select", options: ["Auto", "Day", "Week", "Month"], def: "Auto" }],
+      label: (p) => `Pivots ${p.period}`,
+      calc: (d, p) => {
+        const per = p.period === "Auto" ? (d.intraday ? "Day" : "Month") : p.period;
+        const key = (i) => { const s = new Date(d.time[i] * 1000).toISOString(); if (per === "Day") return s.slice(0, 10); if (per === "Month") return s.slice(0, 7);
+          const t = new Date(d.time[i] * 1000); t.setUTCDate(t.getUTCDate() - ((t.getUTCDay() + 6) % 7)); return t.toISOString().slice(0, 10); };
+        const k = pivots(d.high, d.low, d.close, key);
+        return { lines: [["R3", "bad"], ["R2", "bad"], ["R1", "bad"], ["P", "s3"], ["S1", "good"], ["S2", "good"], ["S3", "good"]].map(([n, col]) => ({ name: n, values: k[n], color: col, dash: n !== "P", width: 1 })), step: true };
+      } },
+    { id: "hilo", name: "52-Week High/Low", group: "Trend", kind: "overlay", needs: "hlc", params: [{ key: "weeks", label: "Weeks", type: "int", def: 52, min: 1, max: 260 }],
+      label: (p) => `${p.weeks}W high/low`,
+      calc: (d, p) => { const r = rangeByTime(d.high, d.low, d.time, p.weeks * 7 * 86400);
+        return { lines: [{ name: `${p.weeks}W high`, values: r.high, color: "good", dash: true, width: 1 }, { name: `${p.weeks}W low`, values: r.low, color: "bad", dash: true, width: 1 }] }; } },
+    // --- momentum ---
+    { id: "rsi", name: "Relative Strength Index", group: "Momentum", kind: "pane", needs: "c",
+      params: [P.len(14), P.src(), { key: "ma", label: "Smoothing MA (0 = off)", type: "int", def: 0, min: 0, max: 500 },
+        { key: "ob", label: "Overbought", type: "float", def: 70, min: 50, max: 100 }, { key: "os", label: "Oversold", type: "float", def: 30, min: 0, max: 50 }],
+      label: (p) => `RSI ${p.length}`,
+      calc: (d, p) => { const r = rsi(source(d, p.source), p.length);
+        return { lines: [{ name: `RSI ${p.length}`, values: r, color: "s6" }, ...(p.ma ? [{ name: `MA ${p.ma}`, values: sma(r, p.ma), color: "s3" }] : [])], levels: [p.os, 50, p.ob], range: [0, 100] }; } },
+    { id: "macd", name: "MACD", group: "Momentum", kind: "pane", needs: "c",
+      params: [{ key: "fast", label: "Fast", type: "int", def: 12, min: 1, max: 500 }, { key: "slow", label: "Slow", type: "int", def: 26, min: 1, max: 500 },
+        { key: "signal", label: "Signal", type: "int", def: 9, min: 1, max: 500 }, P.src()],
+      label: (p) => `MACD ${p.fast} ${p.slow} ${p.signal}`,
+      calc: (d, p) => { const m = macd(source(d, p.source), p.fast, p.slow, p.signal);
+        return { lines: [{ name: "MACD", values: m.macd, color: "s0" }, { name: "Signal", values: m.signal, color: "s1" }], hist: m.hist, levels: [0] }; } },
+    { id: "stoch", name: "Stochastic", group: "Momentum", kind: "pane", needs: "hlc",
+      params: [{ key: "k", label: "%K length", type: "int", def: 14, min: 1, max: 500 }, { key: "smoothK", label: "%K smoothing", type: "int", def: 3, min: 1, max: 100 }, { key: "d", label: "%D smoothing", type: "int", def: 3, min: 1, max: 100 }],
+      label: (p) => `Stoch ${p.k} ${p.smoothK} ${p.d}`,
+      calc: (d, p) => { const s = stochastic(d.high, d.low, d.close, p.k, p.smoothK, p.d);
+        return { lines: [{ name: "%K", values: s.k, color: "s0" }, { name: "%D", values: s.d, color: "s1" }], levels: [20, 80], range: [0, 100] }; } },
+    { id: "stochrsi", name: "Stochastic RSI", group: "Momentum", kind: "pane", needs: "c",
+      params: [{ key: "smoothK", label: "K", type: "int", def: 3, min: 1, max: 100 }, { key: "smoothD", label: "D", type: "int", def: 3, min: 1, max: 100 },
+        { key: "rsiLen", label: "RSI length", type: "int", def: 14, min: 1, max: 500 }, { key: "stochLen", label: "Stochastic length", type: "int", def: 14, min: 1, max: 500 }],
+      label: (p) => `Stoch RSI ${p.smoothK} ${p.smoothD} ${p.rsiLen} ${p.stochLen}`,
+      calc: (d, p) => { const s = stochRsi(d.close, p.rsiLen, p.stochLen, p.smoothK, p.smoothD);
+        return { lines: [{ name: "K", values: s.k, color: "s0" }, { name: "D", values: s.d, color: "s1" }], levels: [20, 80], range: [0, 100] }; } },
+    { id: "willr", name: "Williams %R", group: "Momentum", kind: "pane", needs: "hlc", params: [P.len(14)],
+      label: (p) => `%R ${p.length}`,
+      calc: (d, p) => ({ lines: [{ name: `%R ${p.length}`, values: willr(d.high, d.low, d.close, p.length), color: "s6" }], levels: [-80, -50, -20], range: [-100, 0] }) },
+    { id: "cci", name: "Commodity Channel Index", group: "Momentum", kind: "pane", needs: "hlc", params: [P.len(20), P.src("hlc3")],
+      label: (p) => `CCI ${p.length}`,
+      calc: (d, p) => ({ lines: [{ name: `CCI ${p.length}`, values: cci(source(d, p.source), p.length), color: "s0" }], levels: [-100, 0, 100] }) },
+    { id: "roc", name: "Rate of Change", group: "Momentum", kind: "pane", needs: "c", params: [P.len(9), P.src()],
+      label: (p) => `ROC ${p.length}`,
+      calc: (d, p) => ({ lines: [{ name: `ROC ${p.length}`, values: roc(source(d, p.source), p.length), color: "s0" }], levels: [0] }) },
+    { id: "mfi", name: "Money Flow Index", group: "Volume", kind: "pane", needs: "hlcv", params: [P.len(14)],
+      label: (p) => `MFI ${p.length}`,
+      calc: (d, p) => ({ lines: [{ name: `MFI ${p.length}`, values: mfi(d.high, d.low, d.close, d.volume, p.length), color: "s6" }], levels: [20, 80], range: [0, 100] }) },
+    { id: "rs", name: "Relative Strength vs benchmark", group: "Momentum", kind: "pane", needs: "cb",
+      params: [{ key: "mode", label: "Mode", type: "select", options: ["RS line", "Mansfield"], def: "RS line" }, { key: "length", label: "Mansfield MA (bars)", type: "int", def: 52, min: 2, max: 500 }],
+      label: (p) => (p.mode === "Mansfield" ? `Mansfield RS ${p.length}` : "RS line"),
+      calc: (d, p) => {
+        const ratio = d.close.map((c, i) => (isNum(d.bench[i]) && d.bench[i] ? c / d.bench[i] : null));
+        if (p.mode === "Mansfield") { const m = sma(ratio, p.length); return { lines: [{ name: "Mansfield RS", values: ratio.map((r, i) => (r === null || m[i] === null ? null : 100 * (r / m[i] - 1))), color: "s0" }], levels: [0] }; }
+        const first = ratio.find((x) => x !== null);
+        return { lines: [{ name: "RS line", values: ratio.map((r) => (r === null ? null : (100 * r) / first)), color: "s0" }] };
+      } },
+    // --- volatility / trend strength ---
+    { id: "atr", name: "Average True Range", group: "Volatility", kind: "pane", needs: "hlc", params: [P.len(14)],
+      label: (p) => `ATR ${p.length}`,
+      calc: (d, p) => ({ lines: [{ name: `ATR ${p.length}`, values: atr(d.high, d.low, d.close, p.length), color: "s7" }] }) },
+    { id: "adx", name: "ADX / DMI", group: "Trend", kind: "pane", needs: "hlc",
+      params: [{ key: "di", label: "DI length", type: "int", def: 14, min: 1, max: 500 }, { key: "adx", label: "ADX smoothing", type: "int", def: 14, min: 1, max: 500 }],
+      label: (p) => `DMI ${p.di} ${p.adx}`,
+      calc: (d, p) => { const m = dmi(d.high, d.low, d.close, p.di, p.adx);
+        return { lines: [{ name: "ADX", values: m.adx, color: "ink2", width: 2 }, { name: "+DI", values: m.plus, color: "good" }, { name: "−DI", values: m.minus, color: "bad" }], levels: [20, 25] }; } },
+    { id: "bbpct", name: "Bollinger %B", group: "Volatility", kind: "pane", needs: "c", params: [P.len(20), P.mult(2, "StdDev")],
+      label: (p) => `%B ${p.length} ${p.mult}`,
+      calc: (d, p) => { const b = bollingerK(d.close, p.length, p.mult);
+        return { lines: [{ name: "%B", values: d.close.map((c, i) => (b.upper[i] === null || b.upper[i] === b.lower[i] ? null : (c - b.lower[i]) / (b.upper[i] - b.lower[i]))), color: "s0" }], levels: [0, 1] }; } },
+    { id: "bbw", name: "Bollinger BandWidth", group: "Volatility", kind: "pane", needs: "c", params: [P.len(20), P.mult(2, "StdDev")],
+      label: (p) => `BBW ${p.length} ${p.mult}`,
+      calc: (d, p) => { const b = bollingerK(d.close, p.length, p.mult);
+        return { lines: [{ name: "BandWidth", values: b.mid.map((m, i) => (m === null ? null : (100 * (b.upper[i] - b.lower[i])) / m)), color: "s0" }] }; } },
+    // --- volume ---
+    { id: "volume", name: "Volume", group: "Volume", kind: "volume", needs: "cv", params: [{ key: "ma", label: "Volume MA (0 = off)", type: "int", def: 20, min: 0, max: 500 }],
+      label: (p) => `Vol${p.ma ? ` · MA ${p.ma}` : ""}`,
+      calc: (d, p) => ({ lines: p.ma ? [{ name: `Vol MA ${p.ma}`, values: sma(d.volume, p.ma), color: "s1", width: 1 }] : [], volume: true }) },
+    { id: "obv", name: "On-Balance Volume", group: "Volume", kind: "pane", needs: "cv", params: [{ key: "ma", label: "Smoothing MA (0 = off)", type: "int", def: 0, min: 0, max: 500 }],
+      label: () => "OBV",
+      calc: (d, p) => { const o = obv(d.close, d.volume); return { lines: [{ name: "OBV", values: o, color: "s0" }, ...(p.ma ? [{ name: `MA ${p.ma}`, values: sma(o, p.ma), color: "s1" }] : [])] }; } },
+  ];
+  function bollingerK(values, n, k) {
+    const mid = sma(values, n), sd = rollingStd(values, n, 0);
+    return { mid, upper: mid.map((m, i) => (m === null ? null : m + k * sd[i])), lower: mid.map((m, i) => (m === null ? null : m - k * sd[i])) };
+  }
+  const studyFits = (s, d) => [...s.needs].every((k) => ({ h: !!d.high, l: !!d.low, c: !!d.close, v: !!d.volume, b: !!d.bench }[k]))
+    && (!s.intraday || d.intraday);
+
+  /**
+   * Indicator playbooks of well-known traders and investors: the studies each is known for
+   * (from their books and interviews), with their published settings. Fundamental investors
+   * (Buffett, Lynch, Munger) don't use chart indicators, so they have none.
+   */
+  const s = (id, params = {}) => ({ id, params });
+  const PLAYBOOKS = [
+    { id: "ptj", name: "Paul Tudor Jones · 200-day rule", interval: "1d",
+      about: "Treats the 200-day moving average as his line in the sand: get defensive when price closes below it.",
+      studies: [s("ma", { type: "SMA", length: 200 }), s("volume")] },
+    { id: "minervini", name: "Mark Minervini · Trend Template", interval: "1d",
+      about: "Buys stage-2 leaders: price above the 50, 150 and 200-day averages (in that order), at least 30% above the 52-week low and within 25% of the high, with strong relative strength.",
+      studies: [s("ma", { type: "SMA", length: 50 }), s("ma", { type: "SMA", length: 150 }), s("ma", { type: "SMA", length: 200 }), s("hilo", { weeks: 52 }), s("volume", { ma: 50 }), s("rs")] },
+    { id: "oneil", name: "William O'Neil · CAN SLIM", interval: "1d",
+      about: "Buys breakouts from sound bases on heavy volume (well above the 50-day average) with a rising relative strength line; sells below the 50-day line.",
+      studies: [s("ma", { type: "SMA", length: 50 }), s("ma", { type: "SMA", length: 200 }), s("volume", { ma: 50 }), s("rs")] },
+    { id: "weinstein", name: "Stan Weinstein · Stage Analysis", interval: "1w",
+      about: "Weekly charts: buy stage-2 breakouts above a rising 30-week average on expanding volume, confirmed by positive Mansfield relative strength.",
+      studies: [s("ma", { type: "SMA", length: 30 }), s("volume", { ma: 10 }), s("rs", { mode: "Mansfield", length: 52 })] },
+    { id: "turtles", name: "Turtle Traders · Donchian breakouts", interval: "1d",
+      about: "Richard Dennis's Turtles entered on 20 and 55-day breakouts, exited on 10 and 20-day opposite breakouts, and sized positions by 20-day ATR (N).",
+      studies: [s("donchian", { length: 20 }), s("donchian", { length: 55 }), s("atr", { length: 20 })] },
+    { id: "bollinger", name: "John Bollinger · Bands, %B, BandWidth", interval: "1d",
+      about: "Bands at 20 periods and 2 standard deviations; %B locates price within them and BandWidth flags the squeeze that precedes big moves.",
+      studies: [s("bb"), s("bbpct"), s("bbw")] },
+    { id: "wilder", name: "J. Welles Wilder · RSI, ADX, SAR, ATR", interval: "1d",
+      about: "The inventor of RSI, ADX/DMI, Parabolic SAR and ATR (New Concepts in Technical Trading Systems, 1978), with his original settings.",
+      studies: [s("psar"), s("rsi"), s("adx"), s("atr")] },
+    { id: "raschke", name: "Linda Raschke · Holy Grail & 3-10", interval: "1d",
+      about: "Holy Grail: when ADX is above 30 and rising, buy pullbacks to the 20 EMA. Her 3-10 oscillator is a fast MACD (3, 10, 16); Keltner channels frame the trend.",
+      studies: [s("ma", { type: "EMA", length: 20 }), s("keltner"), s("adx"), s("macd", { fast: 3, slow: 10, signal: 16 })] },
+    { id: "connors", name: "Larry Connors · RSI(2)", interval: "1d",
+      about: "Short-term mean reversion: above the 200-day average, buy when 2-period RSI drops below 10 and exit on a close above the 5-day average.",
+      studies: [s("ma", { type: "SMA", length: 200 }), s("ma", { type: "SMA", length: 5 }), s("rsi", { length: 2, ob: 90, os: 10 })] },
+    { id: "appel", name: "Gerald Appel · MACD", interval: "1d",
+      about: "The creator of MACD (12, 26, 9): crossovers of the signal line and divergences with price.",
+      studies: [s("ma", { type: "EMA", length: 12 }), s("ma", { type: "EMA", length: 26 }), s("macd")] },
+    { id: "hosoda", name: "Goichi Hosoda · Ichimoku", interval: "1d",
+      about: "Ichimoku Kinko Hyo with the original 9, 26, 52 settings: trend is up above the cloud, and conversion/base crosses time entries.",
+      studies: [s("ichimoku")] },
+    { id: "shannon", name: "Brian Shannon · VWAP & multiple timeframes", interval: "5m",
+      about: "Intraday: trade with the session VWAP and the anchored VWAP from key events, using the 8/21 EMAs and volume to time entries.",
+      studies: [s("vwap"), s("avwap"), s("ma", { type: "EMA", length: 8 }), s("ma", { type: "EMA", length: 21 }), s("volume")] },
+    { id: "williams", name: "Larry Williams · %R", interval: "1d",
+      about: "Williams %R (he created it), here with his 10-period setting for overbought/oversold timing.",
+      studies: [s("willr", { length: 10 }), s("ma", { type: "SMA", length: 20 })] },
+    { id: "granville", name: "Joseph Granville · OBV", interval: "1d",
+      about: "On-Balance Volume, which he introduced in 1963: volume leads price, so OBV breakouts and divergences warn early.",
+      studies: [s("obv", { ma: 20 }), s("ma", { type: "SMA", length: 200 })] },
+    { id: "buffett", name: "Warren Buffett, Peter Lynch · no chart indicators", interval: "1w",
+      about: "Fundamental investors who don't time trades with indicators. Use the Financials page (valuation, quality, peers) instead; this shows just a clean weekly chart.",
+      studies: [] },
+  ];
+
   /** Can this indicator run on data with these fields? */
   function indicatorFits(ind, d) {
     const has = { h: !!d.high, l: !!d.low, v: !!d.volume, c: !!d.close };
@@ -685,7 +1009,8 @@
 
   const Q = { TD, isNum, mean, std, variance, covariance, invert, ols, returns, sma, rollingStd, rsi, bollinger, align,
     ema, rma, highest, lowest, trueRange, atr, macd, stoch, stochastic, stochRsi, dmi, supertrend, psar, ichimoku, vwap, obv,
-    INDICATORS, indicatorFits,
+    INDICATORS, indicatorFits, wma, hma, vwma, maOf, source, keltner, donchian, willr, cci, roc, mfi, rangeByTime, pivots, anchoredVwap,
+    STUDIES, studyFits, PLAYBOOKS,
     MODELS, FACTOR_LABELS, factorRegression, rollingExposures, drawdowns, metrics, monthlyReturns, backtest, STRATEGIES };
   if (typeof module !== "undefined" && module.exports) module.exports = Q;
   else root.Q = Q;

@@ -1,509 +1,826 @@
-/* Live charts with TradingView-style indicators.
+/* Pro chart: a TradingView-style live chart drawn by this site (TradingView Lightweight Charts v5),
+ * so every indicator, setting and drawing is yours to use without a widget's limits.
  *
- * Two engines:
- *   TradingView  TradingView's free embeddable chart (tv.js): real-time US stocks and ETFs
- *                (Cboe One), XETRA, TSX, ASX and Binance crypto, no key, full history and the
- *                full indicator menu. The indicators picked here are preloaded as studies.
- *   Native       TradingView Lightweight Charts drawn by this site, with the same indicators
- *                computed in quant.js:
- *                  crypto     Binance public market data: REST klines + WebSocket kline stream
- *                  US stocks  Finnhub trade WebSocket with the visitor's free key, aggregated
- *                             into candles; without a key, the nightly daily bars
- *                  others     the nightly daily bars (markets the free widget doesn't carry)
- * Sockets reconnect with backoff, pause while the tab is hidden, and close when the visitor
- * leaves the page (window.onRouteCleanup from app.js).
+ * Data (all keyless, straight from the visitor's browser):
+ *   crypto   Binance public market data: REST klines + WebSocket kline/miniTicker streams
+ *   stocks   CNBC's chart and quote endpoints (US, Korea, Europe, India, Taiwan, Australia,
+ *            Canada, major indices): history, then a poll every 15 s; backs off if throttled
+ *   US ticks Finnhub trade WebSocket when the visitor has saved a free key (⚙)
+ *   fallback the platform's nightly daily bars when a live source has no data
+ * Studies, investor playbooks and the indicator maths live in quant.js (tested against Python).
  */
 (function () {
   "use strict";
-  const LWC_URL = "https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js";
-  const TV_URL = "https://s3.tradingview.com/tv.js";
+  const LWC_URL = "https://cdn.jsdelivr.net/npm/lightweight-charts@5.2.1/dist/lightweight-charts.standalone.production.js";
   const BINANCE_REST = "https://data-api.binance.vision/api/v3";
   const BINANCE_WS = "wss://data-stream.binance.vision/stream?streams=";
+  const CNBC_CHART = "https://ts-api.cnbc.com/harmony/app/charts/";
+  const CNBC_QUOTE = "https://quote.cnbc.com/quote-html-webservice/restQuote/symbolType/symbol?requestMethod=itv&noform=1&partnerId=2&fund=1&exthrs=1&output=json&events=1&symbols=";
   const FINNHUB_WS = "wss://ws.finnhub.io?token=";
-  const SECONDS = { "1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400, "1w": 604800 };
-  const TV_INTERVAL = { "1m": "1", "5m": "5", "15m": "15", "1h": "60", "4h": "240", "1d": "D", "1w": "W" };
-  const CRYPTO_PICKS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT", "DOGEUSDT"];
-  const STOCK_PICKS = ["AAPL", "NVDA", "MSFT", "TSLA", "SPY", "QQQ"];
-  // Yahoo exchange codes -> TradingView prefixes for listings the free widget carries.
-  const US_EXCHANGES = { NMS: "NASDAQ", NGM: "NASDAQ", NCM: "NASDAQ", NAS: "NASDAQ", NYQ: "NYSE", NYS: "NYSE",
-    ASE: "AMEX", AMX: "AMEX", PCX: "AMEX", ARCA: "AMEX", BTS: "BATS", BATS: "BATS" };
-  // Suffix -> TradingView exchange, for "view on TradingView" links (the widget refuses most).
-  const SUFFIX_EXCHANGE = { KS: "KRX", KQ: "KRX", T: "TSE", HK: "HKEX", L: "LSE", NS: "NSE", BO: "BSE", TW: "TWSE", TWO: "TPEX",
-    PA: "EURONEXT", AS: "EURONEXT", BR: "EURONEXT", LS: "EURONEXT", SW: "SIX", MI: "MIL", MC: "BME", ST: "OMXSTO", CO: "OMXCOP",
-    HE: "OMXHEX", OL: "OSL", SS: "SSE", SZ: "SZSE", DE: "XETR", TO: "TSX", V: "TSXV", AX: "ASX" };
-  const WIDGET_OK = new Set(["NASDAQ", "NYSE", "AMEX", "BATS", "XETR", "TSX", "ASX", "BINANCE"]);
-  const state = {
-    engine: {},  // per symbol kind: "tv" | "native"
-    tvInterval: store.get("tvInterval", "15m"),
-    nativeInterval: store.get("nativeInterval", "1m"),
-    indicators: new Set(store.get("liveIndicators", ["ema", "vwap", "rsi", "macd"])),
+  const SEC = { "1m": 60, "3m": 180, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "2h": 7200, "4h": 14400, "1d": 86400, "1w": 604800, "1M": 2592000 };
+  const LABEL = { "1d": "1D", "1w": "1W", "1M": "1M" };
+  const FEED_INTERVALS = {
+    binance: ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d", "1w", "1M"],
+    cnbc: ["1m", "5m", "15m", "30m", "1h", "1d", "1w", "1M"],
+    daily: ["1d"],
   };
+  const CNBC_RANGE = { "1m": "1D", "5m": "5D", "15m": "5D", "30m": "5D", "1h": "5D", "1d": "6M", "1w": "5Y", "1M": "ALL" };
+  const CNBC_SUFFIX = { KS: "KR", KQ: "KR", L: "GB", DE: "DE", NS: "IN", BO: "IN", TW: "TW", TWO: "TW", AX: "AU", TO: "CA", V: "CA",
+    PA: "FR", AS: "NL", SW: "CH", MI: "IT", MC: "ES", ST: "SE", CO: "DK", HE: "FI", OL: "NO", BR: "BE", SS: "CN", SZ: "CN", T: "JP", HK: "HK" };
+  const CNBC_INDEX = { "^GSPC": ".SPX", "^N225": ".N225", "^KS11": ".KS11", "^HSI": ".HSI", "^GSPTSE": ".GSPTSE", "^STOXX": ".STOXX",
+    "^TWII": ".TWII", "^NSEI": ".NSEI", "^AXJO": ".AXJO", "^VIX": ".VIX" };
+  const CRYPTO_PICKS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT"];
+  const STOCK_PICKS = ["AAPL", "NVDA", "TSLA", "SPY", "005930.KS", "^GSPC"];
+  const CHART_TYPES = ["Candles", "Hollow candles", "Bars", "Line", "Area", "Heikin Ashi"];
+  const TOOLS = [
+    ["cursor", "↖", "Cursor (Esc)"], ["trend", "╱", "Trend line (Alt+T)"], ["ray", "↗", "Ray (Alt+Shift+T)"], ["hline", "—", "Horizontal line (Alt+H)"],
+    ["vline", "|", "Vertical line (Alt+V)"], ["fib", "Fib", "Fibonacci retracement (Alt+F)"], ["rect", "▭", "Rectangle (Alt+Shift+R)"],
+    ["measure", "⇕", "Measure (Alt+M)"],
+  ];
+  const FIB = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
+  const SHORTCUTS = [
+    ["/", "Open indicators"], ["Type 5, 15, 60, 1D, W… then Enter", "Change interval"], ["Alt+T / Alt+Shift+T", "Trend line / ray"],
+    ["Alt+H / Alt+V", "Horizontal / vertical line"], ["Alt+F", "Fibonacci retracement"], ["Alt+Shift+R", "Rectangle"], ["Alt+M", "Measure"],
+    ["Esc", "Cursor / cancel"], ["Delete", "Remove the selected drawing"], ["Ctrl+Z", "Undo the last drawing"], ["Alt+L", "Log scale"],
+    ["Alt+R", "Reset the chart view"], ["Alt+S", "Save a screenshot"], ["Shift+F", "Full screen"], ["Scroll / drag", "Zoom / pan; drag a pane edge to resize it"],
+  ];
+  const DEFAULT_STUDIES = [{ id: "volume", params: { ma: 20 } }, { id: "ma", params: { type: "EMA", length: 20 } },
+    { id: "ma", params: { type: "SMA", length: 50 } }, { id: "ma", params: { type: "SMA", length: 200 } }, { id: "rsi", params: {} }];
+
+  let uidSeq = 0;
+  const newInstance = (id, params = {}) => {
+    const def = Q.STUDIES.find((s) => s.id === id);
+    return { uid: `s${Date.now().toString(36)}${uidSeq++}`, id, hidden: false, colors: {},
+      params: Object.assign(Object.fromEntries(def.params.map((p) => [p.key, p.def])), params) };
+  };
+  const state = {
+    type: store.get("pc:type", "Candles"),
+    studies: (store.get("pc:studies", null) || DEFAULT_STUDIES.map((s) => newInstance(s.id, s.params))).filter((s) => Q.STUDIES.some((d) => d.id === s.id)),
+  };
+  const saveStudies = () => store.set("pc:studies", state.studies);
   const loaded = {};
-  function loadScript(url, globalName) {
-    if (window[globalName]) return Promise.resolve();
+  function loadScript(url, name) {
+    if (window[name]) return Promise.resolve();
     if (!loaded[url]) {
       loaded[url] = new Promise((resolve, reject) => {
         const s = document.createElement("script");
-        s.src = url; s.onload = resolve;
-        s.onerror = () => { delete loaded[url]; reject(new Error(`Couldn't load ${new URL(url).host}`)); };
+        s.src = url; s.onload = resolve; s.onerror = () => { delete loaded[url]; reject(new Error(`Couldn't load ${new URL(url).host}`)); };
         document.head.appendChild(s);
       });
     }
     return loaded[url];
   }
-  const localShift = () => -new Date().getTimezoneOffset() * 60;  // the native axis shows local time
-  const fmt = (x) => (!Number.isFinite(x) ? "–" : x >= 1000 ? x.toLocaleString("en-US", { maximumFractionDigits: 2 }) : x >= 1 ? x.toFixed(2) : x.toPrecision(4));
+  const localShift = () => -new Date().getTimezoneOffset() * 60;
+  const isIntraday = (iv) => SEC[iv] < 86400;
+  const fmtNum = (x, ref) => {
+    if (!Number.isFinite(x)) return "–";
+    const r = Math.abs(ref ?? x);
+    const d = r >= 1000 ? 2 : r >= 1 ? 2 : r >= 0.01 ? 4 : 6;
+    return x.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+  };
   const nyDate = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
-  const nyClock = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false });
-  function usMarketOpen(now = new Date()) {
-    const [wd, hm] = nyClock.format(now).split(" ");
-    const [h, m] = hm.split(":").map(Number), mins = (h % 24) * 60 + m;
-    return !["Sat", "Sun"].includes(wd.replace(",", "")) && mins >= 570 && mins < 960;  // 9:30-16:00 New York (holidays not checked)
-  }
 
-  /** What is this symbol and which engines can show it? */
+  // ==============================================================================================
+  // Symbols and data feeds. Bars: {t (UTC seconds), open, high, low, close, volume}.
+  // ==============================================================================================
   async function resolve(arg) {
-    const s = String(arg).toUpperCase().replace(/[^A-Z0-9.\-^]/g, "");
-    if (/(USDT|USDC|FDUSD)$/.test(s) && s.length > 5) return { kind: "crypto", sym: s, pair: s, name: s.replace(/(USDT|USDC|FDUSD)$/, " / $1"), tv: "BINANCE:" + s };
+    const s = String(arg).trim().toUpperCase().replace(/[^A-Z0-9.\-^=]/g, "");
+    if (/(USDT|USDC|FDUSD|BTC|ETH)$/.test(s) && /^[A-Z0-9]{5,}$/.test(s) && !(await rowFor(s))) return { sym: s, name: s.replace(/(USDT|USDC|FDUSD)$/, " / $1"), kind: "crypto", feed: "binance", pair: s };
     const row = await rowFor(s);
     if (row && row.a === "c") {
       const pair = s.replace(/\d*-USD$/, "").replace(/[^A-Z0-9]/g, "") + "USDT";
-      return { kind: "crypto", sym: s, pair, name: row.n, tv: "BINANCE:" + pair, row };
+      return { sym: s, name: row.n, kind: "crypto", feed: "binance", pair, row };
     }
-    const info = row ? ((await symbolData(s)) || {}).info || {} : {};
-    const us = row ? row.m === "US" || row.m === "US ETFs" : usTicker(s);
-    let tv = null, link = null;
-    if (us) {
-      const t = s.replace(/-/g, ".");
-      tv = US_EXCHANGES[info.ex] ? `${US_EXCHANGES[info.ex]}:${t}` : t;
-      link = tv.includes(":") ? tv : null;
-    } else {
+    let cnbc = CNBC_INDEX[s];
+    if (!cnbc) {
       const m = s.match(/^(.+)\.([A-Z]+)$/);
-      if (m && SUFFIX_EXCHANGE[m[2]]) {
-        const ex = SUFFIX_EXCHANGE[m[2]], code = ex === "HKEX" ? m[1].replace(/^0+/, "") : m[1].replace(/-/g, ".");
-        link = `${ex}:${code}`;
-        if (WIDGET_OK.has(ex)) tv = link;
-      }
+      cnbc = m && CNBC_SUFFIX[m[2]] ? `${m[2] === "HK" ? m[1].replace(/^0+/, "") : m[1]}-${CNBC_SUFFIX[m[2]]}` : s.replace(/-/g, ".");
     }
-    return { kind: us ? "us" : row ? "intl" : "unknown", sym: s, name: row ? row.n : s, tv, link: link || tv, row, deep: await isDeep(s) };
+    return { sym: s, name: row ? row.n : s, kind: row && row.a === "i" ? "index" : "stock", feed: "cnbc", cnbc, row,
+      us: row ? row.m === "US" || row.m === "US ETFs" : usTicker(s), deep: await isDeep(s) };
   }
-  const engines = (r) => (r.kind === "crypto" ? ["native", "tv"] : r.kind === "unknown" ? (FH.key() ? ["tv", "native"] : ["tv"])
-    : r.tv ? ["tv", "native"] : ["native"]);
 
+  async function getJSON(url) {
+    const r = await fetch(url);
+    if (r.status === 403 || r.status === 429) { const e = new Error("throttled"); e.throttled = true; throw e; }
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  }
+  /** Aggregate bars into `sec`-second buckets (UTC-aligned). */
+  function aggregate(bars, sec) {
+    const out = [];
+    for (const b of bars) {
+      const t = Math.floor(b.t / sec) * sec, last = out[out.length - 1];
+      if (last && last.t === t) { last.high = Math.max(last.high, b.high); last.low = Math.min(last.low, b.low); last.close = b.close; last.volume += b.volume; }
+      else out.push({ t, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume });
+    }
+    return out;
+  }
+  const cnbcBars = (json, intraday) => ((json.barData || {}).priceBars || []).map((b) => {
+    const tt = String(b.tradeTime);
+    const t = intraday ? Math.floor(Number(b.tradeTimeinMills) / 1000) : Date.UTC(+tt.slice(0, 4), +tt.slice(4, 6) - 1, +tt.slice(6, 8)) / 1000;
+    return { t, open: +b.open, high: +b.high, low: +b.low, close: +b.close, volume: +b.volume || 0 };
+  }).filter((b) => Number.isFinite(b.close) && b.close > 0);
+
+  const FEEDS = {
+    async history(r, iv) {
+      if (r.feed === "binance") {
+        const res = await fetch(`${BINANCE_REST}/klines?symbol=${r.pair}&interval=${iv}&limit=1000`);
+        if (res.status === 400) throw new Error(`Binance has no ${r.pair} pair`);
+        if (!res.ok) throw new Error(`Binance HTTP ${res.status}`);
+        return (await res.json()).map((k) => ({ t: Math.floor(k[0] / 1000), open: +k[1], high: +k[2], low: +k[3], close: +k[4], volume: +k[5] }));
+      }
+      if (r.feed === "cnbc") {
+        const json = await getJSON(`${CNBC_CHART}${CNBC_RANGE[iv]}.json?symbol=${encodeURIComponent(r.cnbc)}`);
+        let bars = cnbcBars(json, isIntraday(iv));
+        if (["15m", "30m", "1h"].includes(iv)) bars = aggregate(bars, SEC[iv]);
+        if (!bars.length) throw new Error(`No ${LABEL[iv] || iv} data from CNBC for ${r.cnbc}`);
+        return bars;
+      }
+      // Nightly daily bars from the platform's export.
+      if (r.deep) {
+        const d = await load(`deep/${r.sym.replace("^", "_")}.json`);
+        return d.d.map((x, i) => ({ t: Date.parse(x + "T00:00:00Z") / 1000, open: d.o[i], high: d.h[i], low: d.l[i], close: d.c[i], volume: d.v[i] }));
+      }
+      const sd = await symbolData(r.sym);
+      if (!sd || !sd.px) throw new Error(`No data for ${r.sym}`);
+      return sd.px.dates.map((x, i) => ({ t: Date.parse(x + "T00:00:00Z") / 1000, open: sd.px.values[i], high: sd.px.values[i], low: sd.px.values[i], close: sd.px.values[i], volume: 0, closeOnly: true }));
+    },
+    /** Live updates; onBar(bar) for a new or updated last bar. Returns stop(). */
+    subscribe(r, iv, onBar, status) {
+      if (r.feed === "binance") return binanceSocket(r, iv, onBar, status);
+      if (r.feed === "cnbc") {
+        if (r.us && FH.key() && isIntraday(iv)) return finnhubSocket(r, iv, onBar, status);
+        return cnbcPoll(r, iv, onBar, status);
+      }
+      status("wait", "Daily bars from the nightly export");
+      return () => {};
+    },
+  };
+
+  function binanceSocket(r, iv, onBar, status) {
+    let ws = null, stopped = false, tries = 0, timer = null;
+    const lower = r.pair.toLowerCase();
+    const connect = () => {
+      if (stopped || document.hidden) return;
+      status("wait", tries ? "Reconnecting…" : "Connecting…");
+      ws = new WebSocket(`${BINANCE_WS}${lower}@kline_${iv}/${lower}@miniTicker`);
+      ws.onopen = () => { tries = 0; };
+      ws.onmessage = (e) => {
+        const d = (JSON.parse(e.data) || {}).data || {};
+        if (d.e === "kline") { const k = d.k; onBar({ t: Math.floor(k.t / 1000), open: +k.o, high: +k.h, low: +k.l, close: +k.c, volume: +k.v }); }
+        else if (d.e === "24hrMiniTicker") onBar(null, { change: +d.c / +d.o - 1, label: "24h" });
+        status("live", "Live · Binance");
+      };
+      ws.onclose = () => { ws = null; if (stopped || document.hidden) return; const s = [1, 2, 5, 10, 30][Math.min(tries++, 4)]; status("err", `Disconnected; retrying in ${s}s`); timer = setTimeout(connect, s * 1000); };
+    };
+    const vis = () => { if (document.hidden) { if (ws) { ws.onclose = null; ws.close(); ws = null; } status("wait", "Paused while the tab is hidden"); } else if (!ws && !stopped) connect(); };
+    document.addEventListener("visibilitychange", vis);
+    connect();
+    return () => { stopped = true; clearTimeout(timer); document.removeEventListener("visibilitychange", vis); if (ws) { ws.onclose = null; ws.close(); } };
+  }
+
+  /** CNBC: poll today's minute bars (intraday) or the quote (daily and longer) every 15 s. */
+  function cnbcPoll(r, iv, onBar, status) {
+    let stopped = false, timer = null, wait = 15000;
+    const tick = async () => {
+      if (stopped) return;
+      if (document.hidden) { status("wait", "Paused while the tab is hidden"); timer = setTimeout(tick, 5000); return; }
+      try {
+        if (isIntraday(iv)) {
+          let bars = cnbcBars(await getJSON(`${CNBC_CHART}1D.json?symbol=${encodeURIComponent(r.cnbc)}`), true);
+          if (iv !== "1m") bars = aggregate(bars, SEC[iv]);
+          bars.slice(-3).forEach((b) => onBar(b));
+        } else {
+          const q = (((await getJSON(CNBC_QUOTE + encodeURIComponent(r.cnbc))).FormattedQuoteResult || {}).FormattedQuote || [])[0] || {};
+          const last = parseFloat(String(q.last || "").replace(/,/g, ""));
+          if (Number.isFinite(last)) onBar({ quote: last, high: parseFloat(String(q.high).replace(/,/g, "")), low: parseFloat(String(q.low).replace(/,/g, "")),
+            volume: parseFloat(String(q.volume || "0").replace(/,/g, "")), date: q.last_time || "" });
+        }
+        wait = 15000;
+        status("live", "Live · CNBC · updates every 15 s");
+      } catch (e) {
+        wait = Math.min(wait * 2, 240000);
+        status("err", e.throttled ? `CNBC is throttling requests; retrying in ${Math.round(wait / 1000)} s` : `Update failed (${e.message}); retrying`);
+      }
+      timer = setTimeout(tick, wait);
+    };
+    timer = setTimeout(tick, 15000);
+    status("live", "Live · CNBC · updates every 15 s");
+    return () => { stopped = true; clearTimeout(timer); };
+  }
+
+  /** Finnhub trades for US symbols (visitor's key): tick-by-tick updates of the last candle. */
+  function finnhubSocket(r, iv, onBar, status) {
+    let ws = null, stopped = false, tries = 0, timer = null, last = null;
+    const step = SEC[iv], sym = r.sym.replace(/-/g, ".");
+    const connect = () => {
+      if (stopped || document.hidden) return;
+      ws = new WebSocket(FINNHUB_WS + encodeURIComponent(FH.key()));
+      ws.onopen = () => { tries = 0; ws.send(JSON.stringify({ type: "subscribe", symbol: sym })); status("wait", "Finnhub connected, waiting for trades (US hours 9:30–16:00 New York)"); };
+      ws.onmessage = (e) => {
+        const msg = JSON.parse(e.data);
+        if (msg.type === "error") { status("err", msg.msg || "Finnhub error"); return; }
+        if (msg.type !== "trade") return;
+        for (const tr of msg.data || []) {
+          const t = Math.floor(tr.t / 1000 / step) * step;
+          if (!last || t > last.t) last = { t, open: tr.p, high: tr.p, low: tr.p, close: tr.p, volume: tr.v || 0, merge: true };
+          else if (t === last.t) Object.assign(last, { high: Math.max(last.high, tr.p), low: Math.min(last.low, tr.p), close: tr.p, volume: last.volume + (tr.v || 0) });
+          onBar(Object.assign({}, last));
+        }
+        status("live", "Live · Finnhub ticks");
+      };
+      ws.onclose = () => { ws = null; if (stopped || document.hidden) return; const s = [1, 2, 5, 10, 30][Math.min(tries++, 4)]; timer = setTimeout(connect, s * 1000); };
+    };
+    const vis = () => { if (document.hidden) { if (ws) { ws.onclose = null; ws.close(); ws = null; } } else if (!ws && !stopped) connect(); };
+    document.addEventListener("visibilitychange", vis);
+    connect();
+    return () => { stopped = true; clearTimeout(timer); document.removeEventListener("visibilitychange", vis); if (ws) { ws.onclose = null; ws.close(); } };
+  }
+
+  // ==============================================================================================
+  // The page
+  // ==============================================================================================
+  let current = null;  // the chart on screen; replaced (and its feed closed) on every redraw
   async function view(el, arg) {
+    if (current) { current.destroy(); current = null; }
     const r = await resolve(arg || store.get("liveSymbol", "BTCUSDT"));
     store.set("liveSymbol", r.sym);
-    const avail = engines(r);
-    let engine = state.engine[r.kind] && avail.includes(state.engine[r.kind]) ? state.engine[r.kind] : avail[0];
-    if (r.kind === "unknown" && !r.tv) {
-      el.innerHTML = `<h1>Live charts</h1><div class="note">${esc(r.sym)} isn't in the universe and isn't a US ticker or a Binance pair (like BTCUSDT).</div>`;
+    const ivKey = `pc:interval:${r.feed}`;
+    let feed = r.feed, iv = store.get(ivKey, r.feed === "binance" ? "15m" : "5m");
+    if (!FEED_INTERVALS[feed].includes(iv)) iv = FEED_INTERVALS[feed][0];
+    const picks = (list) => list.map((s) => `<a class="chip${s === r.sym ? " on" : ""}" href="#/live/${encodeURIComponent(s)}">${esc(s.replace(/USDT$/, ""))}</a>`).join("");
+    el.innerHTML = `
+      <div class="pc" id="pc">
+        <div class="pc-head">
+          <div class="pc-title"><h1>${esc(r.sym)}</h1><span class="soft">${esc(r.name || "")}</span>
+            <span class="ticker-price" id="pc-price">–</span><span id="pc-change"></span>
+            <span class="status wait" id="pc-status"><i></i><span>Loading…</span></span></div>
+          <div class="pc-links">${r.row ? `<a href="#/stock/${encodeURIComponent(r.sym)}">Stock page</a> · <a href="#/financials/${encodeURIComponent(r.sym)}">Research</a> · ` : ""}
+            <span class="muted">Quick:</span> <span class="chips" style="display:inline-flex">${picks(CRYPTO_PICKS)}${picks(STOCK_PICKS)}</span></div>
+        </div>
+        <div class="pc-toolbar">
+          <div id="pc-search" style="width:160px">${searchBox("Symbol")}</div>
+          <div class="pc-group" id="pc-int"></div>
+          <select id="pc-type" title="Chart type">${CHART_TYPES.map((t) => `<option${t === state.type ? " selected" : ""}>${t}</option>`).join("")}</select>
+          <button class="btn" id="pc-ind" type="button" title="Indicators (/)">ƒx Indicators</button>
+          <button class="btn" id="pc-books" type="button" title="Indicator sets of famous traders and investors">★ Investor playbooks</button>
+          <button class="btn" id="pc-log" type="button" title="Log scale (Alt+L)">Log</button>
+          <button class="btn" id="pc-pct" type="button" title="Percentage scale">%</button>
+          <button class="btn" id="pc-shot" type="button" title="Screenshot (Alt+S)">📷</button>
+          <button class="btn" id="pc-full" type="button" title="Full screen (Shift+F)">⛶</button>
+          <button class="btn" id="pc-keys" type="button" title="Keyboard shortcuts">⌨</button>
+        </div>
+        <div class="pc-body">
+          <div class="pc-tools" id="pc-tools">${TOOLS.map(([id, icon, tip]) => `<button type="button" class="pc-tool${id === "cursor" ? " on" : ""}" data-tool="${id}" title="${esc(tip)}">${icon}</button>`).join("")}
+            <button type="button" class="pc-tool" data-tool="clear" title="Remove all drawings">🗑</button></div>
+          <div class="pc-stage" id="pc-stage" tabindex="0">
+            <div class="pc-chart" id="pc-chart"></div>
+            <svg class="pc-draw" id="pc-draw"></svg>
+            <div class="pc-legends" id="pc-legends"></div>
+            <div class="pc-typed" id="pc-typed" hidden></div>
+          </div>
+        </div>
+        <p class="caption" id="pc-foot"></p>
+      </div>`;
+    bindSearch($("#pc-search", el), (s) => { location.hash = `#/live/${encodeURIComponent(s)}`; });
+
+    let bars = [];
+    try {
+      await loadScript(LWC_URL, "LightweightCharts");
+      try { bars = await FEEDS.history(r, iv); }
+      catch (e) {
+        if (r.feed !== "cnbc") throw e;
+        // CNBC has no data (or is throttling): fall back to the nightly daily bars.
+        r.liveError = e.throttled ? "CNBC is throttling requests right now" : e.message;
+        feed = r.feed = "daily"; iv = "1d";
+        bars = await FEEDS.history(r, iv);
+      }
+    } catch (e) {
+      $("#pc-chart").innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+      setStatus("err", e.message);
       return;
     }
-    const picks = (list) => list.map((s) => `<a class="chip${s === r.sym ? " on" : ""}" href="#/live/${s}">${s.replace(/USDT$/, "")}</a>`).join("");
-    const nativeLabel = r.kind === "crypto" ? "Native · Binance WebSocket"
-      : (r.kind === "us" || r.kind === "unknown") && FH.key() ? "Native · Finnhub WebSocket" : "Native · daily bars";
-    el.innerHTML = `
-      <h1>Live charts</h1>
-      <div class="controls">
-        <div class="control" style="width:min(300px,100%)"><span class="label">Symbol</span><div id="lv-search">${searchBox("BTC, AAPL, SAP.DE, 005930.KS…")}</div></div>
-        <div class="control"><span class="label">Crypto</span><div class="chips">${picks(CRYPTO_PICKS)}</div></div>
-        <div class="control"><span class="label">US stocks</span><div class="chips">${picks(STOCK_PICKS)}</div></div>
-      </div>
-      <div class="asset-head" style="margin-top:4px"><h2 style="margin:0">${esc(r.sym)}</h2><span class="soft">${esc(r.name || "")}</span>
-        ${r.row ? `<a href="#/stock/${encodeURIComponent(r.sym)}">Stock page</a> · <a href="#/financials/${encodeURIComponent(r.sym)}">Research</a>` : ""}
-        ${r.link ? ` · <a href="https://www.tradingview.com/symbols/${esc(r.link.replace(":", "-"))}/" target="_blank" rel="noopener">View on TradingView ↗</a>` : ""}</div>
-      <div class="controls">
-        ${avail.length > 1 ? `<div class="control"><span class="label">Chart</span><div class="chips" id="lv-engine">${avail.map((e) =>
-          `<button type="button" class="chip${e === engine ? " on" : ""}" data-v="${e}">${e === "tv" ? "TradingView · real-time" : nativeLabel}</button>`).join("")}</div></div>` : ""}
-        <div class="control"><span class="label">Interval</span><div class="chips" id="lv-int"></div></div>
-      </div>
-      <div class="controls" style="margin-top:0">
-        <div class="control"><span class="label">Overlays</span><div class="chips" id="lv-over"></div></div>
-        <div class="control"><span class="label">Oscillators</span><div class="chips" id="lv-osc"></div></div>
-      </div>
-      <div class="row" id="lv-quote" style="justify-content:space-between;align-items:flex-end;margin:0 0 10px">
-        <div><span class="ticker-price" id="lv-price">–</span> <span id="lv-change"></span><div class="caption" id="lv-sub"></div></div>
-        <span class="status wait" id="lv-status"><i></i><span>Loading…</span></span>
-      </div>
-      <div class="live-chart" id="lv-chart"></div>
-      <div class="caption" id="lv-legend" style="margin-top:6px"></div>
-      <div id="lv-extra"></div>`;
-    bindSearch($("#lv-search", el), (s) => { location.hash = `#/live/${encodeURIComponent(s)}`; });
-    el.querySelectorAll("#lv-engine .chip").forEach((b) => b.addEventListener("click", () => { state.engine[r.kind] = b.dataset.v; view(el, r.sym); }));
-
-    const session = engine === "tv" ? tradingView(r) : r.kind === "crypto" ? binance(r)
-      : (r.kind === "us" || r.kind === "unknown") && FH.key() ? finnhub(r) : dailyBars(r);
-    // Interval and indicator chips; the engine says which apply.
-    const ints = session.intervals;
-    const cur = engine === "tv" ? state.tvInterval : state.nativeInterval;
-    session.interval = ints.includes(cur) ? cur : ints[0];
-    $("#lv-int").innerHTML = ints.map((i) => `<button type="button" class="chip${i === session.interval ? " on" : ""}" data-v="${i}">${i === "1d" ? "1D" : i === "1w" ? "1W" : i}</button>`).join("");
-    el.querySelectorAll("#lv-int .chip").forEach((b) => b.addEventListener("click", () => {
-      if (engine === "tv") { state.tvInterval = b.dataset.v; store.set("tvInterval", b.dataset.v); }
-      else { state.nativeInterval = b.dataset.v; store.set("nativeInterval", b.dataset.v); }
-      view(el, r.sym);
-    }));
-    const drawChips = () => {
-      const fits = (ind) => (engine === "tv" ? !(ind.intraday && ["1d", "1w"].includes(session.interval)) : session.fits(ind));
-      for (const [box, kind] of [["#lv-over", "overlay"], ["#lv-osc", "pane"]]) {
-        $(box).innerHTML = Q.INDICATORS.filter((i) => i.kind === kind).map((i) => {
-          const ok = fits(i);
-          return `<button type="button" class="chip${state.indicators.has(i.id) && ok ? " on" : ""}" data-v="${i.id}"${ok ? "" : ` disabled title="${esc(session.whyNot(i))}" style="opacity:.45"`}>${esc(i.name)}</button>`;
-        }).join("");
-      }
-      el.querySelectorAll("#lv-over .chip, #lv-osc .chip").forEach((b) => b.addEventListener("click", () => {
-        const id = b.dataset.v;
-        state.indicators.has(id) ? state.indicators.delete(id) : state.indicators.add(id);
-        store.set("liveIndicators", [...state.indicators]);
-        drawChips();
-        session.setIndicators(Q.INDICATORS.filter((i) => state.indicators.has(i.id) && fits(i)));
-      }));
-      return Q.INDICATORS.filter((i) => state.indicators.has(i.id) && fits(i));
-    };
-    const active = drawChips();
-    window.onRouteCleanup(session.stop);
-    try {
-      await session.start(active);
-    } catch (e) {
-      console.error(e);
-      setStatus("err", e.message);
-      $("#lv-extra").innerHTML = `<div class="note">${esc(e.message)}</div>`;
-    }
+    const pc = proChart(el, r, iv, bars);
+    current = pc;
+    window.onRouteCleanup(() => { if (current) { current.destroy(); current = null; } });
+    $("#pc-int").innerHTML = FEED_INTERVALS[feed].map((i) => `<button type="button" class="chip${i === iv ? " on" : ""}" data-v="${i}">${LABEL[i] || i}</button>`).join("");
+    el.querySelectorAll("#pc-int .chip").forEach((b) => b.addEventListener("click", () => { store.set(ivKey, b.dataset.v); view(el, r.sym); }));
+    pc.onInterval = (next) => { if (FEED_INTERVALS[feed].includes(next)) { store.set(ivKey, next); view(el, r.sym); } };
+    $("#pc-foot").innerHTML = footNote(r, feed);
   }
-
+  function footNote(r, feed) {
+    const src = feed === "binance" ? "Binance public market data over WebSocket (no key)."
+      : feed === "cnbc" ? `CNBC's quote and chart service (unofficial, no key), polled every 15 s${r.us && FH.key() ? "; Finnhub trade ticks with your key on intraday intervals" : r.us ? "; add a free Finnhub key (⚙) for tick-by-tick updates" : ""}. Bars include pre- and post-market sessions where available.`
+      : `The platform's nightly daily bars${r.liveError ? ` (live source unavailable: ${esc(r.liveError)})` : ""}.`;
+    return `${src} Indicators are computed in your browser with TradingView's formulas and stay as you set them. Drawings are saved per symbol in this browser.
+      Charting by <a href="https://www.tradingview.com/lightweight-charts/" target="_blank" rel="noopener">TradingView Lightweight Charts</a>. Research only, not investment advice.`;
+  }
   function setStatus(kind, text) {
-    const s = $("#lv-status");
+    const s = $("#pc-status");
     if (!s) return;
     s.className = `status ${kind}`;
     s.lastElementChild.textContent = text;
   }
-  function setPrice(price, change, sub) {
-    const p = $("#lv-price"), ch = $("#lv-change"), sb = $("#lv-sub");
-    if (p && Number.isFinite(price)) p.textContent = fmt(price);
-    if (ch && Number.isFinite(change)) ch.innerHTML = `<span class="${change >= 0 ? "pos" : "neg"}">${(change >= 0 ? "+" : "−") + Math.abs(change * 100).toFixed(2)}%</span>`;
-    if (sb && sub !== undefined) sb.textContent = sub;
-  }
 
   // ==============================================================================================
-  // TradingView embeddable chart
+  // Chart engine
   // ==============================================================================================
-  function tradingView(r) {
-    const s = {
-      intervals: ["1m", "5m", "15m", "1h", "4h", "1d", "1w"],
-      fits: () => true, whyNot: () => "",
-      async start(indicators) {
-        $("#lv-quote").style.display = "none";
-        await loadScript(TV_URL, "TradingView");
-        $("#lv-extra").innerHTML = `<p class="caption" id="lv-tvnote"></p><p class="caption">Chart and data by <a href="https://www.tradingview.com/" target="_blank" rel="noopener nofollow">TradingView</a>.
-          US stocks show TradingView's free real-time feed (Cboe One), which can differ slightly from the consolidated tape.
-          Use the chart's own <b>Indicators</b> menu for anything not listed above (100+ built-ins).</p>`;
-        draw(indicators);
-      },
-      setIndicators: draw,
-      stop() {},
-    };
-    function draw(indicators) {
-      const box = $("#lv-chart");
-      if (!box) return;
-      // The free widget keeps at most 5 studies, and drops entries when plain ids and
-      // {id, inputs} objects are mixed: send objects only, in the order picked, up to 5.
-      const studies = [], skipped = [];
-      for (const ind of indicators) {
-        const list = ind.tv.map((x) => (typeof x === "string" ? { id: x } : x));
-        if (studies.length + list.length <= 5) studies.push(...list); else skipped.push(ind.name);
-      }
-      const note = $("#lv-tvnote");
-      if (note) note.textContent = skipped.length ? `TradingView's free chart shows up to 5 indicators (EMA 9/21 and SMA 50/200 count as two), so ${skipped.join(", ")} ${skipped.length > 1 ? "were" : "was"} left out. Add them from the chart's Indicators menu.` : "";
-      box.style.height = "min(78vh, 720px)";
-      box.innerHTML = '<div id="tv-widget" style="height:100%"></div>';
-      new TradingView.widget({
-        container_id: "tv-widget", symbol: r.tv, interval: TV_INTERVAL[s.interval], autosize: true,
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Etc/UTC", theme: isDark() ? "dark" : "light",
-        style: "1", locale: "en", allow_symbol_change: true, withdateranges: true, details: false, hide_side_toolbar: false,
-        enable_publishing: false, save_image: true, studies,
-      });
-    }
-    return s;
-  }
-
-  // ==============================================================================================
-  // Native chart (Lightweight Charts) with indicator overlays and oscillator bands
-  // ==============================================================================================
-  function nativeChart(intraday) {
-    const c = pal(), box = $("#lv-chart");
-    box.innerHTML = "";
-    const chart = LightweightCharts.createChart(box, {
+  function proChart(el, r, iv, rawBars) {
+    const LC = window.LightweightCharts, c = pal(), intraday = isIntraday(iv);
+    const stage = $("#pc-stage", el), box = $("#pc-chart", el), svg = $("#pc-draw", el), legends = $("#pc-legends", el);
+    const colorOf = (key) => ({ s0: c.series[0], s1: c.series[1], s2: c.series[2], s3: c.series[3], s4: c.series[4], s5: c.series[5], s6: c.series[6], s7: c.series[7] }[key] || c[key] || key);
+    const chart = LC.createChart(box, {
       autoSize: true,
-      layout: { background: { type: "solid", color: "transparent" }, textColor: c.ink2, fontFamily: FONT },
+      layout: { background: { type: "solid", color: "transparent" }, textColor: c.ink2, fontFamily: FONT, attributionLogo: true,
+        panes: { separatorColor: c.grid, separatorHoverColor: "rgba(120,120,120,0.25)", enableResize: true } },
       grid: { vertLines: { color: c.grid }, horzLines: { color: c.grid } },
       rightPriceScale: { borderColor: c.axis },
-      timeScale: { borderColor: c.axis, timeVisible: intraday, secondsVisible: false },
+      timeScale: { borderColor: c.axis, timeVisible: intraday, secondsVisible: false, rightOffset: 6 },
       crosshair: { mode: 0 },
     });
-    const color = (key) => ({ s0: c.series[0], s1: c.series[1], s2: c.series[2], s3: c.series[3], s4: c.series[4], s5: c.series[5], s6: c.series[6], s7: c.series[7] }[key] || c[key] || key);
-    let main = null, volume = null, extra = [], bars = [], lineMode = false, active = [], pending = null;
-    const mainSeries = (line) => {
-      lineMode = line;
-      main = line ? chart.addLineSeries({ color: c.ink, lineWidth: 2 })
-        : chart.addCandlestickSeries({ upColor: c.up, downColor: c.down, borderVisible: false, wickUpColor: c.up, wickDownColor: c.down });
-    };
-    function layoutBands() {
-      const panes = active.filter((i) => i.kind === "pane").length;
-      const share = Math.min(0.56, 0.2 * panes), mainBottom = share;
-      main.priceScale().applyOptions({ scaleMargins: { top: 0.05, bottom: mainBottom + (volume ? 0.12 : 0.03) } });
-      if (volume) volume.priceScale().applyOptions({ scaleMargins: { top: 1 - mainBottom - 0.12, bottom: mainBottom } });
-      return { share, band: panes ? share / panes : 0 };
+    let bars = rawBars.slice(), main = null, studySeries = [], computed = [], selected = null, pending = null, tool = "cursor";
+    let drawings = store.get(`pc:draw:${r.sym}`, []), stopFeed = () => {}, redrawQueued = false, studyTimer = null, lastChange = null;
+    const closeOnly = bars.some((b) => b.closeOnly);
+    const lastClose = () => (bars.length ? bars[bars.length - 1].close : 1);
+    const chartTime = (t) => (intraday ? t + localShift() : t);
+    const sessionKey = r.feed === "binance" ? (t) => Math.floor(t / 86400) : (t) => nyDate.format(new Date(t * 1000));
+
+    // --- main series --------------------------------------------------------------------------
+    function heikin(list) {
+      const out = [];
+      list.forEach((b, i) => {
+        const close = (b.open + b.high + b.low + b.close) / 4, open = i ? (out[i - 1].open + out[i - 1].close) / 2 : (b.open + b.close) / 2;
+        out.push({ t: b.t, open, close, high: Math.max(b.high, open, close), low: Math.min(b.low, open, close), volume: b.volume });
+      });
+      return out;
     }
-    function drawIndicators() {
-      pending = null;
-      extra.forEach((s) => chart.removeSeries(s));
-      extra = [];
-      if (!bars.length) return;
-      const d = {
-        time: bars.map((b) => b.time), open: bars.map((b) => b.open), close: bars.map((b) => b.close),
-        high: lineMode ? null : bars.map((b) => b.high), low: lineMode ? null : bars.map((b) => b.low),
-        volume: volume ? bars.map((b) => b.volume) : null, intraday, session: (i) => bars[i].session,
-      };
-      const { band } = layoutBands();
+    const type = closeOnly && !["Line", "Area"].includes(state.type) ? "Line" : state.type;
+    function makeMain() {
+      const fmt = { type: "price", precision: lastClose() >= 1 ? 2 : lastClose() >= 0.01 ? 4 : 6, minMove: lastClose() >= 1 ? 0.01 : lastClose() >= 0.01 ? 0.0001 : 0.000001 };
+      if (type === "Line") return chart.addSeries(LC.LineSeries, { color: c.ink, lineWidth: 2, priceFormat: fmt });
+      if (type === "Area") return chart.addSeries(LC.AreaSeries, { lineColor: c.up, topColor: withAlpha(c.up, 0.3), bottomColor: withAlpha(c.up, 0.02), lineWidth: 2, priceFormat: fmt });
+      if (type === "Bars") return chart.addSeries(LC.BarSeries, { upColor: c.up, downColor: c.down, priceFormat: fmt });
+      const hollow = type === "Hollow candles";
+      return chart.addSeries(LC.CandlestickSeries, { upColor: hollow ? "rgba(0,0,0,0)" : c.up, downColor: c.down, borderVisible: true, borderUpColor: c.up,
+        borderDownColor: c.down, wickUpColor: c.up, wickDownColor: c.down, priceFormat: fmt });
+    }
+    const toPoint = (b) => (["Line", "Area"].includes(type) ? { time: chartTime(b.t), value: b.close } : { time: chartTime(b.t), open: b.open, high: b.high, low: b.low, close: b.close });
+    const displayBars = () => (type === "Heikin Ashi" ? heikin(bars) : bars);
+    main = makeMain();
+    main.setData(displayBars().map(toPoint));
+
+    // --- studies --------------------------------------------------------------------------------
+    let bench = null;  // aligned benchmark closes for relative strength
+    async function ensureBench() {
+      if (!state.studies.some((s) => s.id === "rs") || bench) return;
+      // Coins against bitcoin, bitcoin and stocks against the S&P 500.
+      const ref = r.feed === "binance" && r.pair !== "BTCUSDT" ? { feed: "binance", pair: "BTCUSDT", sym: "BTCUSDT" } : { feed: "cnbc", cnbc: ".SPX", sym: "^GSPC" };
+      try {
+        const b = await FEEDS.history(ref, iv);
+        const m = new Map(b.map((x) => [x.t, x.close]));
+        bench = { map: m, name: ref.sym };
+      } catch (e) {
+        try { const s = await load("market.json"); bench = { map: new Map(s.spx.d.map((x, i) => [Date.parse(x + "T00:00:00Z") / 1000, s.spx.c[i]])), name: "^GSPC" }; }
+        catch (err) { bench = { map: new Map(), name: "benchmark" }; }
+      }
+      rebuildStudies();
+    }
+    function dataForStudies() {
+      const d = { time: bars.map((b) => b.t), open: bars.map((b) => b.open), high: closeOnly ? null : bars.map((b) => b.high),
+        low: closeOnly ? null : bars.map((b) => b.low), close: bars.map((b) => b.close), volume: closeOnly || bars.every((b) => !b.volume) ? null : bars.map((b) => b.volume),
+        intraday, session: (i) => sessionKey(bars[i].t) };
+      if (bench && bench.map.size) { let lastB = null; d.bench = bars.map((b) => { const v = bench.map.get(b.t); if (v) lastB = v; return v ?? lastB; }); }
+      return d;
+    }
+    function rebuildStudies() {
+      studySeries.forEach((s) => chart.removeSeries(s.api));
+      studySeries = [];
+      for (let i = chart.panes().length - 1; i >= 1; i--) chart.removePane(i);
+      const d = dataForStudies();
       let pane = 0;
-      const legend = [];
-      for (const ind of active) {
-        const out = ind.calc(d), isPane = ind.kind === "pane";
-        if (out.segments) {  // one line coloured per point (v4 lines don't break on blank points)
-          const sg = out.segments, s = chart.addLineSeries({ lineWidth: 2, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false });
-          s.setData(d.time.map((t, i) => (sg.values[i] == null ? { time: t } : { time: t, value: sg.values[i], color: sg.up[i] ? c.good : c.bad })));
-          extra.push(s);
-          const lastI = sg.values.length - 1;
-          legend.push(`<span style="color:${sg.up[lastI] ? c.good : c.bad}">■</span> ${esc(sg.name)} ${fmt(sg.values[lastI])}`);
+      computed = state.studies.map((inst) => {
+        const def = Q.STUDIES.find((s) => s.id === inst.id);
+        if (!def || !Q.studyFits(def, d)) return { inst, def, skipped: true };
+        const p = def.kind === "pane" ? ++pane : 0;
+        return { inst, def, pane: p, out: def.calc(d, inst.params) };
+      });
+      for (const cmp of computed) {
+        if (cmp.skipped) continue;
+        const { inst, def, out } = cmp;
+        const visible = !inst.hidden;
+        const base = { lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false, visible };
+        if (def.kind === "volume") {
+          const h = chart.addSeries(LC.HistogramSeries, Object.assign({}, base, { priceScaleId: "vol", priceFormat: { type: "volume" } }), 0);
+          h.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+          studySeries.push({ uid: inst.uid, api: h, kind: "vol" });
+          out.lines.forEach((ln, k) => {
+            const s = chart.addSeries(LC.LineSeries, Object.assign({}, base, { priceScaleId: "vol", color: inst.colors[k] || colorOf(ln.color), lineWidth: 1 }), 0);
+            studySeries.push({ uid: inst.uid, api: s, line: k });
+          });
           continue;
         }
-        const scaleId = isPane ? `pane-${ind.id}` : "right";
-        const top = isPane ? 1 - band * (active.filter((i) => i.kind === "pane").length - pane) : 0;
-        const margins = isPane ? { top: top + 0.02, bottom: 1 - (top + band) + 0.005 } : null;
         if (out.hist) {
-          const h = chart.addHistogramSeries({ priceScaleId: scaleId, lastValueVisible: false, priceLineVisible: false });
-          h.setData(d.time.map((t, i) => (out.hist[i] == null ? { time: t } : { time: t, value: out.hist[i], color: (out.hist[i] >= 0 ? c.up : c.down) + "99" })));
-          extra.push(h);
+          const h = chart.addSeries(LC.HistogramSeries, Object.assign({}, base, { priceFormat: { type: "price", precision: 3, minMove: 0.001 } }), cmp.pane);
+          studySeries.push({ uid: inst.uid, api: h, kind: "hist" });
         }
-        out.lines.forEach((ln, k) => {
-          const s = chart.addLineSeries({ color: color(ln.color), lineWidth: ln.dots ? 1 : 2, priceScaleId: scaleId, lastValueVisible: false,
-            priceLineVisible: false, crosshairMarkerVisible: false, lineStyle: ln.dash ? 2 : 0,
-            ...(ln.dots ? { lineVisible: false, pointMarkersVisible: true, pointMarkersRadius: 1.5 } : {}) });
-          s.setData(d.time.map((t, i) => (ln.values[i] == null ? { time: t } : { time: t, value: ln.values[i] })));
-          if (k === 0 && out.levels) out.levels.forEach((lv) => s.createPriceLine({ price: lv, color: c.axis, lineWidth: 1, lineStyle: 2, axisLabelVisible: false }));
-          extra.push(s);
-          const last = [...ln.values].reverse().find((v) => v != null);
-          legend.push(`<span style="color:${color(ln.color)}">■</span> ${esc(ln.name)} ${fmt(last)}`);
-        });
-        if (isPane) {
-          chart.priceScale(scaleId).applyOptions({ scaleMargins: margins, visible: false });
-          pane++;
+        if (out.segments) {
+          const s = chart.addSeries(LC.LineSeries, Object.assign({}, base, { lineWidth: 2 }), cmp.pane);
+          studySeries.push({ uid: inst.uid, api: s, kind: "segments" });
+        } else {
+          out.lines.forEach((ln, k) => {
+            const opts = Object.assign({}, base, { color: inst.colors[k] || colorOf(ln.color), lineWidth: ln.width || (def.kind === "pane" ? 2 : 1),
+              lineStyle: ln.dash ? 2 : 0, lineType: out.step ? 1 : 0 });
+            if (ln.dots) Object.assign(opts, { lineVisible: false, pointMarkersVisible: true, pointMarkersRadius: 2 });
+            if (out.range) opts.autoscaleInfoProvider = () => ({ priceRange: { minValue: out.range[0], maxValue: out.range[1] }, margins: { above: 4, below: 4 } });
+            const s = chart.addSeries(LC.LineSeries, opts, cmp.pane);
+            if (cmp.pane) s.priceScale().applyOptions({ scaleMargins: { top: 0.08, bottom: 0.06 } });
+            if (k === 0 && out.levels) out.levels.forEach((lv) => s.createPriceLine({ price: lv, color: c.axis, lineWidth: 1, lineStyle: 2, axisLabelVisible: false }));
+            studySeries.push({ uid: inst.uid, api: s, line: k });
+          });
         }
       }
-      const lg = $("#lv-legend");
-      if (lg) lg.innerHTML = legend.join(" &nbsp; ") + (active.some((i) => i.id === "ichimoku") ? " &nbsp; (cloud drawn up to the last bar)" : "");
+      const panes = chart.panes();
+      panes.forEach((p, i) => p.setStretchFactor(i === 0 ? 3.2 : 1));
+      fillStudies();
+      requestAnimationFrame(() => { updateLegends(null); queueDraw(); });  // new panes are laid out by the next frame
+      ensureBench();
     }
-    return {
-      chart,
-      setBars(list, { line = false, withVolume = true } = {}) {
-        if (!main) {
-          mainSeries(line);
-          if (withVolume) {
-            volume = chart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "vol", lastValueVisible: false, priceLineVisible: false });
-          }
-        }
-        bars = list;
-        main.setData(bars.map((b) => (lineMode ? { time: b.time, value: b.close } : b)));
-        if (volume) volume.setData(bars.map((b) => ({ time: b.time, value: b.volume, color: (b.close >= b.open ? c.up : c.down) + "55" })));
-        drawIndicators();
-        chart.timeScale().fitContent();
-      },
-      update(b) {
-        const lastBar = bars[bars.length - 1];
-        if (lastBar && b.time === lastBar.time) bars[bars.length - 1] = b;
-        else if (!lastBar || b.time > lastBar.time) bars.push(b);
+    /** Push computed values into the series (on rebuild and as bars update). */
+    function fillStudies(recompute = false) {
+      if (recompute) {
+        const d = dataForStudies();
+        computed.forEach((cmp) => { if (!cmp.skipped) cmp.out = cmp.def.calc(d, cmp.inst.params); });
+      }
+      const times = bars.map((b) => chartTime(b.t));
+      for (const ss of studySeries) {
+        const cmp = computed.find((x) => x.inst.uid === ss.uid);
+        if (!cmp || !cmp.out) continue;
+        const pt = (values, i, extra = {}) => (values[i] == null ? { time: times[i] } : Object.assign({ time: times[i], value: values[i] }, extra));
+        if (ss.kind === "vol") ss.api.setData(bars.map((b, i) => ({ time: times[i], value: b.volume, color: withAlpha(b.close >= b.open ? c.up : c.down, 0.45) })));
+        else if (ss.kind === "hist") ss.api.setData(times.map((_, i) => pt(cmp.out.hist, i, { color: withAlpha((cmp.out.hist[i] ?? 0) >= 0 ? c.up : c.down, 0.6) })));
+        else if (ss.kind === "segments") { const sg = cmp.out.segments; ss.api.setData(times.map((_, i) => pt(sg.values, i, { color: sg.up[i] ? c.good : c.bad }))); }
+        else ss.api.setData(times.map((_, i) => pt(cmp.out.lines[ss.line].values, i)));
+      }
+      updateLegends(null);
+    }
+
+    // --- legends ---------------------------------------------------------------------------------
+    function paneTops() {
+      const top0 = stage.getBoundingClientRect().top;
+      return chart.panes().map((p) => { const e = p.getHTMLElement(); return e ? e.getBoundingClientRect().top - top0 : 0; });
+    }
+    function updateLegends(idx) {
+      const i = idx ?? bars.length - 1, b = bars[i];
+      if (!b) return;
+      const prev = bars[i - 1], chg = prev ? b.close / prev.close - 1 : null, ref = b.close;
+      const tops = paneTops(), blocks = {};
+      const add = (pane, html) => { (blocks[pane] = blocks[pane] || []).push(html); };
+      add(0, `<div class="pc-leg-main"><button class="pc-fold" data-act="fold" title="${legendFolded ? "Show" : "Hide"} indicator values">${legendFolded ? "▸" : "▾"}</button><b>${esc(r.sym)}</b> · ${LABEL[iv] || iv} · ${esc(r.feed === "binance" ? "Binance" : r.feed === "cnbc" ? "CNBC" : "daily")}
+        <span>O <b>${fmtNum(b.open, ref)}</b> H <b>${fmtNum(b.high, ref)}</b> L <b>${fmtNum(b.low, ref)}</b> C <b>${fmtNum(b.close, ref)}</b>
+        ${chg === null ? "" : `<b class="${chg >= 0 ? "pos" : "neg"}">${chg >= 0 ? "+" : ""}${(chg * 100).toFixed(2)}%</b>`}${b.volume ? ` Vol <b>${Math.round(b.volume).toLocaleString()}</b>` : ""}</span></div>`);
+      for (const cmp of computed) {
+        const { inst, def, out } = cmp;
+        const btns = `<button data-act="hide" data-uid="${inst.uid}" title="${inst.hidden ? "Show" : "Hide"}">${inst.hidden ? "◌" : "◉"}</button><button data-act="edit" data-uid="${inst.uid}" title="Settings">⚙</button><button data-act="del" data-uid="${inst.uid}" title="Remove">✕</button>`;
+        if (cmp.skipped) { add(0, `<div class="pc-leg off">${esc(def ? def.label(inst.params) : inst.id)} <i>needs data this symbol doesn't have</i> ${btns}</div>`); continue; }
+        const vals = out.segments ? [`<span style="color:${out.segments.up[i] ? c.good : c.bad}">${fmtNum(out.segments.values[i], ref)}</span>`]
+          : out.lines.map((ln, k) => `<span style="color:${inst.colors[k] || colorOf(ln.color)}">${fmtNum(ln.values[i], def.kind === "pane" ? ln.values[i] : ref)}</span>`);
+        if (out.hist && out.hist[i] != null) vals.push(`<span class="${out.hist[i] >= 0 ? "pos" : "neg"}">${fmtNum(out.hist[i], out.hist[i])}</span>`);
+        if (def.kind === "volume" && b.volume) vals.unshift(`<span>${Math.round(b.volume).toLocaleString()}</span>`);
+        add(cmp.pane || 0, `<div class="pc-leg${inst.hidden ? " off" : ""}">${esc(def.label(inst.params))} ${vals.join(" ")} ${btns}</div>`);
+      }
+      legends.innerHTML = Object.entries(blocks).map(([p, list]) => `<div class="pc-leg-pane" style="top:${(tops[p] || 0) + 4}px">${list.join("")}</div>`).join("");
+      legends.classList.toggle("folded", legendFolded);
+    }
+    let legendFolded = store.get("pc:legendFolded", window.innerWidth < 760);
+    legends.addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-act]");
+      if (!b) return;
+      if (b.dataset.act === "fold") { legendFolded = !legendFolded; store.set("pc:legendFolded", legendFolded); updateLegends(null); return; }
+      const inst = state.studies.find((s) => s.uid === b.dataset.uid);
+      if (!inst) return;
+      if (b.dataset.act === "del") state.studies = state.studies.filter((s) => s !== inst);
+      else if (b.dataset.act === "hide") inst.hidden = !inst.hidden;
+      else if (b.dataset.act === "edit") return openSettings(inst);
+      saveStudies(); rebuildStudies();
+    });
+    chart.subscribeCrosshairMove((param) => {
+      const idx = param && param.logical != null ? Math.max(0, Math.min(bars.length - 1, Math.round(param.logical))) : null;
+      updateLegends(param && param.point ? idx : null);
+      if (pending && param && param.point) { pending.preview = pointFromXY(param.point.x, param.point.y); drawAll(); }
+    });
+
+    // --- drawings ------------------------------------------------------------------------------
+    const ts = () => chart.timeScale();
+    const spacing = () => (bars.length > 1 ? (bars[bars.length - 1].t - bars[0].t) / (bars.length - 1) : SEC[iv]);
+    function logicalOfT(t) {
+      if (!bars.length) return null;
+      if (t <= bars[0].t) return (t - bars[0].t) / spacing();
+      const n = bars.length - 1;
+      if (t >= bars[n].t) return n + (t - bars[n].t) / SEC[iv];
+      let lo = 0, hi = n;
+      while (hi - lo > 1) { const m = (lo + hi) >> 1; if (bars[m].t <= t) lo = m; else hi = m; }
+      return lo + (t - bars[lo].t) / (bars[hi].t - bars[lo].t);
+    }
+    function tOfLogical(l) {
+      const n = bars.length - 1;
+      if (l <= 0) return bars[0].t + l * spacing();
+      if (l >= n) return bars[n].t + (l - n) * SEC[iv];
+      const i = Math.floor(l), f = l - i;
+      return bars[i].t + f * (bars[i + 1].t - bars[i].t);
+    }
+    function pointFromXY(x, y) {
+      const l = ts().coordinateToLogical(x), p = main.coordinateToPrice(y);
+      return l == null || p == null ? null : { t: tOfLogical(l), p };
+    }
+    const xy = (pt) => { const l = logicalOfT(pt.t); return { x: l == null ? null : ts().logicalToCoordinate(l), y: main.priceToCoordinate(pt.p) }; };
+    const saveDrawings = () => store.set(`pc:draw:${r.sym}`, drawings);
+    function shapeSvg(dw, i, preview) {
+      const a = xy(dw.a), b = dw.b ? xy(dw.b) : null, W = box.clientWidth, col = i === selected ? c.down : (dw.color || c.up);
+      if (a.x == null || a.y == null) return "";
+      const hit = (inner) => `<g data-i="${i}" class="${preview ? "" : "pc-shape"}">${inner}</g>`;
+      const line = (x1, y1, x2, y2, extra = "") => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${col}" stroke-width="1.6" ${extra}/><line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="transparent" stroke-width="10"/>`;
+      const label = (x, y, text, anchor = "start") => `<text x="${x}" y="${y}" fill="${col}" font-size="11" text-anchor="${anchor}" font-family="system-ui, sans-serif">${esc(text)}</text>`;
+      if (dw.type === "hline") return hit(line(0, a.y, W, a.y) + label(W - 70, a.y - 4, fmtNum(dw.a.p, lastClose()), "end"));
+      if (dw.type === "vline") return hit(line(a.x, 0, a.x, box.clientHeight));
+      if (!b || b.x == null || b.y == null) return hit(`<circle cx="${a.x}" cy="${a.y}" r="3" fill="${col}"/>`);
+      if (dw.type === "trend") return hit(line(a.x, a.y, b.x, b.y));
+      if (dw.type === "ray") {
+        const dx = b.x - a.x, dy = b.y - a.y, k = dx === 0 ? 1 : (W - a.x) / dx;
+        return hit(line(a.x, a.y, dx >= 0 ? a.x + dx * Math.max(k, 1) : b.x, dx >= 0 ? a.y + dy * Math.max(k, 1) : b.y));
+      }
+      if (dw.type === "rect") return hit(`<rect x="${Math.min(a.x, b.x)}" y="${Math.min(a.y, b.y)}" width="${Math.abs(b.x - a.x)}" height="${Math.abs(b.y - a.y)}" fill="${withAlpha(col.startsWith("#") ? col : "#2a78d6", 0.1)}" stroke="${col}" stroke-width="1.4"/>`);
+      if (dw.type === "fib") {
+        const x1 = Math.min(a.x, b.x), x2 = Math.max(a.x, b.x);
+        return hit(FIB.map((lv) => {
+          const price = dw.b.p + (dw.a.p - dw.b.p) * lv, y = main.priceToCoordinate(price);
+          return y == null ? "" : line(x1, y, x2, y, lv === 0.5 || lv === 0.618 ? "" : 'stroke-dasharray="4 3"') + label(x2 + 4, y + 4, `${lv} (${fmtNum(price, lastClose())})`);
+        }).join("") + `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="${col}" stroke-dasharray="2 4" stroke-width="1"/>`);
+      }
+      if (dw.type === "measure") {
+        const dp = dw.b.p - dw.a.p, pctv = dp / dw.a.p, nb = Math.round(logicalOfT(dw.b.t) - logicalOfT(dw.a.t));
+        const fill = withAlpha(dp >= 0 ? c.up : c.down, 0.12);
+        return hit(`<rect x="${Math.min(a.x, b.x)}" y="${Math.min(a.y, b.y)}" width="${Math.abs(b.x - a.x)}" height="${Math.abs(b.y - a.y)}" fill="${fill}" stroke="${dp >= 0 ? c.up : c.down}"/>`
+          + label((a.x + b.x) / 2, Math.min(a.y, b.y) - 6, `${dp >= 0 ? "+" : ""}${fmtNum(dp, lastClose())} (${(pctv * 100).toFixed(2)}%) · ${nb} bars`, "middle"));
+      }
+      return "";
+    }
+    function drawAll() {
+      redrawQueued = false;
+      const h0 = chart.panes()[0] ? chart.panes()[0].getHeight() : box.clientHeight;
+      const w0 = box.clientWidth - (chart.priceScale("right").width() || 0);
+      const list = drawings.map((dw, i) => shapeSvg(dw, i, false));
+      if (pending && pending.preview) list.push(shapeSvg(Object.assign({}, pending, { b: pending.preview }), -1, true));
+      svg.setAttribute("width", box.clientWidth); svg.setAttribute("height", box.clientHeight);
+      svg.innerHTML = `<defs><clipPath id="pc-clip"><rect x="0" y="0" width="${w0}" height="${h0}"/></clipPath></defs><g clip-path="url(#pc-clip)">${list.join("")}</g>`;
+    }
+    const queueDraw = () => { if (!redrawQueued) { redrawQueued = true; requestAnimationFrame(drawAll); } };
+    ts().subscribeVisibleLogicalRangeChange(queueDraw);
+    const ro = new ResizeObserver(() => { queueDraw(); updateLegends(null); });
+    ro.observe(box);
+    stage.addEventListener("pointermove", queueDraw);
+    stage.addEventListener("wheel", queueDraw, { passive: true });
+    svg.addEventListener("click", (e) => {
+      const g = e.target.closest(".pc-shape");
+      if (!g || tool !== "cursor") return;
+      selected = Number(g.dataset.i); drawAll(); e.stopPropagation();
+    });
+    function setTool(t) {
+      tool = t; pending = null;
+      el.querySelectorAll(".pc-tool").forEach((b) => b.classList.toggle("on", b.dataset.tool === t));
+      stage.classList.toggle("drawing", t !== "cursor");
+      drawAll();
+    }
+    el.querySelectorAll(".pc-tool").forEach((b) => b.addEventListener("click", () => {
+      if (b.dataset.tool === "clear") { if (drawings.length && confirm(`Remove all ${drawings.length} drawings on ${r.sym}?`)) { drawings = []; selected = null; saveDrawings(); drawAll(); } return; }
+      setTool(b.dataset.tool);
+    }));
+    // Drawing clicks come from pointer events on the stage, not the chart's click event: the chart
+    // reports a quick second click elsewhere as neither a click nor a double-click.
+    let downAt = null;
+    stage.addEventListener("pointerdown", (e) => { downAt = tool !== "cursor" && e.button === 0 ? { x: e.clientX, y: e.clientY } : null; }, true);
+    stage.addEventListener("pointerup", (e) => {
+      if (tool === "cursor" || !downAt) return;
+      const moved = Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y);
+      downAt = null;
+      if (moved > 6) return;  // that was a drag (pan), not a click
+      const rect = box.getBoundingClientRect(), x = e.clientX - rect.left, y = e.clientY - rect.top;
+      const h0 = chart.panes()[0].getHeight(), w0 = box.clientWidth - (chart.priceScale("right").width() || 0);
+      if (x < 0 || y < 0 || x > w0 || y > h0) return;  // drawings live on the price pane
+      placePoint(x, y);
+    }, true);
+    chart.subscribeClick(() => { if (tool === "cursor" && selected !== null) { selected = null; drawAll(); } });
+    function placePoint(x, y) {
+      const pt = pointFromXY(x, y);
+      if (!pt) return;
+      if (tool === "hline" || tool === "vline") { drawings.push({ type: tool, a: pt }); saveDrawings(); setTool("cursor"); return; }
+      if (!pending) { pending = { type: tool, a: pt }; drawAll(); return; }
+      drawings.push({ type: pending.type, a: pending.a, b: pt }); saveDrawings();
+      setTool("cursor");
+    }
+
+    // --- live feed -------------------------------------------------------------------------------
+    function onBar(b, meta) {
+      if (meta) { lastChange = meta; showPrice(); return; }
+      if (!b) return;
+      if (b.quote !== undefined) {  // a daily quote: update the last bar, or start a new one on a new date
+        let lastB = bars[bars.length - 1];
+        const day = /^\d{4}-\d{2}-\d{2}$/.test(b.date) ? Date.parse(b.date + "T00:00:00Z") / 1000 : null;
+        if (iv === "1d" && day && day > lastB.t) { lastB = { t: day, open: b.quote, high: b.quote, low: b.quote, close: b.quote, volume: 0 }; bars.push(lastB); }
+        lastB.close = b.quote;
+        if (Number.isFinite(b.high) && b.high > 0) lastB.high = Math.max(lastB.high, b.high);
+        if (Number.isFinite(b.low) && b.low > 0) lastB.low = Math.min(lastB.low, b.low);
+        b = lastB;
+      } else {
+        const lastB = bars[bars.length - 1];
+        if (lastB && b.t === lastB.t) bars[bars.length - 1] = b.merge ? Object.assign(lastB, { high: Math.max(lastB.high, b.high), low: Math.min(lastB.low, b.low), close: b.close }) : b;
+        else if (!lastB || b.t > lastB.t) bars.push(b);
         else return;
-        main.update(lineMode ? { time: b.time, value: b.close } : b);
-        if (volume) volume.update({ time: b.time, value: b.volume, color: (b.close >= b.open ? c.up : c.down) + "55" });
-        if (!pending) pending = setTimeout(drawIndicators, 1000);  // indicators refresh at most once a second
-      },
-      setIndicators(list) { active = list; drawIndicators(); },
-      remove() { clearTimeout(pending); chart.remove(); },
-      get bars() { return bars; },
-    };
-  }
-  function nativeSession(intervals, fitsFn, whyNotFn) {
-    return { intervals, fits: fitsFn, whyNot: whyNotFn };
-  }
-  const needsText = { hlc: "needs high/low prices", hlcv: "needs high/low prices and volume", cv: "needs volume" };
-
-  /** WebSocket with reconnect-with-backoff and pause-while-hidden. */
-  function socket(url, { onOpen, onMessage, onResume }) {
-    let ws = null, stopped = false, tries = 0, timer = null;
-    const connect = () => {
-      if (stopped || document.hidden) return;
-      setStatus("wait", tries ? "Reconnecting…" : "Connecting…");
-      ws = new WebSocket(url);
-      ws.onopen = () => { tries = 0; if (onOpen) onOpen(ws); };
-      ws.onmessage = (e) => { try { onMessage(JSON.parse(e.data)); } catch (err) { console.error(err); } };
-      ws.onclose = () => {
-        ws = null;
-        if (stopped || document.hidden) return;
-        const delay = [1, 2, 5, 10, 30][Math.min(tries++, 4)] * 1000;
-        setStatus("err", `Disconnected; retrying in ${delay / 1000}s`);
-        timer = setTimeout(connect, delay);
-      };
-    };
-    const onVisibility = () => {
-      if (document.hidden) { if (ws) { ws.onclose = null; ws.close(); ws = null; } setStatus("wait", "Paused while the tab is hidden"); }
-      else if (!stopped && !ws) { (onResume ? onResume() : Promise.resolve()).finally(connect); }
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-    return {
-      start: connect,
-      stop() { stopped = true; clearTimeout(timer); document.removeEventListener("visibilitychange", onVisibility); if (ws) { ws.onclose = null; ws.close(); } },
-    };
-  }
-
-  // --- Binance (crypto, keyless) ---------------------------------------------------------------
-  function binance(r) {
-    let ui = null, conn = null;
-    const s = nativeSession(["1m", "5m", "15m", "1h", "4h", "1d", "1w"],
-      (ind) => !(ind.intraday && ["1d", "1w"].includes(s.interval)), (ind) => (ind.intraday ? "intraday intervals only" : ""));
-    const utcDay = (t) => Math.floor(t / 86400);
-    const toBar = (k) => { const t = Math.floor(k[0] / 1000); return { time: t + localShift(), open: +k[1], high: +k[2], low: +k[3], close: +k[4], volume: +k[5], session: utcDay(t) }; };
-    async function seed() {
-      const res = await fetch(`${BINANCE_REST}/klines?symbol=${r.pair}&interval=${s.interval}&limit=600`);
-      if (res.status === 400) throw new Error(`Binance has no ${r.pair} pair. Try a USDT pair such as BTCUSDT, or the TradingView chart.`);
-      if (!res.ok) throw new Error(`Binance HTTP ${res.status}`);
-      ui.setBars((await res.json()).map(toBar));
-      const t = await fetch(`${BINANCE_REST}/ticker/24hr?symbol=${r.pair}`).then((x) => x.json()).catch(() => null);
-      const last = ui.bars[ui.bars.length - 1];
-      setPrice(last ? last.close : NaN, t ? +t.priceChangePercent / 100 : NaN, `${r.pair} · Binance spot · 24h change`);
+      }
+      const shown = type === "Heikin Ashi" ? heikin(bars).pop() : bars[bars.length - 1];
+      main.update(toPoint(shown));
+      showPrice();
+      clearTimeout(studyTimer);
+      studyTimer = setTimeout(() => { fillStudies(true); queueDraw(); }, 400);
     }
-    Object.assign(s, {
-      async start(indicators) {
-        await loadScript(LWC_URL, "LightweightCharts");
-        ui = nativeChart(true);
-        ui.setIndicators(indicators);
-        await seed();
-        const lower = r.pair.toLowerCase();
-        conn = socket(`${BINANCE_WS}${lower}@kline_${s.interval}/${lower}@miniTicker`, {
-          onMessage(msg) {
-            const d = msg.data || {};
-            if (d.e === "kline") {
-              const k = d.k, t = Math.floor(k.t / 1000);
-              ui.update({ time: t + localShift(), open: +k.o, high: +k.h, low: +k.l, close: +k.c, volume: +k.v, session: utcDay(t) });
-              setPrice(+k.c, NaN);
-            } else if (d.e === "24hrMiniTicker") setPrice(+d.c, +d.c / +d.o - 1);
-            setStatus("live", "Live");
-          },
-          onResume: () => seed().catch(() => {}),  // fill the gap left while the tab was hidden
-        });
-        conn.start();
-        $("#lv-extra").innerHTML = `<p class="caption">Streaming from Binance's public market data (no key). VWAP resets at 00:00 UTC.
-          Indicators are computed in your browser with TradingView's formulas.</p>`;
-      },
-      setIndicators(list) { if (ui) ui.setIndicators(list); },
-      stop() { if (conn) conn.stop(); if (ui) ui.remove(); },
-    });
-    return s;
-  }
+    function showPrice() {
+      const b = bars[bars.length - 1], p = $("#pc-price"), ch = $("#pc-change");
+      if (!b || !p) return;
+      p.textContent = fmtNum(b.close, b.close);
+      const prev = r.feed === "binance" ? null : bars[bars.length - 2];
+      const change = lastChange ? lastChange.change : intraday ? null : prev ? b.close / prev.close - 1 : null;
+      if (ch) ch.innerHTML = change == null ? "" : `<span class="${change >= 0 ? "pos" : "neg"}">${change >= 0 ? "+" : ""}${(change * 100).toFixed(2)}%${lastChange ? " 24h" : ""}</span>`;
+    }
+    rebuildStudies();
+    showPrice();
+    ts().fitContent();
+    if (bars.length > 300) ts().setVisibleLogicalRange({ from: bars.length - 300, to: bars.length + 5 });
+    setStatus("wait", "Connecting…");
+    stopFeed = FEEDS.subscribe(r, iv, onBar, setStatus);
+    if (r.feed === "daily") setStatus("wait", r.liveError ? "Live source unavailable: daily bars" : "Daily bars, updated nightly");
 
-  // --- Finnhub (US stocks, visitor's key) ------------------------------------------------------
-  function finnhub(r) {
-    let ui = null, conn = null, prevClose = NaN, idle = null;
-    const s = nativeSession(["1m", "5m", "15m"], () => true, () => "");
-    const tape = [];
-    Object.assign(s, {
-      async start(indicators) {
-        await loadScript(LWC_URL, "LightweightCharts");
-        ui = nativeChart(true);
-        ui.setIndicators(indicators);
-        const step = SECONDS[s.interval];
-        try {
-          const q = await FH.get("quote", { symbol: r.sym });
-          if (q && q.c) { prevClose = q.pc; setPrice(q.c, q.pc ? q.c / q.pc - 1 : NaN, `${r.sym} · Finnhub · vs previous close`); }
-        } catch (e) { $("#lv-extra").innerHTML = `<div class="note">${esc(e.message)}</div>`; }
-        $("#lv-extra").insertAdjacentHTML("beforeend", `<h3 style="margin-top:16px">Trades</h3><div class="tape table-wrap" id="lv-tape"><div class="empty">Waiting for trades…</div></div>
-          <p class="caption">Candles are built in your browser from Finnhub's trade stream, starting when this page opened, so indicators
-          need a few bars to warm up. For full intraday history use the TradingView chart above.</p>`);
-        const open = usMarketOpen();
-        setStatus("wait", open ? "Connecting…" : "US market closed (9:30–16:00 New York, Mon–Fri)");
-        idle = setTimeout(() => setStatus("wait", usMarketOpen() ? "Connected, no trades yet" : "US market closed (9:30–16:00 New York, Mon–Fri)"), 15000);
-        let last = null;
-        conn = socket(FINNHUB_WS + encodeURIComponent(FH.key()), {
-          onOpen(ws) { ws.send(JSON.stringify({ type: "subscribe", symbol: r.sym })); if (usMarketOpen()) setStatus("wait", "Connected, waiting for trades…"); },
-          onMessage(msg) {
-            if (msg.type === "error") { setStatus("err", msg.msg || "Finnhub error"); return; }
-            if (msg.type !== "trade" || !Array.isArray(msg.data)) return;
-            clearTimeout(idle);
-            for (const tr of msg.data) {
-              if (tr.s !== r.sym) continue;
-              const t = Math.floor(tr.t / 1000 / step) * step;
-              const time = t + localShift(), session = nyDate.format(new Date(tr.t));
-              if (!last || time > last.time) last = { time, open: tr.p, high: tr.p, low: tr.p, close: tr.p, volume: tr.v || 0, session };
-              else if (time === last.time) Object.assign(last, { high: Math.max(last.high, tr.p), low: Math.min(last.low, tr.p), close: tr.p, volume: last.volume + (tr.v || 0) });
-              else continue;  // a late trade for an earlier candle
-              ui.update(Object.assign({}, last));
-              tape.unshift(tr); tape.length = Math.min(tape.length, 60);
-            }
-            if (last) setPrice(last.close, Number.isFinite(prevClose) && prevClose ? last.close / prevClose - 1 : NaN);
-            setStatus("live", "Live");
-            const box = $("#lv-tape");
-            if (box) box.innerHTML = `<table><thead><tr><th>Time</th><th class="r">Price</th><th class="r">Size</th></tr></thead><tbody>${tape.map((tr) =>
-              `<tr><td>${new Date(tr.t).toLocaleTimeString()}</td><td class="r">${fmt(tr.p)}</td><td class="r">${(tr.v || 0).toLocaleString()}</td></tr>`).join("")}</tbody></table>`;
-          },
-        });
-        conn.start();
-      },
-      setIndicators(list) { if (ui) ui.setIndicators(list); },
-      stop() { clearTimeout(idle); if (conn) conn.stop(); if (ui) ui.remove(); },
-    });
-    return s;
-  }
+    // --- toolbar, dialogs and shortcuts ------------------------------------------------------------
+    let logOn = false, pctOn = false;
+    const setScale = () => chart.priceScale("right").applyOptions({ mode: logOn ? 1 : pctOn ? 2 : 0 });
+    $("#pc-type", el).addEventListener("change", (e) => { state.type = e.target.value; store.set("pc:type", state.type); view(el.closest("#view") || el, r.sym); });
+    $("#pc-log", el).addEventListener("click", (e) => { logOn = !logOn; pctOn = false; setScale(); e.target.classList.toggle("on", logOn); $("#pc-pct", el).classList.remove("on"); });
+    $("#pc-pct", el).addEventListener("click", (e) => { pctOn = !pctOn; logOn = false; setScale(); e.target.classList.toggle("on", pctOn); $("#pc-log", el).classList.remove("on"); });
+    const screenshot = () => {
+      const canvas = chart.takeScreenshot(true, false), a = document.createElement("a");
+      a.href = canvas.toDataURL("image/png"); a.download = `${r.sym}_${iv}_${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")}.png`; a.click();
+    };
+    const fullscreen = () => { const node = $("#pc", el); if (document.fullscreenElement) document.exitFullscreen(); else if (node.requestFullscreen) node.requestFullscreen(); };
+    $("#pc-shot", el).addEventListener("click", screenshot);
+    $("#pc-full", el).addEventListener("click", fullscreen);
+    $("#pc-ind", el).addEventListener("click", () => openIndicators("studies"));
+    $("#pc-books", el).addEventListener("click", () => openIndicators("books"));
+    $("#pc-keys", el).addEventListener("click", () => modal("Keyboard shortcuts", `<table class="pc-keys">${SHORTCUTS.map(([k, v]) => `<tr><td><kbd>${esc(k)}</kbd></td><td>${esc(v)}</td></tr>`).join("")}</table>`));
 
-  // --- Daily bars from the nightly export (markets without a free real-time feed) -------------
-  function dailyBars(r) {
-    let ui = null, hasOHLC = false;
-    const s = nativeSession(["1d"], (ind) => !ind.intraday && (hasOHLC || ind.needs === "c"),
-      (ind) => (ind.intraday ? "intraday charts only" : needsText[ind.needs] + " (kept for the deep-tier stocks)"));
-    Object.assign(s, {
-      async prepare() {
-        if (r.deep) {
-          const d = await load(`deep/${r.sym.replace("^", "_")}.json`);
-          hasOHLC = true;
-          return d.d.map((t, i) => ({ time: t, open: d.o[i], high: d.h[i], low: d.l[i], close: d.c[i], volume: d.v[i] }));
-        }
-        const sd = await symbolData(r.sym);
-        if (!sd || !sd.px) throw new Error(`No daily prices for ${r.sym}.`);
-        return sd.px.dates.map((t, i) => ({ time: t, open: sd.px.values[i], close: sd.px.values[i] }));
-      },
-      async start(indicators) {
-        const [list] = await Promise.all([s.prepare(), loadScript(LWC_URL, "LightweightCharts")]);
-        ui = nativeChart(false);
-        ui.setIndicators(indicators.filter((i) => s.fits(i)));
-        ui.setBars(list, { line: !hasOHLC, withVolume: hasOHLC });
-        const n = list.length, last = list[n - 1], prev = list[n - 2];
-        setPrice(last.close, prev ? last.close / prev.close - 1 : NaN, `Daily close ${last.time}${r.row && r.row.cur ? " · " + r.row.cur : ""}`);
-        setStatus("wait", "Daily bars, updated nightly");
-        const why = r.kind === "us"
-          ? "Add a free Finnhub key in ⚙ settings for a live tick stream here, or switch to the TradingView chart for real-time candles without a key."
-          : "TradingView's free embeddable chart doesn't carry this market, so this chart shows the platform's nightly daily data. Use “View on TradingView” for its live chart.";
-        $("#lv-extra").innerHTML = `<div class="note">${why}</div>` + (hasOHLC ? "" :
-          `<p class="caption">Only closing prices are stored for this symbol, so the chart is a line and indicators that need highs, lows or volume are unavailable.</p>`);
-        // The chips were drawn before the data told us whether highs and lows exist: redraw them.
-        document.querySelectorAll("#lv-over .chip, #lv-osc .chip").forEach((b) => {
-          const ind = Q.INDICATORS.find((i) => i.id === b.dataset.v), fit = s.fits(ind);
-          b.disabled = !fit; b.style.opacity = fit ? "" : ".45"; b.title = fit ? "" : s.whyNot(ind);
-          b.classList.toggle("on", fit && state.indicators.has(ind.id));
+    let typed = "", typedTimer = null;
+    const typedBox = $("#pc-typed", el);
+    const parseInterval = (s) => {
+      const m = s.trim().toUpperCase().match(/^(\d*)([SMHDW]?)$/);
+      if (!m) return null;
+      const n = m[1] ? Number(m[1]) : 1, u = m[2];
+      if (u === "D") return n === 1 ? "1d" : null;
+      if (u === "W") return n === 1 ? "1w" : null;
+      if (u === "M") return n === 1 ? "1M" : null;  // as on TradingView: M is months, plain numbers are minutes
+      if (u === "H") return { 1: "1h", 2: "2h", 4: "4h" }[n] || null;
+      if (!u) return { 1: "1m", 3: "3m", 5: "5m", 15: "15m", 30: "30m", 60: "1h", 120: "2h", 240: "4h" }[n] || null;
+      return null;
+    };
+    function onKey(e) {
+      const target = e.target instanceof Element ? e.target : null;
+      if ((target && target.closest("input, select, textarea")) || document.querySelector(".modal-back.open")) return;
+      const k = e.key;
+      if (k === "Escape") { setTool("cursor"); selected = null; drawAll(); typed = ""; typedBox.hidden = true; return; }
+      if ((k === "Delete" || k === "Backspace") && selected !== null) { drawings.splice(selected, 1); selected = null; saveDrawings(); drawAll(); e.preventDefault(); return; }
+      if ((e.ctrlKey || e.metaKey) && k.toLowerCase() === "z") { drawings.pop(); saveDrawings(); drawAll(); e.preventDefault(); return; }
+      if (k === "/") { e.preventDefault(); openIndicators("studies"); return; }
+      if (e.altKey) {
+        const map = { t: e.shiftKey ? "ray" : "trend", h: "hline", v: "vline", f: "fib", m: "measure", r: e.shiftKey ? "rect" : null };
+        const kk = (e.code || "").replace("Key", "").toLowerCase();
+        if (kk === "l") { $("#pc-log", el).click(); e.preventDefault(); return; }
+        if (kk === "s") { screenshot(); e.preventDefault(); return; }
+        if (kk === "r" && !e.shiftKey) { ts().fitContent(); chart.priceScale("right").applyOptions({ autoScale: true }); e.preventDefault(); return; }
+        if (map[kk]) { setTool(map[kk]); e.preventDefault(); return; }
+      }
+      if (e.shiftKey && k === "F") { fullscreen(); e.preventDefault(); return; }
+      if (/^[0-9]$/.test(k) || (typed && /^[smhdwSMHDW]$/.test(k)) || (!typed && /^[DWdw]$/.test(k) && !e.altKey && !e.ctrlKey)) {
+        typed += k; typedBox.hidden = false; typedBox.textContent = typed.toUpperCase();
+        clearTimeout(typedTimer); typedTimer = setTimeout(() => { typed = ""; typedBox.hidden = true; }, 2500);
+        e.preventDefault(); return;
+      }
+      if (k === "Enter" && typed) {
+        const next = parseInterval(typed); typed = ""; typedBox.hidden = true;
+        if (next && pc.onInterval) pc.onInterval(next);
+      }
+    }
+    document.addEventListener("keydown", onKey);
+
+    function modal(title, body, onMount) {
+      const back = document.createElement("div");
+      back.className = "modal-back open";
+      back.innerHTML = `<div class="modal pc-modal" role="dialog" aria-modal="true"><div class="row" style="margin:0 0 8px;justify-content:space-between"><h2 style="margin:0">${esc(title)}</h2><button class="btn" data-close>✕</button></div>${body}</div>`;
+      document.body.appendChild(back);
+      const close = () => back.remove();
+      back.addEventListener("click", (e) => { if (e.target === back || e.target.closest("[data-close]")) close(); });
+      const esc2 = (e) => { if (e.key === "Escape") { close(); document.removeEventListener("keydown", esc2); } };
+      document.addEventListener("keydown", esc2);
+      if (onMount) onMount(back.querySelector(".modal"), close);
+      return close;
+    }
+    function openIndicators(tab) {
+      const groups = ["Trend", "Momentum", "Volatility", "Volume"];
+      const studiesHtml = (q = "") => groups.map((g) => {
+        const items = Q.STUDIES.filter((s) => s.group === g && (!q || s.name.toLowerCase().includes(q) || s.id.includes(q)));
+        if (!items.length) return "";
+        const d = dataForStudies();
+        return `<h3>${g}</h3>${items.map((s) => {
+          const fit = Q.studyFits(s, Object.assign({}, d, { bench: [1] }));
+          return `<button type="button" class="pc-item" data-add="${s.id}"${fit ? "" : " disabled title=\"Needs data this symbol or interval doesn't have\""}>
+            <b>${esc(s.name)}</b><span>${esc(s.label(Object.fromEntries(s.params.map((p) => [p.key, p.def]))))}${s.kind === "pane" ? " · own pane" : ""}</span></button>`;
+        }).join("")}`;
+      }).join("") || '<p class="muted">No match.</p>';
+      const booksHtml = Q.PLAYBOOKS.map((b) => `<div class="card pc-book"><div><b>${esc(b.name)}</b> <span class="badge">${LABEL[b.interval] || b.interval}</span></div>
+        <p class="soft">${esc(b.about)}</p>
+        <p class="caption">${b.studies.length ? b.studies.map((x) => { const d = Q.STUDIES.find((s) => s.id === x.id); return esc(d.label(Object.assign(Object.fromEntries(d.params.map((p) => [p.key, p.def])), x.params))); }).join(" · ") : "No indicators"}</p>
+        <div class="row" style="margin-top:6px"><button class="btn primary" data-apply="${b.id}">Apply</button><button class="btn" data-append="${b.id}">Add to chart</button></div></div>`).join("");
+      modal("Indicators", `
+        <div class="subtabs" style="margin-top:0"><button type="button" data-tab="studies"${tab === "studies" ? ' class="on"' : ""}>Indicators</button><button type="button" data-tab="books"${tab === "books" ? ' class="on"' : ""}>Investor playbooks</button></div>
+        <div data-pane="studies"${tab === "studies" ? "" : " hidden"}><input type="search" class="pc-isearch" placeholder="Search indicators" autocomplete="off"><div class="pc-list"></div>
+          <p class="caption">Click to add; add the same indicator several times with different settings. Change settings with ⚙ in the chart legend.</p></div>
+        <div data-pane="books"${tab === "books" ? "" : " hidden"}><p class="caption">The indicators these traders and investors are known for, from their books and interviews, with their published settings. Applying a playbook replaces the chart's indicators and switches to its usual interval.</p>${booksHtml}</div>`,
+      (m, close) => {
+        const list = $(".pc-list", m), input = $(".pc-isearch", m);
+        list.innerHTML = studiesHtml();
+        input.addEventListener("input", () => { list.innerHTML = studiesHtml(input.value.trim().toLowerCase()); });
+        if (tab === "studies") setTimeout(() => input.focus(), 30);
+        m.querySelectorAll("[data-tab]").forEach((b) => b.addEventListener("click", () => {
+          m.querySelectorAll("[data-tab]").forEach((x) => x.classList.toggle("on", x === b));
+          m.querySelectorAll("[data-pane]").forEach((p) => { p.hidden = p.dataset.pane !== b.dataset.tab; });
+        }));
+        list.addEventListener("click", (e) => {
+          const b = e.target.closest("[data-add]");
+          if (!b || b.disabled) return;
+          state.studies.push(newInstance(b.dataset.add)); saveStudies(); rebuildStudies();
+          b.classList.add("added"); setTimeout(() => b.classList.remove("added"), 700);
         });
-        ui.setIndicators(indicators.filter((i) => s.fits(i)));
+        m.addEventListener("click", (e) => {
+          const ap = e.target.closest("[data-apply], [data-append]");
+          if (!ap) return;
+          const book = Q.PLAYBOOKS.find((x) => x.id === (ap.dataset.apply || ap.dataset.append));
+          const insts = book.studies.map((x) => newInstance(x.id, x.params));
+          state.studies = ap.dataset.apply ? insts : [...state.studies, ...insts];
+          saveStudies(); close();
+          if (ap.dataset.apply && book.interval !== iv && FEED_INTERVALS[r.feed].includes(book.interval) && pc.onInterval) pc.onInterval(book.interval);
+          else rebuildStudies();
+        });
+      });
+    }
+    function openSettings(inst) {
+      const def = Q.STUDIES.find((s) => s.id === inst.id);
+      const d = dataForStudies(), out = def.calc(d, inst.params);
+      const lines = out.segments ? [] : out.lines;
+      const field = (p) => {
+        const v = inst.params[p.key];
+        if (p.type === "select") return `<label>${esc(p.label)}<select data-k="${p.key}">${p.options.map((o) => `<option${o === v ? " selected" : ""}>${esc(o)}</option>`).join("")}</select></label>`;
+        if (p.type === "date") return `<label>${esc(p.label)}<input type="text" data-k="${p.key}" value="${esc(v)}" placeholder="YYYY-MM-DD"></label>`;
+        return `<label>${esc(p.label)}<input type="number" data-k="${p.key}" value="${v}" min="${p.min ?? ""}" max="${p.max ?? ""}" step="${p.step || (p.type === "int" ? 1 : 0.01)}"></label>`;
+      };
+      modal(`${def.name} settings`, `
+        <div class="params">${def.params.map(field).join("") || '<p class="muted">No inputs.</p>'}</div>
+        ${lines.length ? `<h3 style="margin-top:14px">Style</h3><div class="params">${lines.map((ln, k) => {
+          const col = inst.colors[k] || colorOf(ln.color);
+          return `<label>${esc(ln.name)}<input type="color" data-c="${k}" value="${/^#[0-9a-f]{6}$/i.test(col) ? col : "#2a78d6"}"></label>`; }).join("")}</div>` : ""}
+        <div class="row"><button class="btn primary" data-ok>Apply</button><button class="btn" data-reset>Defaults</button></div>`,
+      (m, close) => {
+        $("[data-ok]", m).addEventListener("click", () => {
+          m.querySelectorAll("[data-k]").forEach((x) => {
+            const p = def.params.find((y) => y.key === x.dataset.k);
+            inst.params[p.key] = p.type === "select" || p.type === "date" ? x.value.trim() : Math.min(p.max ?? Infinity, Math.max(p.min ?? -Infinity, Number(x.value)));
+          });
+          m.querySelectorAll("[data-c]").forEach((x) => { inst.colors[x.dataset.c] = x.value; });
+          saveStudies(); rebuildStudies(); close();
+        });
+        $("[data-reset]", m).addEventListener("click", () => {
+          inst.params = Object.fromEntries(def.params.map((p) => [p.key, p.def])); inst.colors = {};
+          saveStudies(); rebuildStudies(); close();
+        });
+      });
+    }
+
+    const pc = {
+      onInterval: null,
+      destroy() {
+        if (pc.destroyed) return;
+        pc.destroyed = true;
+        stopFeed(); clearTimeout(studyTimer); ro.disconnect(); document.removeEventListener("keydown", onKey);
+        document.querySelectorAll(".pc-modal").forEach((m) => m.closest(".modal-back").remove());
+        chart.remove();
       },
-      setIndicators(list) { if (ui) ui.setIndicators(list.filter((i) => s.fits(i))); },
-      stop() { if (ui) ui.remove(); },
-    });
-    return s;
+    };
+    return pc;
   }
 
   window.LIVE = { view };

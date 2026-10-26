@@ -686,7 +686,7 @@ python -m quant.scheduler --run-now --publish-site   # daily cycle, then publish
 | **Stock** (`#/stock/<ticker>`) | Any of ~11,400 symbols. Deep-tier names get candlesticks with news markers, explained moves and every indicator below. Everything else gets a close-price chart with the close-based indicators, plus returns, risk and peer percentiles. |
 | **Financials** (`#/financials/<ticker>`) | A research view for any ticker: fundamentals, analyst consensus, a peer table, financial statements and the factor model. Statements come from SEC filings for the deep tier, or Finnhub's reported statements for US names when a key is set. |
 | **Paper bot** | The paper and backtest portfolios with a risk dashboard: Sharpe, Sortino, max drawdown, Calmar, alpha and beta vs SPY, win rate, win/loss ratio and profit factor. Also the **strategy lab**. |
-| **Live** (`#/live/<symbol>`) | Real-time charts with indicators, for desktop and phone. US stocks and ETFs (plus XETRA, TSX and ASX) open TradingView's free real-time chart (Cboe One feed, no key). Crypto streams from Binance over WebSocket into a Lightweight Charts view. Other markets show the nightly daily bars, with a link to TradingView. |
+| **Live** (`#/live/<symbol>`) | The **Pro chart**: a TradingView-style chart drawn by the site, with every indicator and setting under your control. Details below. |
 
 The header search autocompletes over the whole universe. Pretty links such as
 `/quant-platform/stock/AAPL` also work: `404.html` turns them into the hash route.
@@ -713,24 +713,69 @@ values; they agree to about one part in a million. Fixes in this round:
 - *Oscillators:* volume, RSI 14, MACD (12, 26, 9), Stoch RSI, Stochastic
   (14, 3, 3), ATR 14, ADX/DMI 14 and OBV.
 
-They are drawn on the Stock pages, the Markets S&P 500 chart and the native Live
-charts. Your choices are remembered in the browser. `tests/test_site_js.py` checks
-each one under Node.js against Python versions of the Pine definitions, and
-against the `ta` library where it uses the same formulas. Indicators that need
-highs, lows or volume only appear where those exist: the deep tier and the live
-feeds; the universe store keeps closes only. On the TradingView chart the same
-picks are preloaded as studies. Its free widget keeps at most 5, and drops entries
-when plain study ids and `{id, inputs}` objects are mixed, so the site always
-sends objects and says which picks were left out.
+They are drawn on the Stock pages and the Markets S&P 500 chart. Your choices are
+remembered in the browser. `tests/test_site_js.py` checks each one under Node.js
+against Python versions of the Pine definitions, and against the `ta` library where
+it uses the same formulas. Indicators that need highs, lows or volume only appear
+where those exist: the deep tier and the live feeds; the universe store keeps closes
+only.
 
-**Why US stocks needed a different live source.** The first Live page streamed US
-stocks only through Finnhub. Without a key it showed an error. With one, the
-chart still started empty, because candles were built only from trades arriving
-after the page opened, and the US market is closed during the day in Asia.
-Browsers can't call Yahoo directly (no CORS), and an API key in a public site
-would be exposed. TradingView's free embeddable chart is keyless and real-time
-for US listings and carries full history. The Finnhub tick stream remains as the
-optional "Native" view.
+**Pro chart** (Live). A TradingView-style chart built on TradingView's open-source
+Lightweight Charts v5, so indicators aren't limited the way an embedded widget is.
+- *Toolbar:* symbol search, intervals from 1 minute to 1 month, and chart types
+  (candles, hollow candles, bars, line, area, Heikin Ashi). Also log and percentage
+  scales, screenshot and full screen.
+- *Indicators:* a searchable dialog with 26 studies, each with TradingView's default
+  inputs:
+  - *Trend:* moving average (SMA, EMA, WMA, HMA, VWMA or RMA), Donchian, Ichimoku,
+    Supertrend, Parabolic SAR, classic pivots, 52-week high/low and ADX/DMI.
+  - *Momentum:* RSI, MACD, Stochastic, Stoch RSI, Williams %R, CCI, ROC and
+    relative strength vs a benchmark (O'Neil RS line or Mansfield).
+  - *Volatility:* Bollinger Bands, %B, BandWidth, Keltner Channels and ATR.
+  - *Volume:* volume, VWAP, anchored VWAP, MFI and OBV.
+
+  Add any study as often as you like. Each opens with editable inputs and colours
+  (⚙ in the legend), can be hidden or removed, and oscillators get their own
+  resizable pane.
+- *Legend:* OHLC and every indicator value under the cursor, as on TradingView. It
+  folds away on phones.
+- *Drawing tools:* trend line, ray, horizontal and vertical lines, Fibonacci
+  retracement, rectangle and a measure tool. Drawings are saved per symbol in the
+  browser.
+- *Shortcuts:* TradingView's own, such as `/` for indicators and typing `5`, `60`,
+  `1D` or `W` then Enter for the interval. Also Alt+T, H, V and F for drawing
+  tools, Alt+L for log scale, Alt+S for a screenshot, Esc, Delete and Ctrl+Z.
+- *Investor playbooks:* the indicator sets well-known traders are known for, with
+  their published settings and usual interval:
+  - Paul Tudor Jones (200-day line)
+  - Mark Minervini (Trend Template)
+  - William O'Neil (CAN SLIM)
+  - Stan Weinstein (stage analysis, weekly)
+  - the Turtles (Donchian 20/55, ATR)
+  - John Bollinger
+  - Welles Wilder
+  - Linda Raschke (Holy Grail, 3-10)
+  - Larry Connors (RSI 2)
+  - Gerald Appel (MACD)
+  - Goichi Hosoda (Ichimoku)
+  - Brian Shannon (VWAP)
+  - Larry Williams (%R)
+  - Joseph Granville (OBV)
+
+  Fundamental investors like Buffett and Lynch don't use chart indicators, and the
+  page says so rather than inventing a set.
+- *Data:* every source is keyless and called from the visitor's browser:
+  - *Crypto:* Binance public market data (REST history + WebSocket stream).
+  - *Stocks, ETFs and indices:* CNBC's quote and chart service, which is
+    unofficial. It covers the US, Korea, Europe, India, Taiwan, Australia, Canada
+    and the major indices, including pre- and post-market bars. History loads
+    first, then the chart polls every 15 s and backs off if CNBC throttles. US
+    names get Finnhub tick streaming when the visitor has saved a free key.
+  - *Fallback:* markets CNBC doesn't carry (Japan, Hong Kong) fall back to the
+    nightly daily bars.
+
+  The earlier version embedded TradingView's widget for US stocks; it is no longer
+  used.
 
 **Strategy lab** (Paper bot → Strategy lab). The strategies are modules in
 `quant.js` (`Q.STRATEGIES`):
@@ -771,12 +816,12 @@ rate) ÷ volatility, which is why the 2018– backtest shows 0.51 on the site an
   - `index.html`, `about.html` and `404.html`
   - `assets/app.js`: the pages
   - `assets/quant.js`: statistics, factor models and the backtester
-  - `assets/live.js`: the live charts (TradingView widget, Binance and Finnhub
-    WebSockets, native indicators)
+  - `assets/live.js`: the Pro chart (Lightweight Charts v5, Binance and Finnhub
+    WebSockets, CNBC polling, studies, drawings, shortcuts)
   - `assets/app.css`
 
-  It is plain JavaScript, with Plotly and Lightweight Charts from jsDelivr and
-  TradingView's `tv.js`, and no build step.
+  It is plain JavaScript, with Plotly and Lightweight Charts from jsDelivr and no
+  build step.
 - *Data:* `quant/web/export.py` calls the same functions as the Streamlit pages
   (`dashboard/common.py`), so both show the same numbers. It writes JSON to
   `data/site/data/`:
