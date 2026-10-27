@@ -175,8 +175,75 @@
     return Object.assign(src, { r: Math.log(1 + src.pct / 100) });
   }
 
+  // --- risk: VaR and CVaR -----------------------------------------------------------------------------
+  /** Quantile with linear interpolation (numpy's default). */
+  function quantile(a, p) {
+    const s = Float64Array.from(a).sort(), h = (s.length - 1) * p, lo = Math.floor(h);
+    return s[lo] + (h - lo) * (s[Math.min(lo + 1, s.length - 1)] - s[lo]);
+  }
+  /** VaR and CVaR at `level` (0.95, 0.99) as positive loss fractions, from a sample of returns. */
+  function varCvar(returns, level) {
+    const v = -quantile(returns, 1 - level);
+    return { var: v, cvar: -mean(returns.filter((x) => x <= -v)) };
+  }
+  /** Simple daily returns of aligned prices: values[i][t] -> rows[t][i]. */
+  function returnRows(values) {
+    const T = values[0].length, rows = [];
+    for (let t = 1; t < T; t++) rows.push(values.map((v) => v[t] / v[t - 1] - 1));
+    return rows;
+  }
+  const portfolio = (rows, w) => rows.map((r) => r.reduce((s, x, i) => s + w[i] * x, 0));
+  /** Overlapping h-day compounded returns. */
+  function horizon(daily, h) {
+    const out = [];
+    for (let t = h - 1; t < daily.length; t++) {
+      let g = 1;
+      for (let s = t - h + 1; s <= t; s++) g *= 1 + daily[s];
+      out.push(g - 1);
+    }
+    return out;
+  }
+  function meanCov(rows) {
+    const n = rows[0].length, T = rows.length, mu = new Array(n).fill(0);
+    rows.forEach((r) => r.forEach((x, i) => { mu[i] += x / T; }));
+    const cov = mu.map(() => new Array(n).fill(0));
+    rows.forEach((r) => { for (let i = 0; i < n; i++) for (let j = 0; j <= i; j++) cov[i][j] += ((r[i] - mu[i]) * (r[j] - mu[j])) / (T - 1); });
+    for (let i = 0; i < n; i++) for (let j = 0; j < i; j++) cov[j][i] = cov[i][j];
+    return { mu, cov };
+  }
+  function cholesky(A) {
+    const n = A.length, L = A.map(() => new Array(n).fill(0));
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j <= i; j++) {
+        let s = A[i][j];
+        for (let k = 0; k < j; k++) s -= L[i][k] * L[j][k];
+        L[i][j] = i === j ? Math.sqrt(Math.max(s, 1e-18)) : s / L[j][j];
+      }
+    }
+    return L;
+  }
+  /** Monte Carlo portfolio returns over `h` days: assets' log returns drawn from a multivariate
+   * normal fitted to history (mean h·μ, covariance h·Σ), weights fixed over the horizon. */
+  function mcPortfolio(rows, w, { h = 1, n = 20000, seed = 11 } = {}) {
+    const logs = rows.map((r) => r.map((x) => Math.log(1 + x)));
+    const { mu, cov } = meanCov(logs), L = cholesky(cov), g = gaussian(rng(seed)), k = mu.length, sh = Math.sqrt(h), out = new Float64Array(n);
+    const z = new Array(k);
+    for (let s = 0; s < n; s++) {
+      for (let i = 0; i < k; i++) z[i] = g();
+      let rp = 0;
+      for (let i = 0; i < k; i++) {
+        let x = h * mu[i];
+        for (let j = 0; j <= i; j++) x += sh * L[i][j] * z[j];
+        rp += w[i] * Math.expm1(x);
+      }
+      out[s] = rp;
+    }
+    return Array.from(out);
+  }
+
   const QX = { TD, mean, std, rng, gaussian, applyGate, simulate, probabilities, sampleCounts, groverSteps, groverProbability, groverOptimal, mcErrorCurve,
-    erfc, normCdf, blackScholes, mcOption, annualVol, lognormalBounds, riskFree };
+    erfc, normCdf, blackScholes, mcOption, annualVol, lognormalBounds, riskFree,
+    quantile, varCvar, returnRows, portfolio, horizon, meanCov, cholesky, mcPortfolio };
 
   if (typeof module !== "undefined" && module.exports) { module.exports = QX; return; }
   root.QX = QX;
@@ -632,6 +699,141 @@
     draw();
   }
   SECTIONS.push({ id: "options", title: "Stock option pricing lab", html: options, init: initOptions });
+
+  // --- shared: a basket of stocks picked from the universe ---------------------------------------------
+  const basketHtml = (p) => `<div class="q-basket"><div class="q-chips" id="${p}-chips"></div><div class="q-add" id="${p}-add">${searchBox("Add a stock")}</div></div>
+    <p class="caption" id="${p}-msg"></p>`;
+  /** Wire a basket editor. B = {syms, w?}; onChange() runs after every edit. */
+  function bindBasket(sec, p, B, { min, max, weights = false, onChange }) {
+    const msg = (t) => { $(`#${p}-msg`, sec).textContent = t; };
+    const draw = () => {
+      $(`#${p}-chips`, sec).innerHTML = B.syms.map((s, i) => `<span class="chip q-chip"><b>${esc(s)}</b>${weights
+        ? `<input type="number" class="q-w" data-i="${i}" value="${+(100 * B.w[i]).toFixed(1)}" min="0" max="100" step="1" aria-label="Weight of ${esc(s)}, percent">%` : ""}
+        <button type="button" data-rm="${i}" aria-label="Remove ${esc(s)}"${B.syms.length <= min ? " disabled" : ""}>✕</button></span>`).join("")
+        + (weights ? `<button type="button" class="btn q-small" id="${p}-eq">Equal weights</button>` : "");
+      sec.querySelectorAll(`#${p}-chips [data-rm]`).forEach((b) => b.addEventListener("click", () => {
+        const i = Number(b.dataset.rm);
+        B.syms.splice(i, 1); if (B.w) B.w.splice(i, 1);
+        if (weights) B.w = B.w.map(() => 1 / B.syms.length);
+        msg(""); draw(); onChange();
+      }));
+      sec.querySelectorAll(`#${p}-chips .q-w`).forEach((inp) => inp.addEventListener("change", () => {
+        B.w[Number(inp.dataset.i)] = Math.max(0, Number(inp.value) || 0) / 100;
+        msg(Math.abs(sum(B.w) - 1) > 1e-6 ? "Weights are scaled to add up to 100%." : ""); onChange();
+      }));
+      const eq = $(`#${p}-eq`, sec);
+      if (eq) eq.addEventListener("click", () => { B.w = B.syms.map(() => 1 / B.syms.length); msg(""); draw(); onChange(); });
+    };
+    bindSearch($(`#${p}-add`, sec), async (sym) => {
+      if (B.syms.includes(sym)) { msg(`${sym} is already in the basket.`); return; }
+      if (B.syms.length >= max) { msg(`At most ${max} stocks.`); return; }
+      const sd = await symbolData(sym);
+      if (!sd || !sd.px || sd.px.values.length < 130) { msg(`${sym}: not enough price history on this site.`); return; }
+      B.syms.push(sym);
+      if (weights) B.w = B.syms.map(() => 1 / B.syms.length);
+      msg(""); draw(); onChange();
+    });
+    draw();
+    return draw;
+  }
+  /** Aligned closes of a basket over the last `sessions` returns. */
+  async function basketPrices(syms, sessions) {
+    const hist = await Promise.all(syms.map(async (s) => [s, await symbolData(s)]));
+    const missing = hist.filter(([, h]) => !h || !h.px).map(([s]) => s);
+    if (missing.length) throw new Error(`no price history for ${missing.join(", ")}`);
+    const al = Q.align(hist.map(([, h]) => h.px));
+    const start = Math.max(0, al.dates.length - sessions - 1);
+    return { dates: al.dates.slice(start), values: al.values.map((v) => v.slice(start)) };
+  }
+  const sameSet = (a, b) => a.length === b.length && a.every((x) => b.includes(x));
+
+  // --- 6. Stock risk lab: VaR and CVaR -------------------------------------------------------------------
+  function risk(ctx) {
+    return `
+      <p class="soft">Value at risk (VaR) is the loss a portfolio shouldn't exceed on 95% (or 99%) of days. Conditional VaR (CVaR, or expected shortfall)
+        is the average loss on the days that do exceed it. Pick up to 10 stocks; weights are equal unless you change them.</p>
+      ${basketHtml("rk")}
+      <div class="controls">
+        <div class="control"><span class="label">History</span><div class="chips" id="rk-look"><button type="button" class="chip" data-v="252">1 year</button><button type="button" class="chip" data-v="500">2 years</button></div></div>
+        <div class="control"><label for="rk-amt">Portfolio value ($)</label><input type="number" id="rk-amt" min="1000" step="1000" style="width:140px"></div>
+      </div>
+      <div id="rk-out"></div>
+      <div class="chart-title">Daily returns of this basket, with the historical VaR lines</div><div class="chart" id="rk-hist"></div>
+      <h3 class="q-h3">The quantum angle</h3>
+      <div id="rk-q"></div>
+      <div class="q-callout"><b>Why this is the most credible near-term use.</b> Banks already run enormous Monte Carlo simulations every night to measure
+        market risk (VaR, CVaR) and the capital they must hold against credit losses. Those are exactly the averages and tail probabilities amplitude
+        estimation targets, with quadratically fewer samples for the same accuracy (Woerner &amp; Egger on market risk, Egger et al. on credit risk).
+        The catch is the same as everywhere else: it needs error-corrected hardware and a cheap way to load the return distribution.</div>`;
+  }
+  async function initRisk(sec, ctx) {
+    const qv = ctx.q && ctx.q.var;
+    const saved = store.get("q:risk", {});
+    const B = { syms: Array.isArray(saved.syms) && saved.syms.length ? saved.syms : (qv ? qv.basket.slice() : ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL"]) };
+    B.w = Array.isArray(saved.w) && saved.w.length === B.syms.length ? saved.w : B.syms.map(() => 1 / B.syms.length);
+    const R = { look: saved.look || 500, amt: saved.amt || 1e6, run: 0 };
+    const chipsOn = () => sec.querySelectorAll("#rk-look .chip").forEach((b) => b.classList.toggle("on", Number(b.dataset.v) === R.look));
+    $("#rk-amt", sec).value = R.amt;
+    const compute = async () => {
+      const run = ++R.run;
+      store.set("q:risk", { syms: B.syms, w: B.w, look: R.look, amt: R.amt });
+      chipsOn();
+      const out = $("#rk-out", sec);
+      if (!B.syms.length) { out.innerHTML = '<div class="empty">Add at least one stock.</div>'; return; }
+      const px = await basketPrices(B.syms, R.look);
+      if (run !== R.run) return;  // a newer edit is already computing
+      const tw = sum(B.w) || 1, w = B.w.map((x) => x / tw);
+      const rows = returnRows(px.values), daily = portfolio(rows, w), ten = horizon(daily, 10);
+      const mc1 = mcPortfolio(rows, w, { h: 1 }), mc10 = mcPortfolio(rows, w, { h: 10, seed: 12 });
+      const res = [["Historical simulation", "1 day", daily], ["Historical simulation", "10 days", ten], ["Monte Carlo (normal fit)", "1 day", mc1], ["Monte Carlo (normal fit)", "10 days", mc10]]
+        .map(([m, h, r]) => ({ m, h, a: varCvar(r, 0.95), b: varCvar(r, 0.99) }));
+      const cell = (x) => `${pct(x, 2, false)}<div class="q-dollar">${money(x * R.amt)}</div>`;
+      out.innerHTML = `<div class="table-wrap q-risk"><table><thead><tr><th>Method</th><th>Horizon</th><th class="r">VaR 95%</th><th class="r">CVaR 95%</th><th class="r">VaR 99%</th><th class="r">CVaR 99%</th></tr></thead>
+        <tbody>${res.map((x) => `<tr><td>${x.m}</td><td>${x.h}</td><td class="r">${cell(x.a.var)}</td><td class="r">${cell(x.a.cvar)}</td><td class="r">${cell(x.b.var)}</td><td class="r">${cell(x.b.cvar)}</td></tr>`).join("")}</tbody></table></div>
+        <p class="caption">${esc(B.syms.join(", "))} · ${daily.length} trading days, ${esc(px.dates[1])} to ${esc(px.dates[px.dates.length - 1])} · rebalanced daily to the weights.
+          10-day historical figures use overlapping 10-day windows, so they rest on few independent observations. Monte Carlo draws 20,000 scenarios from a
+          normal fit, which understates fat tails; compare its 99% figures with the historical ones.</p>`;
+      const c = pal(), v95 = res[0].a.var, v99 = res[0].b.var;
+      plot($("#rk-hist", sec), [{ type: "histogram", x: daily, nbinsx: 60, marker: { color: c.series[0], line: { color: c.surface, width: 1 } }, hovertemplate: "%{x}: %{y} days<extra></extra>", name: "Days" }],
+        layout(280, { showlegend: false, hovermode: "closest", bargap: 0.02, xaxis: { tickformat: ".0%", showgrid: false, linecolor: c.axis, tickfont: { color: c.muted } },
+          yaxis: yaxis({ title: { text: "Days", font: { size: 11 } } }),
+          shapes: [[v95, c.series[3]], [v99, c.bad]].map(([v, col]) => ({ type: "line", x0: -v, x1: -v, yref: "paper", y0: 0, y1: 1, line: { color: col, width: 2, dash: "dash" } })),
+          annotations: [[v95, "VaR 95%"], [v99, "VaR 99%"]].map(([v, t]) => ({ x: -v, y: 1, yref: "paper", text: t, showarrow: false, xanchor: "right", yanchor: "top", xshift: -4, font: { size: 11, color: c.muted } })) }));
+      drawQuantum(B.syms, w, res[0].a.var, R.look);
+    };
+    const drawQuantum = (syms, w, histVar, look) => {
+      const box = $("#rk-q", sec);
+      if (!qv) { box.innerHTML = `<p class="soft">Not available yet: the nightly simulation results (data/quantum.json) haven't been published.</p>`; return; }
+      const mine = sameSet(syms, qv.basket) && w.every((x) => Math.abs(x - 1 / syms.length) < 1e-6) && look === qv.sessions;
+      const t = qv.tail, bi = qv.bisection;
+      box.innerHTML = `
+        <p class="soft">Each night the simulator loads this basket's daily return distribution into ${esc(qv.qubits_distribution)} qubits (${2 ** qv.qubits_distribution} return bins)
+          and uses amplitude estimation to measure the probability of a loss beyond a threshold, the quantity VaR is built from.</p>
+        <div class="grid g3 q-compare">
+          ${kpi("Nightly basket", esc(qv.basket.join(", ")), `equal weights · ${esc(qv.sessions)} days to ${esc(qv.to)}`)}
+          ${kpi("Tail probability, exact", pct(t.exact, 2, false), `P(return &lt; ${pct(t.threshold, 2)}) on the ${2 ** qv.qubits_distribution}-bin distribution; classical`)}
+          ${kpi("Tail probability, QAE", pct(t.qae, 2, false), `95% interval ${pct(t.ci[0], 2, false)} – ${pct(t.ci[1], 2, false)} · ${big(t.oracle_queries)} oracle queries`)}
+        </div>
+        ${simTag()}
+        <p class="caption">The threshold ${pct(t.threshold, 2)} is the bin edge nearest the basket's historical 1-day VaR 95% of ${pct(qv.classical.var, 2, false)}
+          (CVaR ${pct(qv.classical.cvar, 2, false)}). VaR itself, found by bisection over ${bi.steps.length} QAE estimates: <b>${pct(bi.var_qae, 2, false)}</b>,
+          against ${pct(bi.var_binned_exact, 2, false)} computed exactly on the same bins. Finer answers need more qubits.
+          ${mine ? `This is your basket: the page's own historical VaR above is ${pct(histVar, 2, false)}.` : ""}</p>
+        ${mine ? "" : '<div class="row"><button type="button" class="btn q-small" id="rk-load">Load the nightly basket</button></div>'}
+        <details><summary>Bisection steps</summary>${table([
+          { h: "Threshold (return)", r: 1, f: (s) => pct(s.edge, 2) }, { h: "Tail probability, QAE", r: 1, f: (s) => pct(s.tail_qae, 2, false) },
+          { h: "Exact", r: 1, f: (s) => pct(s.tail_exact, 2, false) }, { h: "Next", f: (s) => (s.tail_qae >= qv.alpha ? "go lower" : "go higher") },
+        ], bi.steps)}</details>`;
+      const load = $("#rk-load", sec);
+      if (load) load.addEventListener("click", () => { B.syms = qv.basket.slice(); B.w = B.syms.map(() => 1 / B.syms.length); R.look = qv.sessions; redraw(); compute().catch(fail); });
+    };
+    const fail = (e) => { console.error(e); $("#rk-out", sec).innerHTML = `<div class="empty">${esc(e.message)}</div>`; };
+    const redraw = bindBasket(sec, "rk", B, { min: 1, max: 10, weights: true, onChange: () => compute().catch(fail) });
+    sec.querySelectorAll("#rk-look .chip").forEach((b) => b.addEventListener("click", () => { R.look = Number(b.dataset.v); compute().catch(fail); }));
+    $("#rk-amt", sec).addEventListener("change", (e) => { R.amt = Math.max(1000, Number(e.target.value) || 1e6); compute().catch(fail); });
+    await compute();
+  }
+  SECTIONS.push({ id: "risk", title: "Stock risk lab: VaR and CVaR", html: risk, init: initRisk });
 
   function view(el, arg) {
     return render(el, arg);

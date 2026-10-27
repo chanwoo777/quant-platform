@@ -98,3 +98,37 @@ def test_risk_free_rate_prefers_the_t_bill_series(tmp_path):
         QX.riskFree(null, null)];""")
     assert [r["series"] for r in js] == ["DGS3MO", "DFF", "DGS3MO", None]
     assert js[0]["r"] == pytest.approx(math.log(1.0422))
+
+
+# --- risk (section 6) -------------------------------------------------------------------------------
+
+def test_var_and_cvar_match_numpy(tmp_path):
+    rng = np.random.default_rng(9)
+    prices = (100 * np.cumprod(1 + rng.standard_t(4, (501, 3)) * 0.01, axis=0)).T
+    w = [0.5, 0.3, 0.2]
+    js = run_js(tmp_path, """
+        const rows = QX.returnRows(data.prices), daily = QX.portfolio(rows, data.w);
+        return { daily, v95: QX.varCvar(daily, 0.95), v99: QX.varCvar(daily, 0.99), ten: QX.horizon(daily, 10) };""",
+                {"prices": prices.tolist(), "w": w})
+    daily = (np.diff(prices, axis=1) / prices[:, :-1]).T @ np.array(w)
+    assert js["daily"] == pytest.approx(daily.tolist(), rel=1e-12)
+    for level, key in ((0.95, "v95"), (0.99, "v99")):
+        var = -np.quantile(daily, 1 - level)
+        assert js[key]["var"] == pytest.approx(var, rel=1e-12)
+        assert js[key]["cvar"] == pytest.approx(-daily[daily <= -var].mean(), rel=1e-12)
+    ten = [np.prod(1 + daily[t - 9:t + 1]) - 1 for t in range(9, len(daily))]
+    assert js["ten"] == pytest.approx(ten, rel=1e-12)
+
+
+def test_monte_carlo_var_matches_the_normal_quantile(tmp_path):
+    rng = np.random.default_rng(2)
+    rets = np.exp(rng.multivariate_normal([0.0005, 0.0003], [[4e-4, 1e-4], [1e-4, 2.5e-4]], 4000)) - 1
+    js = run_js(tmp_path, """
+        const sims = QX.mcPortfolio(data, [0.5, 0.5], { h: 10, n: 60000, seed: 5 });
+        return { var: QX.varCvar(sims, 0.99).var, chol: QX.cholesky([[4, 2], [2, 3]]) };""", rets.tolist())
+    logs = np.log1p(rets)
+    mu, cov = logs.mean(axis=0), np.cov(logs.T)
+    z = rng.multivariate_normal(10 * mu, 10 * cov, 400_000)
+    ref = -np.quantile(np.expm1(z) @ [0.5, 0.5], 0.01)
+    assert js["var"] == pytest.approx(ref, rel=0.03)
+    assert np.array(js["chol"]) == pytest.approx(np.linalg.cholesky([[4, 2], [2, 3]]))

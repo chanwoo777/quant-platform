@@ -398,3 +398,12 @@ kbd { font: 600 0.78rem ui-monospace, monospace; background: var(--bg-soft); bor
 .q-step-body { padding: 14px 16px; color: var(--text-soft); max-width: 900px; }
 .q-step-body b { color: var(--text); }
 @media (max-width: 760px) { .q-compare { grid-template-columns: 1fr; } }
+.q-basket { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: 12px; }
+.q-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.q-chip { display: inline-flex; align-items: center; gap: 6px; cursor: default; color: var(--text); }
+.q-chip button { background: none; border: none; color: var(--text-faint); cursor: pointer; padding: 0 2px; font-size: 0.9rem; }
+.q-chip button:disabled { opacity: 0.3; cursor: default; }
+.q-chip .q-w { width: 54px; min-height: 26px; padding: 2px 6px; font-size: 0.82rem; }
+.q-add .search { width: 200px; }
+.q-risk td { vertical-align: top; }
+.q-dollar { font-size: 0.76rem; color: var(--text-faint); }
