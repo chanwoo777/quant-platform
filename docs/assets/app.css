@@ -368,3 +368,7 @@ kbd { font: 600 0.78rem ui-monospace, monospace; background: var(--bg-soft); bor
 .q-pk { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 0.82rem; color: var(--text-faint); font-variant-numeric: tabular-nums; }
 .q-pk span.on { color: var(--accent); font-weight: 700; }
 .q-pk span.best { text-decoration: underline; }
+.q-table { margin-top: 10px; }
+.q-table td, .q-table th { white-space: normal; vertical-align: top; min-width: 130px; }
+.q-table td { color: var(--text-soft); }
+.q-table td b { color: var(--text); }

@@ -331,6 +331,26 @@
   }
   SECTIONS.push({ id: "lab", title: "Interactive qubit lab", html: lab, init: initLab });
 
+  // --- 3. Toolbox ----------------------------------------------------------------------------------
+  const TOOLBOX = [
+    ["Phase estimation / QFT", "Finds hidden periods (the phase of an operator)", "Exponential, as a component", "Inside Shor's algorithm and amplitude estimation"],
+    ["Shor", "Factors large numbers, breaks discrete logarithms", "Exponential", "A threat to the encryption brokerages and banks use (section 11)"],
+    ["Grover", "Searches an unsorted list for a marked item", "Quadratic", "The building block of amplitude estimation"],
+    ["Amplitude estimation (QAE, iterative QAE)", "Estimates an average or a probability", "Quadratic vs Monte Carlo", "Option pricing, VaR, credit risk (sections 4 to 6)"],
+    ["HHL / quantum linear algebra", "Solves Ax = b", "Exponential, under strict conditions", "Mean-variance portfolios (section 7)"],
+    ["Block encoding / QRAM", "Loads matrices and data into qubits", "Enabling; often the bottleneck", "Every data-heavy use"],
+    ["Variational (VQE, QAOA)", "A tunable circuit trained by a classical optimizer", "Heuristic, unproven", "Portfolio selection as a QUBO (section 7)"],
+    ["Quantum ML (QNN, kernels)", "Classification and regression", "Unclear", "Stock prediction (speculative)"],
+  ];
+  function toolbox() {
+    return `<p class="soft">The handful of building blocks almost every quantum algorithm is made of, and where each could matter for investors.</p>
+      <div class="table-wrap q-table"><table><thead><tr><th>Building block</th><th>What it does</th><th>Speedup</th><th>Finance use</th></tr></thead>
+      <tbody>${TOOLBOX.map((r) => `<tr><td><b>${esc(r[0])}</b></td><td>${esc(r[1])}</td><td>${esc(r[2])}</td><td>${esc(r[3])}</td></tr>`).join("")}</tbody></table></div>
+      <p class="caption">A speedup counts queries or gates as the problem grows; it says nothing about today's hardware. "Quadratic" means about √N steps
+        where a classical method needs N.</p>`;
+  }
+  SECTIONS.push({ id: "toolbox", title: "Quantum toolbox", html: toolbox });
+
   function view(el, arg) {
     return render(el, arg);
   }
