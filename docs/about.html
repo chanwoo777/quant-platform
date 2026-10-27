@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>About · Free Quant Platform</title>
-<meta name="description" content="Stock, ETF and crypto research built only on free data: yfinance, FRED, SEC EDGAR, news with FinBERT and the Fama-French library. Research only, not investment advice.">
+<meta name="description" content="Stock, ETF and crypto research built only on free data: yfinance, FRED, SEC EDGAR, news with FinBERT and the Fama-French library, plus a beginner's guide to quantum finance. Research only, not investment advice.">
 <meta property="og:title" content="Free Quant Platform">
-<meta property="og:description" content="Screen ~11,000 stocks, ETFs and coins worldwide, dig into one name and chart it live, all on free public data.">
+<meta property="og:description" content="Screen ~11,000 stocks, ETFs and coins worldwide, dig into one name, chart it live, and learn how quantum algorithms could price options and measure risk, all on free public data.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://chanwoo777.github.io/quant-platform/about.html">
 <meta property="og:image" content="https://chanwoo777.github.io/quant-platform/assets/global-overview.webp">
@@ -192,6 +192,7 @@
       <a href="#features">Features</a>
       <a href="#screens">Screenshots</a>
       <a href="#results">Results</a>
+      <a href="#quantum">Quantum</a>
       <a href="#start">Get started</a>
       <a class="gh" href="https://github.com/chanwoo777/quant-platform">GitHub</a>
     </nav>
@@ -206,7 +207,7 @@
     <div class="wrap">
       <div class="eyebrow">Open source · Python · Streamlit</div>
       <h1>Stock, ETF and crypto research on free data only</h1>
-      <p class="lede">Screen about 11,000 stocks, ETFs and coins around the world, dig into any company's chart, news and SEC filings, and chart it live. No Bloomberg, no paid APIs, no API keys.</p>
+      <p class="lede">Screen about 11,000 stocks, ETFs and coins around the world, dig into any company's chart, news and SEC filings, chart it live, and learn what quantum computers could and can't do for investors. No Bloomberg, no paid APIs, no API keys.</p>
       <div class="cta">
         <a class="btn primary" href="./">Open the live dashboard →</a>
         <a class="btn" href="https://github.com/chanwoo777/quant-platform">
@@ -298,7 +299,34 @@
     </div>
   </section>
 
-  <section id="start">
+  <section id="quantum">
+    <div class="wrap">
+      <div class="eyebrow">Quantum tab</div>
+      <h2>Quantum computing for investors, explained honestly</h2>
+      <p class="lede">The website's Quantum tab teaches how quantum algorithms work, from zero, then applies them to stocks: pricing options, measuring risk and choosing portfolios. Every quantum result sits next to the classical method it would have to beat.</p>
+      <div class="two" style="margin-top: 28px;">
+        <div>
+          <h3>What's on the page</h3>
+          <ul class="points">
+            <li><b>Learn by doing.</b> A qubit lab with a 1-5 qubit circuit simulator and an animated Grover search, running in your browser.</li>
+            <li><b>Real stocks.</b> Option prices by Black-Scholes, Monte Carlo and amplitude estimation; VaR and CVaR for a basket; an efficient frontier; and a "hold K stocks" problem solved by brute force and by QAOA.</li>
+            <li><b>Honest verdicts.</b> A readiness scorecard, why it isn't ready yet, a security note on post-quantum cryptography, a glossary, a 9-week study path and checked references.</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Data and limits</h3>
+          <ul class="points">
+            <li><b>Simulated, not run on a quantum computer.</b> Each night Qiskit simulates the circuits on the PC that publishes the site, in about 2.5 minutes. Every quantum number is labelled "Simulated on a classical computer &ndash; educational, not a trading signal".</li>
+            <li><b>The site's own inputs.</b> Daily closes and FRED's 3-month T-bill yield: no new data sources and no keys.</li>
+            <li><b>Tiny circuits.</b> 32 price points and 6 stocks. At this size amplitude estimation needs about as many queries as Monte Carlo needs samples, and QAOA does no better than a random valid portfolio. As of 2026 no practical quantum advantage on a real finance problem has been shown.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="cta"><a class="btn primary" href="./#/quantum">Open the Quantum tab &rarr;</a></div>
+    </div>
+  </section>
+
+  <section id="start" class="soft">
     <div class="wrap">
       <div class="eyebrow">Get started</div>
       <h2>Run it on your own machine</h2>

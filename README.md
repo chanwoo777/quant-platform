@@ -19,6 +19,7 @@ public data: no Bloomberg, no paid APIs, no API keys.
 ```
 quant-platform/
 ├── requirements.txt
+├── requirements-quantum.txt   optional: pinned Qiskit for the website's quantum simulations
 ├── .env.example
 ├── quant/
 │   ├── config.py              settings, watchlist, FRED series                 [P1]
@@ -38,7 +39,8 @@ quant-platform/
 │   ├── analytics.py           50/200 MA, RSI, MACD, Bollinger, regime, anomalies [P2]
 │   ├── quant_models.py        Fama-French 3F, momentum, mean reversion, scoring [P3]
 │   ├── trading_bot.py         signals, paper ledger, Kelly/vol sizing, stops    [P4]
-│   └── scheduler.py           APScheduler daily run                             [P4]
+│   ├── scheduler.py           APScheduler daily run                             [P4]
+│   └── web/                   static website: export, publish, quantum simulations
 ├── dashboard/                 Streamlit + Plotly                                [P5]
 │   ├── app.py                 entry point and navigation
 │   ├── common.py              cached data access, palette, chart styling
@@ -685,6 +687,7 @@ python -m quant.scheduler --run-now --publish-site   # daily cycle, then publish
 | **Markets** | Regime and stance, the S&P 500 stance chart, FRED tiles and news. **Your watchlist**: search to add any stock, ETF, coin or index, ✕ to remove. It is saved in the browser (localStorage). |
 | **Stock** (`#/stock/<ticker>`) | Any of ~11,400 symbols. Deep-tier names get candlesticks with news markers, explained moves and every indicator below. Everything else gets a close-price chart with the close-based indicators, plus returns, risk and peer percentiles. |
 | **Financials** (`#/financials/<ticker>`) | A research view for any ticker: fundamentals, analyst consensus, a peer table, financial statements and the factor model. Statements come from SEC filings for the deep tier, or Finnhub's reported statements for US names when a key is set. |
+| **Quantum** (`#/quantum`) | A beginner's guide to quantum algorithms for investors: basics, a qubit lab, option pricing, VaR/CVaR and portfolio labs with classical baselines, a readiness scorecard and the nightly simulator run. Details below. |
 | **Live** (`#/live/<symbol>`) | The **Pro chart**: a TradingView-style chart drawn by the site, with every indicator and setting under your control. Details below. |
 
 The header search autocompletes over the whole universe. Pretty links such as
@@ -776,6 +779,83 @@ Lightweight Charts v5, so indicators aren't limited the way an embedded widget i
   The earlier version embedded TradingView's widget for US stocks; it is no longer
   used.
 
+**Quantum tab** (`#/quantum`). A beginner's guide to quantum algorithms and
+where they might help investors, with a classical baseline next to every quantum
+number. Twelve sections:
+1. *Basics:* superposition, measurement, entanglement and interference, the "tries
+   every answer at once" myth, and why speedups need structure.
+2. *Qubit lab:* a one-qubit widget (H, X, Z), a 1-5 qubit circuit simulator (H, X,
+   Z, CNOT) with amplitudes and 1,000 measured shots, and an animated Grover search
+   over 8 or 16 items. All of it runs in the browser.
+3. *Toolbox:* eight building blocks, their speedups and finance uses.
+4. *Monte Carlo vs QAE:* error against samples on a log-log chart (1/sqrt(N) vs 1/N),
+   a target-error slider (0.1% means about 1,000,000 samples vs 1,000 queries),
+   Monte Carlo measured in the browser, and the nightly QAE runs.
+5. *Option pricing:* any stock in the universe. Spot and volatility (3, 6 or 12
+   months of daily log returns) come from the site's prices; the rate is FRED's
+   3-month T-bill yield (DGS3MO, now in `market.json`). The page shows
+   Black-Scholes, Monte Carlo with a 95% interval and its convergence, and the
+   nightly amplitude estimate with its error budget. A six-step explainer covers
+   how QAE prices the option.
+6. *Risk:* 1- and 10-day VaR and CVaR at 95% and 99% for a basket of up to 10
+   stocks, by historical simulation and Monte Carlo. The nightly QAE estimate of
+   one basket's tail probability, and VaR found by bisection.
+7. *Portfolios:* a long-only efficient frontier for 3-15 stocks, and the "hold K
+   stocks" QUBO with its matrix, an exact brute force, and the nightly QAOA result
+   compared with the optimum.
+8. *Readiness scorecard:* a seven-step check per use case, ending in Promising /
+   Open question / Not yet useful.
+9. *The nightly run:* date, runtime, package versions, qubits, circuit depth and
+   circuit diagrams.
+10. *Why it's not ready yet.*
+11. *A security note for investors:* Shor's algorithm and NIST's post-quantum
+    standards.
+12. *Glossary, a 9-week study path and references.*
+
+The maths in `docs/assets/quantum.js` is tested under Node.js
+(`tests/test_quantum_js.py`):
+- Black-Scholes against Hull's reference case and scipy;
+- Monte Carlo converging at 1/sqrt(N);
+- VaR, CVaR and the Monte Carlo VaR against numpy;
+- the frontier against scipy's SLSQP;
+- the QUBO and brute force against Python.
+
+**Nightly quantum simulations** (`quant/web/quantum.py`). These use Qiskit's
+statevector simulator only: no quantum hardware, no accounts and no keys.
+- *Option pricing:* iterative amplitude estimation of at-the-money European calls
+  on AAPL, MSFT and NVDA at 30, 90 and 180 days. It uses a 5-qubit lognormal model
+  and reports the price, a 95% interval, oracle queries and circuit depth. These
+  sit next to Black-Scholes, Monte Carlo, the circuit's exact value and the exact
+  value on the 32-price grid.
+- *Risk:* the tail probability of a 5-stock basket at its historical 95% VaR, with
+  the return histogram loaded into 5 qubits, and VaR by bisection.
+- *Portfolio choice:* QAOA (2 layers, COBYLA) on the cardinality QUBO for 6 stocks,
+  with K = 3, compared with brute force.
+
+The export runs it in a subprocess with a 5-minute limit; it takes about 2.5
+minutes here. The module replaces `data/quantum.json` only when every job
+succeeds. The export then copies the last good file into the site, so a failed or
+timed-out run leaves the previous night's results online. With no file at all,
+the page says the results aren't published yet, and every classical part still
+works. `tests/test_quantum_job.py` covers the failure paths and runs small real
+simulations.
+
+```bash
+pip install -r requirements-quantum.txt    # pinned: qiskit 2.6.1, qiskit-algorithms 0.4.0,
+                                           # qiskit-finance 0.4.1, qiskit-optimization 0.7.0
+python -m quant.web.quantum                # run the simulations alone (~2.5 min)
+python -m quant.web.export --no-quantum    # export without re-running them
+```
+
+*Limits.* Every quantum number is labelled "Simulated on a classical computer -
+educational, not a trading signal".
+- The circuits are tiny: 32 price points and 6 stocks. The deepest option circuit
+  has about 190,000 layers, far beyond today's noisy hardware.
+- At this size QAE needs about as many queries as Monte Carlo needs samples, and
+  QAOA does no better than a random valid portfolio.
+- The page says plainly that no practical quantum advantage on a real finance
+  problem has been shown as of 2026.
+
 **Data sources and keys:**
 - *No key needed:* prices, fundamentals and analytics come from the nightly
   export, and crypto charts stream from Binance's public market data
@@ -793,6 +873,8 @@ Lightweight Charts v5, so indicators aren't limited the way an embedded widget i
   - `index.html`, `about.html` and `404.html`
   - `assets/app.js`: the pages
   - `assets/quant.js`: statistics, factor models and indicators
+  - `assets/quantum.js`: the Quantum page and its maths (state-vector simulator,
+    option pricing, VaR, frontier, QUBO)
   - `assets/live.js`: the Pro chart (Lightweight Charts v5, Binance and Finnhub
     WebSockets, CNBC polling, studies, drawings, shortcuts)
   - `assets/app.css`
@@ -805,7 +887,7 @@ Lightweight Charts v5, so indicators aren't limited the way an embedded widget i
   - `meta`, `global` (the screener), `symbols` (search) and `indices`
   - `sym/<xx>`: about two years of adjusted closes plus fundamentals per symbol,
     in 256 FNV-1a buckets
-  - `factors`, `market`, `deep/<T>` and `research`
+  - `factors`, `market`, `deep/<T>`, `research` and `quantum`
 
   The total is about 60 MB raw; GitHub Pages compresses it.
 - *Publishing:* `quant/web/publish.py` commits `data/site` as a fresh one-commit
