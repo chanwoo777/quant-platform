@@ -102,7 +102,22 @@
   const groverProbability = (N, k) => Math.sin((2 * k + 1) * Math.asin(1 / Math.sqrt(N))) ** 2;
   const groverOptimal = (N) => Math.floor((Math.PI / 4) * Math.sqrt(N));
 
-  const QX = { TD, mean, std, rng, gaussian, applyGate, simulate, probabilities, sampleCounts, groverSteps, groverProbability, groverOptimal };
+  // --- Monte Carlo error, measured -----------------------------------------------------------------
+  /** RMS error of the sample mean of N standard normals (true mean 0, σ = 1), over many trials. */
+  function mcErrorCurve(seed = 7, plan = [[10, 400], [100, 200], [1e3, 100], [1e4, 40], [1e5, 16], [1e6, 6]]) {
+    const g = gaussian(rng(seed));
+    return plan.map(([n, trials]) => {
+      let se = 0;
+      for (let t = 0; t < trials; t++) {
+        let s = 0;
+        for (let i = 0; i < n; i++) s += g();
+        se += (s / n) ** 2;
+      }
+      return { n, rms: Math.sqrt(se / trials) };
+    });
+  }
+
+  const QX = { TD, mean, std, rng, gaussian, applyGate, simulate, probabilities, sampleCounts, groverSteps, groverProbability, groverOptimal, mcErrorCurve };
 
   if (typeof module !== "undefined" && module.exports) { module.exports = QX; return; }
   root.QX = QX;
@@ -350,6 +365,61 @@
         where a classical method needs N.</p>`;
   }
   SECTIONS.push({ id: "toolbox", title: "Quantum toolbox", html: toolbox });
+
+  // --- 4. Monte Carlo vs amplitude estimation -------------------------------------------------------
+  const big = (x) => Math.round(x).toLocaleString("en-US");
+  const epsLabel = (e) => `${+(100 * e).toPrecision(2)}%`;
+  function converge(ctx) {
+    const cv = ctx.q && ctx.q.convergence;
+    return `
+      <p class="soft">Banks price derivatives and measure risk by Monte Carlo: simulate many scenarios and average them. The error shrinks like
+        1/√N, so 10× more accuracy costs 100× more samples. Quantum amplitude estimation (QAE) estimates the same average with an error that
+        shrinks like 1/N: 10× more accuracy for 10× more queries. That quadratic gap is the main reason finance cares about quantum computers.</p>
+      <div class="q-formula"><span>error<sub>MC</sub> ≈ σ / √N</span><span>error<sub>QAE</sub> ≈ 1 / N</span></div>
+      <div class="controls"><div class="control q-slider"><label for="cv-eps">Target error: <b id="cv-eps-v"></b></label>
+        <input type="range" id="cv-eps" min="0" max="200" step="1" value="100" aria-describedby="cv-eps-v"></div></div>
+      <div class="grid g3" id="cv-kpis"></div>
+      <div class="chart" id="cv-chart"></div>
+      <p class="caption">Lines: the two scaling laws with constants set to 1 (σ = 1). Blue dots: Monte Carlo measured in your browser.
+        ${cv ? `Orange dots: iterative QAE on the nightly option circuit (${esc(cv.ticker)}, ${esc(cv.maturity_days)} days), error ÷ σ of one sample so it
+        shares the scale, averaged over ${esc(cv.runs_per_point)} runs. ${simTag()}` : "The nightly QAE runs aren't published yet, so only the theory is shown for QAE."}</p>
+      <p class="caption">Constants matter. In the option runs (section 5) the payoff encoding magnifies amplitude errors several times, so at that precision
+        QAE needs about as many queries as Monte Carlo needs samples. Its advantage grows as the target error shrinks, and every query has to run on
+        error-corrected hardware (section 10).</p>`;
+  }
+  async function initConverge(sec, ctx) {
+    const c = pal(), cv = ctx.q && ctx.q.convergence;
+    const xs = Array.from({ length: 91 }, (_, i) => 10 ** (i / 10));
+    let measured = null;
+    const draw = () => {
+      const eps = 10 ** (-2 - Number($("#cv-eps", sec).value) / 100);
+      const nMc = 1 / eps ** 2, nQ = 1 / eps;
+      $("#cv-eps-v", sec).textContent = epsLabel(eps);
+      $("#cv-kpis", sec).innerHTML = kpi("Monte Carlo", `${big(nMc)}`, "samples for that error (1/ε²)")
+        + kpi("Amplitude estimation", `${big(nQ)}`, "oracle queries (1/ε)")
+        + kpi("Quantum saving", `${big(nMc / nQ)}×`, "fewer evaluations, before hardware overheads");
+      const traces = [
+        { x: xs, y: xs.map((n) => 1 / Math.sqrt(n)), name: "Monte Carlo: 1/√N", mode: "lines", line: { color: c.series[0], width: 2 }, hovertemplate: "N = %{x:,.0f}: error %{y:.2e}<extra></extra>" },
+        { x: xs, y: xs.map((n) => 1 / n), name: "QAE: 1/N", mode: "lines", line: { color: c.series[1], width: 2 }, hovertemplate: "N = %{x:,.0f}: error %{y:.2e}<extra></extra>" },
+        { x: [nMc, nQ], y: [eps, eps], name: "Target", mode: "markers", marker: { size: 11, color: c.ink, symbol: "diamond" }, hovertemplate: "%{x:,.0f} evaluations<extra></extra>" },
+      ];
+      if (measured) traces.push({ x: measured.map((p) => p.n), y: measured.map((p) => p.rms), name: "Monte Carlo, measured here", mode: "markers",
+        marker: { size: 9, color: c.series[0], line: { color: c.surface, width: 1.5 } }, hovertemplate: "N = %{x:,.0f}: RMS error %{y:.2e}<extra></extra>" });
+      if (cv) traces.push({ x: cv.points.map((p) => p.oracle_queries), y: cv.points.map((p) => p.abs_error / cv.mc_sigma), name: "Iterative QAE, simulated nightly",
+        mode: "markers", marker: { size: 9, color: c.series[1], line: { color: c.surface, width: 1.5 } },
+        hovertemplate: "%{x:,.0f} oracle queries: error %{y:.2e} (simulated)<extra></extra>" });
+      plot($("#cv-chart", sec), traces, layout(400, { hovermode: "closest",
+        xaxis: { type: "log", title: { text: "Samples (Monte Carlo) or oracle queries (QAE)", font: { size: 11 } }, exponentformat: "power", showgrid: false, linecolor: c.axis, tickfont: { color: c.muted } },
+        yaxis: yaxis({ type: "log", exponentformat: "power", title: { text: "Error", font: { size: 11 } } }),
+        shapes: [{ type: "line", xref: "paper", x0: 0, x1: 1, y0: eps, y1: eps, line: { color: c.muted, width: 1, dash: "dot" } }] }));
+    };
+    $("#cv-eps", sec).addEventListener("input", draw);
+    draw();
+    await new Promise((r) => setTimeout(r, 30));  // let the page paint before ~10M random draws
+    measured = mcErrorCurve();
+    draw();
+  }
+  SECTIONS.push({ id: "converge", title: "Monte Carlo vs quantum: convergence", html: converge, init: initConverge });
 
   function view(el, arg) {
     return render(el, arg);

@@ -372,3 +372,7 @@ kbd { font: 600 0.78rem ui-monospace, monospace; background: var(--bg-soft); bor
 .q-table td, .q-table th { white-space: normal; vertical-align: top; min-width: 130px; }
 .q-table td { color: var(--text-soft); }
 .q-table td b { color: var(--text); }
+.q-formula { display: flex; flex-wrap: wrap; gap: 10px 28px; margin: 12px 0 4px; padding: 10px 14px; background: var(--code-bg);
+  border-radius: 8px; font: 1rem/1.4 "Cambria Math", "STIX Two Math", Georgia, serif; width: fit-content; max-width: 100%; }
+.q-slider { flex: 1; min-width: min(420px, 100%); }
+.q-slider input[type="range"] { width: 100%; accent-color: var(--accent); }
