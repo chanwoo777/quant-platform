@@ -428,3 +428,11 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fo
 .q-sec-card { max-width: 980px; }
 .q-sec-card p { color: var(--text-soft); margin: 0 0 10px; }
 .q-sec-card p:last-child { margin-bottom: 0; }
+.q-learn h3 { margin-top: 6px; }
+.q-gloss { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 0; font-size: 0.9rem; }
+.q-gloss dt { font-weight: 650; }
+.q-gloss dd { margin: 0; color: var(--text-soft); }
+@media (max-width: 520px) { .q-gloss { grid-template-columns: 1fr; gap: 2px; } .q-gloss dd { margin-bottom: 8px; } }
+.q-path, .q-refs { margin: 0 0 18px; padding-left: 1.2em; color: var(--text-soft); font-size: 0.9rem; }
+.q-path li, .q-refs li { margin: 6px 0; }
+.q-path b { color: var(--text); }

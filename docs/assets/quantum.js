@@ -1193,6 +1193,61 @@
   }
   SECTIONS.push({ id: "security", title: "Security note for investors", html: security });
 
+  // --- 12. Learn more --------------------------------------------------------------------------------------
+  const GLOSSARY = [
+    ["Qubit", "The quantum version of a bit: two amplitudes, one for 0 and one for 1, instead of a single value."],
+    ["Superposition", "A state with nonzero amplitude on more than one outcome at once, such as (|0⟩ + |1⟩)/√2."],
+    ["Amplitude", "A number attached to each possible outcome; its square is that outcome's probability. It can be negative."],
+    ["Measurement", "Reading qubits: it returns one outcome at random, by the squared amplitudes, and destroys the superposition."],
+    ["Entanglement", "Qubits sharing one joint state, so their measurements are correlated in ways no separate states can produce."],
+    ["Interference", "Amplitudes adding like waves: equal signs reinforce, opposite signs cancel. Algorithms use it to boost right answers."],
+    ["Oracle", "A black box an algorithm queries, for example one that marks the item being searched for. Speedups count queries to it."],
+    ["Gate", "One operation on one or a few qubits, such as H, X, Z or CNOT. The quantum version of a logic gate."],
+    ["Circuit", "A sequence of gates applied to qubits, followed by measurements: a quantum program."],
+    ["QAE", "Quantum amplitude estimation: estimates a probability or an average with error about 1/N in N queries, against 1/√N for Monte Carlo."],
+    ["QAOA", "Quantum approximate optimization algorithm: alternating cost and mixer layers whose angles a classical optimizer tunes."],
+    ["QUBO", "Quadratic unconstrained binary optimization: minimize x′Qx over 0/1 vectors x. Constraints become penalty terms."],
+    ["HHL", "The Harrow-Hassidim-Lloyd algorithm for linear systems Ax = b; exponentially faster only under strict conditions."],
+    ["Logical qubit", "A reliable qubit built from many noisy physical qubits by error correction."],
+    ["VaR", "Value at risk: the loss a portfolio shouldn't exceed on, say, 95% of days."],
+    ["CVaR", "Conditional VaR, or expected shortfall: the average loss on the days beyond VaR."],
+  ];
+  const PATH = [
+    ["Weeks 1-2", "Foundations", "Qubits, gates, measurement and linear algebra (vectors and matrices). Install Qiskit (pip install qiskit) and rebuild the entangled pair from section 2."],
+    ["Weeks 3-4", "Grover, phase estimation, Shor", "How interference finds a marked item, how phase estimation reads a hidden period, and why that breaks RSA."],
+    ["Weeks 5-6", "Amplitude estimation and option pricing", "Monte Carlo vs QAE, then price a European call with Qiskit as in section 5."],
+    ["Weeks 7-8", "Portfolio optimization and QAOA", "Markowitz, QUBOs, and a QAOA demo on a 4-6 stock basket; compare with brute force."],
+    ["Week 9", "Error correction and readiness", "Surface codes, T-gate costs and resource estimates; apply the scorecard in section 8 to a problem of your own."],
+  ];
+  const REFS = [
+    ["Andrew Childs", "Lecture Notes on Quantum Algorithms", "https://www.cs.umd.edu/~amchilds/qa/qa.pdf"],
+    ["Muhammad Faryad", "Lecture Notes on Quantum Algorithms", "https://arxiv.org/abs/2507.11565"],
+    ["Lov Grover", "A fast quantum mechanical algorithm for database search", "https://arxiv.org/abs/quant-ph/9605043"],
+    ["Peter Shor", "Polynomial-time algorithms for prime factorization and discrete logarithms on a quantum computer", "https://arxiv.org/abs/quant-ph/9508027"],
+    ["Harrow, Hassidim and Lloyd", "Quantum algorithm for solving linear systems of equations (HHL)", "https://arxiv.org/abs/0811.3171"],
+    ["Grinko et al.", "Iterative quantum amplitude estimation", "https://arxiv.org/abs/1912.05559"],
+    ["Stamatopoulos et al.", "Option pricing using quantum computers", "https://arxiv.org/abs/1905.02666"],
+    ["Kerenidis, Prakash and Szilágyi", "Quantum algorithms for portfolio optimization", "https://arxiv.org/abs/1908.08040"],
+    ["Woerner and Egger", "Quantum risk analysis", "https://arxiv.org/abs/1806.06893"],
+    ["Egger et al.", "Credit risk analysis using quantum computers", "https://arxiv.org/abs/1907.03044"],
+    ["Gilyén et al.", "Quantum singular value transformation and beyond", "https://arxiv.org/abs/1806.01838"],
+    ["Fowler et al.", "Surface codes: towards practical large-scale quantum computation", "https://arxiv.org/abs/1208.0928"],
+    ["Daniel Gottesman", "Stabilizer codes and quantum error correction", "https://arxiv.org/abs/quant-ph/9705052"],
+    ["Dawson and Nielsen", "The Solovay-Kitaev algorithm", "https://arxiv.org/abs/quant-ph/0505030"],
+    ["Alessandro Luongo", "Quantum algorithms for data analysis", "https://quantumalgorithms.org/quantumalgorithms.pdf"],
+    ["McKinsey", "How quantum computing could change financial services", "https://www.mckinsey.com/~/media/mckinsey/industries/financial%20services/our%20insights/how%20quantum%20computing%20could%20change%20financial%20services/how-quantum-computing-could-change-financial-services.pdf"],
+    ["NSW Chief Scientist & Engineer", "Quantum algorithms and applications study", "https://www.chiefscientist.nsw.gov.au/__data/assets/pdf_file/0017/1682/Quantum-Algorithms-and-Applications-Study-FINAL.pdf"],
+  ];
+  function learn() {
+    return `<div class="q-two q-learn">
+        <div><h3>Glossary</h3><dl class="q-gloss">${GLOSSARY.map(([t, d]) => `<dt>${esc(t)}</dt><dd>${esc(d)}</dd>`).join("")}</dl></div>
+        <div><h3>A 9-week beginner path</h3><ol class="q-path">${PATH.map(([w, t, d]) => `<li><span class="badge info">${esc(w)}</span> <b>${esc(t)}.</b> ${esc(d)}</li>`).join("")}</ol>
+          <h3>References</h3><ul class="q-refs">${REFS.map(([who, title, url]) => `<li>${esc(who)}, <a href="${esc(url)}" target="_blank" rel="noopener">${esc(title)}</a></li>`).join("")}</ul></div>
+      </div>
+      <p class="caption">${simTag()} applies to every quantum number on this page. Not investment advice.</p>`;
+  }
+  SECTIONS.push({ id: "learn", title: "Learn more: glossary, path and references", html: learn });
+
   function view(el, arg) {
     return render(el, arg);
   }
