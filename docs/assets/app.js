@@ -1,8 +1,9 @@
 /* Free Quant Platform: static web dashboard.
  * Reads the JSON written by `python -m quant.web.export` (data/) and renders the pages with
- * Plotly; quant.js (window.Q) does the in-browser statistics, live.js the WebSocket charts.
- * Hash routes: #/global, #/markets, #/stock/<ticker>, #/financials/<ticker>, #/live/<symbol>
- * (#/bot, the retired paper bot, redirects to #/global). Pretty paths (/stock/AAPL) redirect via 404.html.
+ * Plotly; quant.js (window.Q) does the in-browser statistics, live.js the WebSocket charts and
+ * quantum.js the Quantum page. Hash routes: #/global, #/markets, #/stock/<ticker>,
+ * #/financials/<ticker>, #/quantum/<section>, #/live/<symbol> (#/bot, the retired paper bot,
+ * redirects to #/global). Pretty paths (/stock/AAPL) redirect via 404.html.
  */
 "use strict";
 
@@ -1127,6 +1128,7 @@ function watchlistResearchHtml(research, model) {
 // Router and shell
 // ====================================================================================================
 const ROUTES = { global: viewGlobal, markets: viewMarkets, stock: viewStock, financials: viewFinancials,
+  quantum: (view, arg) => (window.QUANTUM ? window.QUANTUM.view(view, arg) : (view.innerHTML = '<div class="empty">The Quantum page failed to load.</div>')),
   live: (view, arg) => (window.LIVE ? window.LIVE.view(view, arg) : (view.innerHTML = '<div class="empty">Live charts failed to load.</div>')) };
 const MOVED = { bot: "#/global" };  // retired routes: old links land somewhere useful
 let cleanup = null;

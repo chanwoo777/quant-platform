@@ -308,3 +308,20 @@ kbd { font: 600 0.78rem ui-monospace, monospace; background: var(--bg-soft); bor
 .pc-fold { pointer-events: auto; background: none; border: none; color: var(--text-soft); cursor: pointer; padding: 0 4px 0 0; font-size: 0.8rem; }
 .pc-legends.folded .pc-leg-pane:first-child .pc-leg { display: none; }
 .pc-legends.folded .pc-leg-pane:not(:first-child) .pc-leg button { display: none; }
+
+/* quantum page */
+.q-lede { max-width: 860px; margin: 0; }
+.q-banner { margin: 14px 0 6px; padding: 10px 14px; border: 1px solid var(--warn); background: var(--warn-soft); color: var(--text);
+  border-radius: var(--radius); font-size: 0.9rem; }
+.q-toc { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0 4px; }
+.q-sec { scroll-margin-top: 68px; }
+.q-sec > h2 { display: flex; align-items: center; gap: 10px; margin-top: 40px; }
+.q-n { display: inline-grid; place-items: center; min-width: 26px; height: 26px; padding: 0 6px; border-radius: 999px; background: var(--accent-soft);
+  color: var(--accent); font-size: 0.85rem; font-weight: 700; }
+.q-sim { display: inline-block; font-size: 0.76rem; font-weight: 600; padding: 2px 8px; border-radius: 6px; background: var(--warn-soft);
+  color: var(--warn); line-height: 1.4; }
+.q-card p { margin: 0; color: var(--text-soft); font-size: 0.92rem; }
+.q-callout { margin-top: 12px; padding: 11px 14px; border-left: 3px solid var(--accent); background: var(--accent-soft);
+  border-radius: 0 8px 8px 0; color: var(--text-soft); font-size: 0.92rem; max-width: 980px; }
+.q-callout b { color: var(--text); }
+@media (max-width: 560px) { .q-cards { grid-template-columns: 1fr; } }
