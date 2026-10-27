@@ -14,7 +14,8 @@ data/site/data/:
   sym/<xx>.json   per symbol: ~2 years of adjusted daily closes + fundamentals, in 256
                   buckets keyed by FNV-1a(symbol), so any ticker's page loads one small file
   factors.json    daily Fama-French factors (FF3, momentum, FF5) for in-browser regressions
-  market.json     regime, S&P 500 with stance history, FRED tiles, watchlist movers, news
+  market.json     regime, S&P 500 with stance history, FRED tiles, the 3-month T-bill rate,
+                  watchlist movers, news
   deep/<T>.json   per deep-tier ticker: OHLCV + adjusted close + indicators, news markers,
                   unusual moves, headlines, SEC financials, rolling factor betas
   research.json   factor exposures (FF3, Carhart, FF5), composite scores, strategy backtests
@@ -383,6 +384,11 @@ def export_market(out: Path, c) -> int:
                       "date": f"{s.index[-1]:%Y-%m-%d}", "help": c.macro_label(sid),
                       "spark": series(spark.iloc[::step].to_numpy(), 4)})
 
+    # Risk-free rate for the Quantum page's option pricing (3-month T-bill yield).
+    bill = macro["DGS3MO"].dropna() if "DGS3MO" in macro else pd.Series(dtype=float)
+    rf = None if bill.empty else {"id": "DGS3MO", "label": c.macro_label("DGS3MO"), "value": bill.iloc[-1],
+                                  "date": f"{bill.index[-1]:%Y-%m-%d}"}
+
     scores = c.scores()
     movers = []
     for t in ctx.universe.tickers:
@@ -402,6 +408,7 @@ def export_market(out: Path, c) -> int:
                 "ma200": series(spx.sma_200, 6)},
         "stance_runs": stance_runs,
         "fred": tiles,
+        "rf": rf,
         "movers": movers,
         "news": [{"t": f"{r.published_et:%Y-%m-%d %H:%M}", "ticker": r.ticker if isinstance(r.ticker, str) else None,
                   "title": r.title, "src": r.publisher, "score": sig(r.sentiment_score, 3),

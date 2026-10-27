@@ -117,7 +117,66 @@
     });
   }
 
-  const QX = { TD, mean, std, rng, gaussian, applyGate, simulate, probabilities, sampleCounts, groverSteps, groverProbability, groverOptimal, mcErrorCurve };
+  // --- option pricing --------------------------------------------------------------------------------
+  /** erfc with fractional error below 1.2e-7 (Numerical Recipes' Chebyshev fit). */
+  function erfc(x) {
+    const z = Math.abs(x), t = 1 / (1 + 0.5 * z);
+    const r = t * Math.exp(-z * z - 1.26551223 + t * (1.00002368 + t * (0.37409196 + t * (0.09678418 + t * (-0.18628806 + t * (0.27886807
+      + t * (-1.13520398 + t * (1.48851587 + t * (-0.82215223 + t * 0.17087277)))))))));
+    return x >= 0 ? r : 2 - r;
+  }
+  const normCdf = (x) => 0.5 * erfc(-x / Math.SQRT2);
+  /** European option under Black-Scholes: S spot, K strike, T years, r continuous rate, vol annual. */
+  function blackScholes(S, K, T, r, vol, kind = "call") {
+    const sq = vol * Math.sqrt(T), d1 = (Math.log(S / K) + (r + (vol * vol) / 2) * T) / sq, d2 = d1 - sq, disc = Math.exp(-r * T);
+    const price = kind === "call" ? S * normCdf(d1) - K * disc * normCdf(d2) : K * disc * normCdf(-d2) - S * normCdf(-d1);
+    return { price, d1, d2, delta: kind === "call" ? normCdf(d1) : normCdf(d1) - 1 };
+  }
+  /** Monte Carlo price from lognormal terminal prices, with a 95% interval and running estimates
+   * at the `checkpoints` (path counts) for a convergence chart. */
+  function mcOption({ S, K, T, r, vol, kind = "call", n = 100000, seed = 1, checkpoints = [] }) {
+    const g = gaussian(rng(seed)), drift = (r - (vol * vol) / 2) * T, sd = vol * Math.sqrt(T), disc = Math.exp(-r * T);
+    const cps = checkpoints.filter((x) => x >= 2 && x <= n).sort((a, b) => a - b), path = [];
+    let s1 = 0, s2 = 0, c = 0;
+    for (let i = 1; i <= n; i++) {
+      const st = S * Math.exp(drift + sd * g());
+      const p = disc * Math.max(kind === "call" ? st - K : K - st, 0);
+      s1 += p; s2 += p * p;
+      if (c < cps.length && i === cps[c]) {
+        const m = s1 / i;
+        path.push({ n: i, price: m, half: 1.96 * Math.sqrt(Math.max(s2 - i * m * m, 0) / (i - 1) / i) });
+        c++;
+      }
+    }
+    const m = s1 / n, se = Math.sqrt(Math.max(s2 - n * m * m, 0) / (n - 1) / n);
+    return { price: m, se, ci: [m - 1.96 * se, m + 1.96 * se], n, path };
+  }
+  /** Annualised volatility of the last `window` daily log returns (as quant/web/quantum.py). */
+  function annualVol(values, window = 126) {
+    const v = values.filter(isNum), lr = [];
+    for (let i = Math.max(1, v.length - window); i < v.length; i++) lr.push(Math.log(v[i] / v[i - 1]));
+    return std(lr) * Math.sqrt(TD);
+  }
+  /** The lognormal model the quantum circuit discretizes: log-space mean and variance, ±3σ bounds. */
+  function lognormalBounds(S, T, r, vol) {
+    const mu = Math.log(S) + (r - (vol * vol) / 2) * T, s2 = vol * vol * T;
+    const m = Math.exp(mu + s2 / 2), sd = Math.sqrt((Math.exp(s2) - 1) * Math.exp(2 * mu + s2));
+    return { mu, sigma2: s2, low: Math.max(0, m - 3 * sd), high: m + 3 * sd };
+  }
+  /** Risk-free rate: FRED's 3-month T-bill yield from market.json, else Fed funds, else the nightly
+   * run's. Returns the percent yield and its continuously compounded equivalent. */
+  function riskFree(market, q) {
+    let src = null;
+    if (market && market.rf && isNum(market.rf.value)) src = { series: market.rf.id, label: market.rf.label || "3-Month Treasury yield", pct: market.rf.value, date: market.rf.date };
+    const dff = !src && market && (market.fred || []).find((t) => t.id === "DFF" && isNum(t.value));
+    if (dff) src = { series: "DFF", label: "Effective federal funds rate", pct: dff.value, date: dff.date };
+    if (!src && q && q.rate && isNum(q.rate.percent)) src = { series: q.rate.series, label: q.rate.label, pct: q.rate.percent, date: q.rate.date };
+    if (!src) src = { series: null, label: "an assumed rate (no FRED data loaded)", pct: 4, date: null };
+    return Object.assign(src, { r: Math.log(1 + src.pct / 100) });
+  }
+
+  const QX = { TD, mean, std, rng, gaussian, applyGate, simulate, probabilities, sampleCounts, groverSteps, groverProbability, groverOptimal, mcErrorCurve,
+    erfc, normCdf, blackScholes, mcOption, annualVol, lognormalBounds, riskFree };
 
   if (typeof module !== "undefined" && module.exports) { module.exports = QX; return; }
   root.QX = QX;
@@ -420,6 +479,159 @@
     draw();
   }
   SECTIONS.push({ id: "converge", title: "Monte Carlo vs quantum: convergence", html: converge, init: initConverge });
+
+  // --- 5. Stock option pricing lab ---------------------------------------------------------------------
+  const WINDOWS = [[63, "3 months"], [126, "6 months"], [252, "12 months"]];
+  const money2 = (x) => (isNum(x) ? minus(x.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })) : "–");
+  function options() {
+    return `
+      <p class="soft">Price a European option on any stock in the universe three ways: the Black-Scholes formula, classical Monte Carlo, and quantum
+        amplitude estimation from the nightly simulator. Spot and volatility come from the site's daily prices; the volatility is annualised from daily
+        log returns. Dividends are ignored.</p>
+      <div class="controls">
+        <div class="control"><span class="label">Stock</span><div class="q-pick"><b id="op-sym"></b><div id="op-search">${searchBox("Change stock")}</div></div></div>
+        <div class="control"><span class="label">Volatility window</span><div class="chips" id="op-win">${WINDOWS.map(([w, l]) => `<button type="button" class="chip" data-v="${w}">${l}</button>`).join("")}</div></div>
+        <div class="control"><span class="label">Maturity</span><div class="chips" id="op-days">${[30, 90, 180].map((d) => `<button type="button" class="chip" data-v="${d}">${d} days</button>`).join("")}</div></div>
+        <div class="control"><span class="label">Type</span><div class="chips" id="op-kind"><button type="button" class="chip" data-v="call">Call</button><button type="button" class="chip" data-v="put">Put</button></div></div>
+        <div class="control"><label for="op-k">Strike</label><div class="row" style="margin:0"><input type="number" id="op-k" step="0.01" min="0.01" style="width:110px">
+          <button type="button" class="btn" id="op-atm">At the money</button></div></div>
+        <div class="control"><label for="op-n">Monte Carlo paths</label><select id="op-n">${[1e3, 1e4, 1e5, 1e6].map((n) => `<option value="${n}">${big(n)}</option>`).join("")}</select></div>
+      </div>
+      <p class="caption" id="op-msg"></p>
+      <div class="grid g4" id="op-inputs"></div>
+      <div class="grid g3 q-compare" id="op-out"></div>
+      <div class="chart-title">Monte Carlo converging to Black-Scholes as paths increase</div>
+      <div class="chart" id="op-conv"></div>
+      <h3 class="q-h3">How amplitude estimation prices this option</h3>
+      <div class="q-steps" id="op-steps"></div>`;
+  }
+
+  async function initOptions(sec, ctx) {
+    const O = Object.assign({ sym: "AAPL", win: 126, days: 90, kind: "call", n: 1e5 }, store.get("q:opt", {}), { strike: null, seed: 1, step: 0 });
+    const rf = riskFree(ctx.market, ctx.q);
+    let data = null, name = "";
+    const items = (ctx.q && ctx.q.options.items) || [];
+    const loadSym = async (sym) => {
+      const sd = await symbolData(sym);
+      if (!sd || !sd.px || sd.px.values.length < 70) { $("#op-msg", sec).textContent = `${sym}: not enough price history on this site.`; return false; }
+      const row = await rowFor(sym);
+      O.sym = sym; data = sd.px; name = (row && row.n) || ""; $("#op-msg", sec).textContent = "";
+      return true;
+    };
+    if (!(await loadSym(O.sym)) && !(await loadSym("AAPL"))) throw new Error("no price data");
+    const chipsOn = (id, v) => sec.querySelectorAll(`#${id} .chip`).forEach((b) => b.classList.toggle("on", b.dataset.v === String(v)));
+
+    const draw = () => {
+      store.set("q:opt", { sym: O.sym, win: O.win, days: O.days, kind: O.kind, n: O.n });
+      chipsOn("op-win", O.win); chipsOn("op-days", O.days); chipsOn("op-kind", O.kind);
+      $("#op-n", sec).value = String(O.n);
+      $("#op-sym", sec).innerHTML = `${esc(O.sym)}${name ? ` <span class="soft">${esc(name)}</span>` : ""}`;
+      const S = data.values[data.values.length - 1], vol = annualVol(data.values, O.win), T = O.days / 365, r = rf.r;
+      if (!isNum(O.strike) || O.strike <= 0) O.strike = Math.round(S * 100) / 100;
+      $("#op-k", sec).value = O.strike.toFixed(2);
+      const K = O.strike;
+      $("#op-inputs", sec).innerHTML = kpi("Spot price", money2(S), `last close, ${esc(data.dates[data.dates.length - 1])}`)
+        + kpi("Volatility", pct(vol, 1, false), `annualised, last ${WINDOWS.find((w) => w[0] === O.win)[1]} of daily log returns`)
+        + kpi("Risk-free rate", pct(rf.pct / 100, 2, false), `${esc(rf.label)}${rf.series ? ` (FRED ${esc(rf.series)})` : ""}${rf.date ? `, ${esc(rf.date)}` : ""}; continuous ${pct(r, 2, false)}`)
+        + kpi("Time to expiry", `${O.days} days`, `T = ${O.days}/365 = ${T.toFixed(3)} years`);
+      const bs = blackScholes(S, K, T, r, vol, O.kind);
+      const mc = mcOption({ S, K, T, r, vol, kind: O.kind, n: O.n, seed: O.seed, checkpoints: [100, 200, 500, 1e3, 2e3, 5e3, 1e4, 2e4, 5e4, 1e5, 2e5, 5e5, 1e6] });
+      const item = items.find((it) => it.ticker === O.sym && it.maturity_days === O.days);
+      $("#op-out", sec).innerHTML = `
+        <div class="card q-res"><div class="q-res-h">Black-Scholes <span class="badge">formula</span></div>
+          <div class="q-big">${money2(bs.price)}</div>
+          <div class="sub">d₁ ${num(bs.d1, 3)} · d₂ ${num(bs.d2, 3)} · delta ${num(bs.delta, 3)}</div>
+          <p class="caption">Exact if prices are lognormal with constant volatility. The reference for the other two.</p></div>
+        <div class="card q-res"><div class="q-res-h">Monte Carlo <span class="badge">classical</span></div>
+          <div class="q-big">${money2(mc.price)}</div>
+          <div class="sub">95% interval ${money2(mc.ci[0])} – ${money2(mc.ci[1])} · ${big(mc.n)} paths · ${num(mc.price - bs.price, 3, true)} vs Black-Scholes</div>
+          <div class="row"><button type="button" class="btn q-small" id="op-rerun">Run again with new random numbers</button></div></div>
+        ${quantumCard(item, { S, K, vol, r, kind: O.kind })}`;
+      $("#op-rerun", sec).addEventListener("click", () => { O.seed++; draw(); });
+      const useBtn = $("#op-use", sec);
+      if (useBtn) useBtn.addEventListener("click", () => { O.win = ctx.q.options.vol_window; O.kind = "call"; O.strike = item.strike; draw(); });
+      sec.querySelectorAll("[data-op-sym]").forEach((b) => b.addEventListener("click", async () => {
+        if (await loadSym(b.dataset.opSym)) { O.strike = null; O.days = Number(b.dataset.opDays) || O.days; draw(); }
+      }));
+      const c = pal(), xs = mc.path.map((p) => p.n);
+      plot($("#op-conv", sec), [
+        { x: xs, y: mc.path.map((p) => p.price + p.half), mode: "lines", line: { width: 0 }, showlegend: false, hoverinfo: "skip" },
+        { x: xs, y: mc.path.map((p) => p.price - p.half), mode: "lines", line: { width: 0 }, fill: "tonexty", fillcolor: "rgba(42,120,214,0.15)", name: "95% interval", hoverinfo: "skip" },
+        { x: xs, y: mc.path.map((p) => p.price), mode: "lines+markers", name: "Monte Carlo estimate", line: { color: c.series[0], width: 2 }, hovertemplate: "%{x:,} paths: %{y:.3f}<extra></extra>" },
+        { x: [xs[0], xs[xs.length - 1]], y: [bs.price, bs.price], mode: "lines", name: "Black-Scholes", line: { color: c.ink, width: 1.5, dash: "dash" }, hovertemplate: "%{y:.3f}<extra>Black-Scholes</extra>" },
+      ], layout(300, { hovermode: "closest", xaxis: { type: "log", title: { text: "Paths", font: { size: 11 } }, showgrid: false, linecolor: c.axis, tickfont: { color: c.muted } },
+        yaxis: yaxis({ title: { text: "Price", font: { size: 11 } } }) }));
+      drawSteps({ S, K, vol, r, T, item });
+    };
+
+    function quantumCard(item, cur) {
+      const head = `<div class="q-res-h">Amplitude estimation <span class="badge warn">quantum, simulated</span></div>`;
+      if (!ctx.q) return `<div class="card q-res">${head}<p class="soft">Not available yet: the nightly simulation results (data/quantum.json) haven't been published.
+        The classical prices beside this don't need them.</p></div>`;
+      if (!item) {
+        const tick = [...new Set(items.map((it) => it.ticker))], days = [...new Set(items.map((it) => it.maturity_days))];
+        return `<div class="card q-res">${head}<p class="soft"><b>Not precomputed</b> for ${esc(O.sym)} at ${O.days} days. Each night the simulator prices
+          at-the-money calls on ${esc(tick.join(", "))} at ${esc(days.join(", "))} days.</p>
+          <div class="row">${tick.map((t) => `<button type="button" class="btn q-small" data-op-sym="${esc(t)}" data-op-days="${days.includes(O.days) ? O.days : days[0]}">Use ${esc(t)}</button>`).join("")}</div></div>`;
+      }
+      const T = item.maturity_days / 365, disc = Math.exp(-item.rate * T);
+      const parity = (x) => x - item.spot + item.strike * disc;  // put from the simulated call
+      const put = cur.kind === "put", f = put ? parity : (x) => x;
+      const same = Math.abs(cur.K - item.strike) < 0.005 && Math.abs(cur.vol - item.vol) < 5e-4 && Math.abs(cur.S - item.spot) < 0.005
+        && Math.abs(cur.r - item.rate) < 5e-5;
+      const qae = item.qae, bsNightly = put ? parity(item.bs) : item.bs, nq = ctx.q.options.uncertainty_qubits;
+      return `<div class="card q-res">${head}
+        <div class="q-big">${money2(f(qae.price))}</div>
+        <div class="sub">95% interval ${money2(f(qae.ci[0]))} – ${money2(f(qae.ci[1]))} · ${big(qae.oracle_queries)} oracle queries · ${esc(nq)} price qubits,
+          ${esc(ctx.q.options.circuit.state_preparation.qubits)} in all</div>
+        ${simTag()}
+        <p class="caption">Nightly run on prices of ${esc(ctx.q.prices_as_of)}: ${put ? "a call, turned into this put by put-call parity; " : ""}spot ${money2(item.spot)},
+          strike ${money2(item.strike)}, volatility ${pct(item.vol, 1, false)} (6 months), rate ${pct(item.rate, 2, false)}.${same ? ""
+            : ` <b>Your inputs differ</b>, so compare it with Black-Scholes on the nightly inputs: ${money2(bsNightly)}.`}</p>
+        ${same ? "" : '<div class="row"><button type="button" class="btn q-small" id="op-use">Use the nightly inputs</button></div>'}
+        <table class="q-mini"><tbody>
+          <tr><td>QAE estimate</td><td class="r">${money2(f(qae.price))}</td><td>± the measurements' sampling error</td></tr>
+          <tr><td>Circuit's exact value</td><td class="r">${money2(f(item.circuit_exact))}</td><td>what QAE is estimating</td></tr>
+          <tr><td>Exact on the ${2 ** nq}-price grid</td><td class="r">${money2(f(item.grid_exact))}</td><td>gap above: the payoff's approximate encoding</td></tr>
+          <tr><td>Black-Scholes, same inputs</td><td class="r">${money2(bsNightly)}</td><td>gap above: only ${2 ** nq} prices, cut at ±3σ</td></tr>
+        </tbody></table></div>`;
+    }
+
+    function drawSteps({ S, K, vol, r, T, item }) {
+      const nq = ctx.q ? ctx.q.options.uncertainty_qubits : 5, lb = lognormalBounds(S, T, r, vol);
+      const powers = item ? item.qae.grover_powers.join(", ") : "0, 1, 4, 26, …";
+      const steps = [
+        ["Define the payoff and the model", `A call pays max(S<sub>T</sub> − K, 0) at expiry. As in Black-Scholes, the price at expiry S<sub>T</sub> is lognormal: here
+          S₀ = ${money2(S)}, volatility ${pct(vol, 1, false)}, rate ${pct(r, 2, false)}, T = ${T.toFixed(3)} years, strike K = ${money2(K)}.`],
+        ["Load the price distribution into qubits", `Cut the lognormal into 2<sup>n</sup> prices (${nq} qubits give ${2 ** nq} prices from ${money2(lb.low)} to
+          ${money2(lb.high)}, ±3 standard deviations) and prepare a state whose squared amplitudes are their probabilities. One circuit now holds the whole distribution.`],
+        ["Encode the payoff in one qubit", `A comparator checks whether the price is above the strike, and controlled rotations turn each price's payoff into a
+          small rotation of one extra <b>objective qubit</b>. The probability of reading that qubit as 1 then tracks the average payoff.`],
+        ["Amplify, Grover style", `The Grover operator Q turns that probability around a circle by a fixed angle each time. Iterative amplitude estimation runs
+          the circuit with Q repeated ${esc(powers)} times and narrows down the angle from the counts (Grinko et al., 2019).`],
+        ["Measure and convert to a price", `The estimated probability maps back to an average payoff. Discounting by e<sup>−rT</sup> gives the price, with a
+          95% interval from the measurement statistics.${item ? ` Tonight's simulated result for the call: ${money2(item.qae.price)}.` : ""}`],
+        ["Compare with Monte Carlo", `Monte Carlo needs about 1/ε² samples for error ε; amplitude estimation needs about 1/ε queries (section 4). This circuit
+          is small enough for a PC to simulate in seconds. A real speedup needs error-corrected hardware that doesn't exist yet (section 10).`],
+      ];
+      const box = $("#op-steps", sec), redraw = () => drawSteps({ S, K, vol, r, T, item });
+      box.innerHTML = `<div class="q-step-tabs">${steps.map((st, i) => `<button type="button" class="${i === O.step ? "on" : ""}" data-step="${i}"><span>${i + 1}</span>${esc(st[0])}</button>`).join("")}</div>
+        <div class="q-step-body"><b>Step ${O.step + 1} of 6. ${esc(steps[O.step][0])}.</b> ${steps[O.step][1]}
+          <div class="row"><button type="button" class="btn q-small" data-move="-1"${O.step ? "" : " disabled"}>Back</button><button type="button" class="btn q-small" data-move="1"${O.step < 5 ? "" : " disabled"}>Next</button></div></div>`;
+      box.querySelectorAll("[data-step]").forEach((b) => b.addEventListener("click", () => { O.step = Number(b.dataset.step); redraw(); }));
+      box.querySelectorAll("[data-move]").forEach((b) => b.addEventListener("click", () => { O.step = Math.min(5, Math.max(0, O.step + Number(b.dataset.move))); redraw(); }));
+    }
+
+    bindSearch($("#op-search", sec), async (sym) => { if (await loadSym(sym)) { O.strike = null; draw(); } });
+    sec.querySelectorAll("#op-win .chip").forEach((b) => b.addEventListener("click", () => { O.win = Number(b.dataset.v); draw(); }));
+    sec.querySelectorAll("#op-days .chip").forEach((b) => b.addEventListener("click", () => { O.days = Number(b.dataset.v); draw(); }));
+    sec.querySelectorAll("#op-kind .chip").forEach((b) => b.addEventListener("click", () => { O.kind = b.dataset.v; draw(); }));
+    $("#op-n", sec).addEventListener("change", (e) => { O.n = Number(e.target.value); draw(); });
+    $("#op-k", sec).addEventListener("change", (e) => { const k = Number(e.target.value); if (k > 0) { O.strike = k; draw(); } });
+    $("#op-atm", sec).addEventListener("click", () => { O.strike = null; draw(); });
+    draw();
+  }
+  SECTIONS.push({ id: "options", title: "Stock option pricing lab", html: options, init: initOptions });
 
   function view(el, arg) {
     return render(el, arg);

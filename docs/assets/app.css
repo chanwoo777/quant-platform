@@ -376,3 +376,25 @@ kbd { font: 600 0.78rem ui-monospace, monospace; background: var(--bg-soft); bor
   border-radius: 8px; font: 1rem/1.4 "Cambria Math", "STIX Two Math", Georgia, serif; width: fit-content; max-width: 100%; }
 .q-slider { flex: 1; min-width: min(420px, 100%); }
 .q-slider input[type="range"] { width: 100%; accent-color: var(--accent); }
+.q-pick { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.q-pick .search { width: 200px; }
+.q-compare { margin-top: 12px; }
+.q-res-h { font-weight: 650; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.q-big { font-size: 1.9rem; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; margin: 4px 0 2px; }
+.q-res .sub { font-size: 0.82rem; color: var(--text-faint); margin-bottom: 6px; }
+.q-res p.soft { font-size: 0.9rem; }
+.q-mini { margin-top: 10px; font-size: 0.8rem; }
+.q-mini td { padding: 4px 6px; white-space: normal; color: var(--text-soft); }
+.q-mini td:first-child { color: var(--text); }
+.q-h3 { margin-top: 26px; }
+.q-steps { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
+.q-step-tabs { display: flex; overflow-x: auto; border-bottom: 1px solid var(--border); background: var(--bg-soft); }
+.q-step-tabs button { flex: 1 0 auto; display: flex; align-items: center; gap: 8px; background: none; border: none; border-bottom: 2px solid transparent;
+  padding: 10px 12px; cursor: pointer; color: var(--text-soft); font-size: 0.84rem; text-align: left; white-space: nowrap; }
+.q-step-tabs button span { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--surface);
+  border: 1px solid var(--border); font-weight: 700; font-size: 0.78rem; }
+.q-step-tabs button.on { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+.q-step-tabs button.on span { background: var(--accent); border-color: var(--accent); color: #fff; }
+.q-step-body { padding: 14px 16px; color: var(--text-soft); max-width: 900px; }
+.q-step-body b { color: var(--text); }
+@media (max-width: 760px) { .q-compare { grid-template-columns: 1fr; } }
