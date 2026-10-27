@@ -407,3 +407,14 @@ kbd { font: 600 0.78rem ui-monospace, monospace; background: var(--bg-soft); bor
 .q-add .search { width: 200px; }
 .q-risk td { vertical-align: top; }
 .q-dollar { font-size: 0.76rem; color: var(--text-faint); }
+.q-two { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 18px; align-items: start; }
+@media (max-width: 900px) { .q-two { grid-template-columns: 1fr; } }
+.q-tight { gap: 8px; margin-bottom: 10px; }
+.q-tight .kpi .value { font-size: 1.3rem; }
+.q-matrix { margin-top: 8px; }
+.q-matrix table { font-size: 0.76rem; }
+.q-matrix th, .q-matrix td { padding: 4px 7px; }
+.q-matrix tbody th { position: sticky; left: 0; background: var(--bg-soft); color: var(--text-soft); font-weight: 600; }
+.q-samp { grid-template-columns: 5.5em minmax(40px, 1fr) 4em minmax(80px, 12em); }
+.q-samp .p { text-align: left; font-size: 0.78rem; }
+.q-compare .kpi .value { font-size: 1.15rem; white-space: normal; }

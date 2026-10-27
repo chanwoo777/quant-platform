@@ -132,3 +132,53 @@ def test_monte_carlo_var_matches_the_normal_quantile(tmp_path):
     ref = -np.quantile(np.expm1(z) @ [0.5, 0.5], 0.01)
     assert js["var"] == pytest.approx(ref, rel=0.03)
     assert np.array(js["chol"]) == pytest.approx(np.linalg.cholesky([[4, 2], [2, 3]]))
+
+
+# --- portfolios (section 7) ---------------------------------------------------------------------------
+
+def _basket(n=6, seed=8):
+    rng = np.random.default_rng(seed)
+    a = rng.normal(0, 0.012, (500, n)) + rng.normal(0, 0.01, (500, 1))
+    return (a.mean(axis=0) * 252 + 0.05).tolist(), (np.cov(a.T) * 252).tolist()
+
+
+def test_mean_variance_matches_scipy(tmp_path):
+    from scipy.optimize import minimize
+
+    mu, cov = _basket()
+    js = run_js(tmp_path, """const f = QX.frontier(data.mu, data.cov, 0.04);
+        return { minVar: f.minVar.w, l1: QX.meanVariance(data.cov, data.mu, 1.0), maxSharpe: f.maxSharpe, proj: QX.projectSimplex([0.5, 2, -1, 0.3]) };""",
+                {"mu": mu, "cov": cov})
+    mu_a, cov_a, n = np.array(mu), np.array(cov), len(mu)
+    cons, bounds = [{"type": "eq", "fun": lambda w: w.sum() - 1}], [(0, 1)] * n
+
+    def solve(f):
+        return minimize(f, np.full(n, 1 / n), bounds=bounds, constraints=cons, method="SLSQP", options={"ftol": 1e-15, "maxiter": 1000}).x
+
+    assert js["minVar"] == pytest.approx(solve(lambda w: w @ cov_a @ w), abs=1e-5)
+    assert js["l1"] == pytest.approx(solve(lambda w: w @ cov_a @ w - mu_a @ w), abs=1e-5)
+    best = solve(lambda w: -(w @ mu_a - 0.04) / np.sqrt(w @ cov_a @ w))
+    assert js["maxSharpe"]["sharpe"] == pytest.approx((best @ mu_a - 0.04) / np.sqrt(best @ cov_a @ best), abs=1e-4)
+    assert sum(js["proj"]) == pytest.approx(1) and min(js["proj"]) >= 0
+
+
+def test_qubo_and_brute_force(tmp_path):
+    import itertools
+
+    mu, cov = _basket(7)
+    k, lam = 3, 0.5
+    js = run_js(tmp_path, """const q = QX.quboMatrix(data.mu, data.cov, 3, 0.5), bf = QX.bruteForce(q.Q, q.constant, 3);
+        return { q, best: QX.bits(bf.best.mask, 7), f: bf.best.f, global: QX.bits(bf.global.mask, 7), valid: bf.valid };""", {"mu": mu, "cov": cov})
+    mu_a, cov_a, n = np.array(mu), np.array(cov), len(mu)
+    risk, ret = cov_a / k**2, lam * mu_a / k
+    pen = 1.05 * (np.abs(risk).sum() + np.abs(ret).sum())
+    q = risk - np.diag(ret) + pen * (np.ones((n, n)) - 2 * k * np.eye(n))
+    assert np.array(js["q"]["Q"]) == pytest.approx(q, rel=1e-12)
+    assert js["q"]["constant"] == pytest.approx(pen * k * k, rel=1e-12)
+    # The objective without the penalty, over every valid portfolio, equals the QUBO there.
+    objective = {"".join(map(str, x)): np.array(x) @ risk @ np.array(x) - ret @ np.array(x)
+                 for x in itertools.product([0, 1], repeat=n) if sum(x) == k}
+    best = min(objective, key=objective.get)
+    assert js["best"] == best and js["f"] == pytest.approx(objective[best], abs=1e-12)
+    assert js["global"] == best  # the penalty keeps the unconstrained minimum valid
+    assert js["valid"] == len(objective) == 35

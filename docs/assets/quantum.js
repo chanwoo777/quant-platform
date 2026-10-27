@@ -241,9 +241,92 @@
     return Array.from(out);
   }
 
+  // --- portfolios: mean-variance on the simplex, and the cardinality QUBO ------------------------------
+  const matVec = (M, v) => M.map((row) => row.reduce((s, x, j) => s + x * v[j], 0));
+  const dot = (a, b) => a.reduce((s, x, i) => s + x * b[i], 0);
+  function lambdaMax(M) {
+    let v = M.map(() => 1), l = 0;
+    for (let k = 0; k < 100; k++) {
+      const u = matVec(M, v), norm = Math.hypot(...u) || 1;
+      l = norm / (Math.hypot(...v) || 1);
+      v = u.map((x) => x / norm);
+    }
+    return l;
+  }
+  /** Euclidean projection onto {w >= 0, sum w = 1} (Duchi et al., 2008). */
+  function projectSimplex(v) {
+    const u = [...v].sort((a, b) => b - a);
+    let css = 0, theta = 0;
+    for (let i = 0; i < u.length; i++) { css += u[i]; const t = (css - 1) / (i + 1); if (u[i] - t > 0) theta = t; }
+    return v.map((x) => Math.max(x - theta, 0));
+  }
+  /** Long-only, fully invested: minimise w'Σw − λ μ'w by accelerated projected gradient (FISTA). */
+  function meanVariance(cov, mu, lam, w0 = null, iters = 4000) {
+    const n = mu.length, step = 1 / (2 * lambdaMax(cov) + 1e-12);
+    let w = w0 ? w0.slice() : new Array(n).fill(1 / n), y = w.slice(), t = 1;
+    for (let k = 0; k < iters; k++) {
+      const g = matVec(cov, y).map((x, i) => 2 * x - lam * mu[i]);
+      const next = projectSimplex(y.map((x, i) => x - step * g[i]));
+      const t2 = (1 + Math.sqrt(1 + 4 * t * t)) / 2;
+      let diff = 0;
+      y = next.map((x, i) => { diff = Math.max(diff, Math.abs(x - w[i])); return x + ((t - 1) / t2) * (x - w[i]); });
+      w = next; t = t2;
+      if (diff < 1e-13) break;
+    }
+    return w;
+  }
+  const stats = (w, mu, cov, rf) => { const ret = dot(w, mu), vol = Math.sqrt(Math.max(dot(w, matVec(cov, w)), 0)); return { w, ret, vol, sharpe: (ret - rf) / vol }; };
+  /** The long-only efficient frontier traced by λ, with the minimum-variance and maximum-Sharpe portfolios. */
+  function frontier(mu, cov, rf = 0) {
+    const lams = [0, ...Array.from({ length: 70 }, (_, i) => 10 ** (-3 + (4.5 * i) / 69))];
+    let w = null;
+    const pts = lams.map((lam) => { w = meanVariance(cov, mu, lam, w); return Object.assign({ lam }, stats(w, mu, cov, rf)); });
+    let best = pts.reduce((a, b) => (b.sharpe > a.sharpe ? b : a));
+    // Refine the maximum-Sharpe point between its grid neighbours (Sharpe is unimodal along the frontier).
+    let lo = Math.log10(Math.max(best.lam, 1e-3) / 1.2), hi = Math.log10(Math.max(best.lam, 1e-3) * 1.2);
+    for (let k = 0; k < 40; k++) {
+      const a = lo + (hi - lo) / 3, b = hi - (hi - lo) / 3;
+      const sa = stats(meanVariance(cov, mu, 10 ** a, best.w), mu, cov, rf), sb = stats(meanVariance(cov, mu, 10 ** b, best.w), mu, cov, rf);
+      if (sa.sharpe < sb.sharpe) lo = a; else hi = b;
+    }
+    const ref = Object.assign({ lam: 10 ** ((lo + hi) / 2) }, stats(meanVariance(cov, mu, 10 ** ((lo + hi) / 2), best.w), mu, cov, rf));
+    if (ref.sharpe > best.sharpe) best = ref;
+    return { points: pts, minVar: pts[0], maxSharpe: best };
+  }
+  /** x'Qx + constant = x'(Σ/K²)x − (λ/K) μ'x + P (Σx − K)² for binary x (each pick weighted 1/K).
+   * The objective can't vary by more than the sum of its coefficients' sizes, so P 5% above that makes
+   * every wrong-sized portfolio score worse than every valid one. Same matrix as quant/web/quantum.py. */
+  function quboMatrix(mu, cov, K, lam) {
+    const n = mu.length, risk = cov.map((row) => row.map((x) => x / (K * K))), ret = mu.map((m) => (lam * m) / K);
+    const P = 1.05 * (sum(risk.map((row) => sum(row.map(Math.abs)))) + sum(ret.map(Math.abs)));
+    const Q = risk.map((row, i) => row.map((x, j) => x - (i === j ? ret[i] : 0) + P * (1 - (i === j ? 2 * K : 0))));
+    return { Q, constant: P * K * K, penalty: P, n };
+  }
+  function quboValue(Q, constant, mask) {
+    let v = constant;
+    for (let i = 0; i < Q.length; i++) if ((mask >> i) & 1) for (let j = 0; j < Q.length; j++) if ((mask >> j) & 1) v += Q[i][j];
+    return v;
+  }
+  const bitCount = (m) => { let c = 0; for (; m; m &= m - 1) c++; return c; };
+  /** Exact search over all 2^n portfolios: the best and worst with exactly K names, and the QUBO's
+   * unconstrained minimum (which the penalty should make one of the valid ones). */
+  function bruteForce(Q, constant, K) {
+    const N = 1 << Q.length, valid = [];
+    let global = null;
+    for (let m = 0; m < N; m++) {
+      const f = quboValue(Q, constant, m);
+      if (!global || f < global.f) global = { mask: m, f };
+      if (bitCount(m) === K) valid.push({ mask: m, f });
+    }
+    valid.sort((a, b) => a.f - b.f);
+    return { best: valid[0], worst: valid[valid.length - 1], top: valid.slice(0, 5), valid: valid.length, all: N, global };
+  }
+  const bits = (mask, n) => Array.from({ length: n }, (_, i) => (mask >> i) & 1).join("");  // basket order, left to right
+
   const QX = { TD, mean, std, rng, gaussian, applyGate, simulate, probabilities, sampleCounts, groverSteps, groverProbability, groverOptimal, mcErrorCurve,
     erfc, normCdf, blackScholes, mcOption, annualVol, lognormalBounds, riskFree,
-    quantile, varCvar, returnRows, portfolio, horizon, meanCov, cholesky, mcPortfolio };
+    quantile, varCvar, returnRows, portfolio, horizon, meanCov, cholesky, mcPortfolio,
+    projectSimplex, meanVariance, frontier, quboMatrix, quboValue, bruteForce, bits };
 
   if (typeof module !== "undefined" && module.exports) { module.exports = QX; return; }
   root.QX = QX;
@@ -834,6 +917,160 @@
     await compute();
   }
   SECTIONS.push({ id: "risk", title: "Stock risk lab: VaR and CVaR", html: risk, init: initRisk });
+
+  // --- 7. Portfolio optimization lab -----------------------------------------------------------------------
+  const pickNames = (syms, mask) => syms.filter((_, i) => (mask >> i) & 1);
+  function portfolioSec() {
+    return `
+      <p class="soft">Two ways to choose a portfolio, each with a classical answer you can trust and the quantum route researchers are exploring.
+        Pick 3 to 15 stocks; expected returns and the covariance matrix are estimated from the site's daily prices and annualised.</p>
+      ${basketHtml("pf")}
+      <div class="controls"><div class="control"><span class="label">History</span><div class="chips" id="pf-look"><button type="button" class="chip" data-v="252">1 year</button>
+        <button type="button" class="chip" data-v="500">2 years</button></div></div></div>
+      <h3 class="q-h3">a) Mean-variance (Markowitz)</h3>
+      <p class="soft">Long only and fully invested: weights are at least 0 and add up to 100%. The efficient frontier is the best return for each level of risk.</p>
+      <div class="controls">
+        <div class="control"><span class="label">Portfolio to show</span><div class="chips" id="pf-pick"><button type="button" class="chip" data-v="sharpe">Maximum Sharpe</button>
+          <button type="button" class="chip" data-v="minvar">Minimum variance</button><button type="button" class="chip" data-v="lam">Choose risk aversion</button></div></div>
+        <div class="control q-slider" id="pf-lamwrap"><label for="pf-lam">Return weight λ: <b id="pf-lam-v"></b></label><input type="range" id="pf-lam" min="0" max="100" step="1"></div>
+      </div>
+      <div class="q-two"><div class="chart" id="pf-front"></div><div id="pf-weights"></div></div>
+      <p class="caption" id="pf-note"></p>
+      <div class="q-callout"><b>The quantum route.</b> Kerenidis, Prakash and Szilágyi (2019) write constrained portfolio optimization as a second-order cone program
+        and solve it with a quantum interior-point method, whose inner steps solve linear systems with HHL-style quantum linear algebra. The claimed speedup
+        is polynomial, not exponential, and it depends on the condition numbers of those systems, on how precisely the weights must be read out, and on
+        loading the covariance matrix into qubits. For 15 stocks the classical solver above takes milliseconds.</div>
+      <h3 class="q-h3">b) Hold at most K stocks (cardinality)</h3>
+      <p class="soft">Choosing exactly K names out of n is a yes/no decision per stock, which makes the problem combinatorial, the kind QAOA targets.
+        Each chosen stock gets weight 1/K, and x<sub>i</sub> = 1 means "hold stock i".</p>
+      <div class="controls">
+        <div class="control q-slider" style="min-width:200px"><label for="pf-k">K, stocks to hold: <b id="pf-k-v"></b></label><input type="range" id="pf-k" min="1" max="14" step="1"></div>
+        <div class="control q-slider" style="min-width:200px"><label for="pf-ql">Return weight λ: <b id="pf-ql-v"></b></label><input type="range" id="pf-ql" min="0" max="40" step="1"></div>
+      </div>
+      <div class="q-formula"><span>minimise&nbsp; x′(Σ/K²)x − (λ/K)·μ′x + P·(Σx<sub>i</sub> − K)²&nbsp; = x′Qx + c,&nbsp; x<sub>i</sub> ∈ {0, 1}</span></div>
+      <p class="caption" id="pf-qnote"></p>
+      <div id="pf-qubo"></div>
+      <div id="pf-brute"></div>
+      <h3 class="q-h3">QAOA on the nightly basket</h3>
+      <div id="pf-qaoa"></div>`;
+  }
+  async function initPortfolio(sec, ctx) {
+    const qa = ctx.q && ctx.q.qaoa, rf = riskFree(ctx.market, ctx.q).pct / 100;
+    const saved = store.get("q:pf", {});
+    const B = { syms: Array.isArray(saved.syms) && saved.syms.length >= 3 ? saved.syms : ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "JPM", "XOM"] };
+    const P = { look: saved.look || 500, pick: saved.pick || "sharpe", lam: saved.lam ?? 50, K: saved.K || 3, ql: saved.ql ?? 10, run: 0 };
+    let est = null;
+    const lamOf = (v) => (v <= 0 ? 0 : 10 ** (-3 + (4.5 * v) / 100));
+    const chipsOn = (id, v) => sec.querySelectorAll(`#${id} .chip`).forEach((b) => b.classList.toggle("on", b.dataset.v === String(v)));
+    const fail = (e) => { console.error(e); $("#pf-weights", sec).innerHTML = `<div class="empty">${esc(e.message)}</div>`; };
+
+    const estimate = async () => {
+      const run = ++P.run;
+      store.set("q:pf", { syms: B.syms, look: P.look, pick: P.pick, lam: P.lam, K: P.K, ql: P.ql });
+      chipsOn("pf-look", P.look);
+      const px = await basketPrices(B.syms, P.look);
+      if (run !== P.run) return;
+      const { mu, cov } = meanCov(returnRows(px.values));
+      est = { syms: B.syms.slice(), mu: mu.map((x) => x * TD), cov: cov.map((r) => r.map((x) => x * TD)), from: px.dates[1], to: px.dates[px.dates.length - 1], n: px.dates.length - 1 };
+      est.front = frontier(est.mu, est.cov, rf);
+      drawFrontier(); drawQubo();
+    };
+
+    const drawFrontier = () => {
+      chipsOn("pf-pick", P.pick);
+      $("#pf-lamwrap", sec).style.display = P.pick === "lam" ? "" : "none";
+      $("#pf-lam", sec).value = P.lam;
+      const lam = lamOf(P.lam);
+      $("#pf-lam-v", sec).textContent = num(lam, lam < 0.1 ? 3 : 2);
+      const f = est.front, chosen = P.pick === "minvar" ? f.minVar : P.pick === "lam" ? stats(meanVariance(est.cov, est.mu, lam, f.minVar.w), est.mu, est.cov, rf) : f.maxSharpe;
+      const eq = stats(est.syms.map(() => 1 / est.syms.length), est.mu, est.cov, rf);
+      const c = pal(), vols = est.syms.map((_, i) => Math.sqrt(est.cov[i][i]));
+      plot($("#pf-front", sec), [
+        { x: f.points.map((p) => p.vol), y: f.points.map((p) => p.ret), mode: "lines", name: "Efficient frontier", line: { color: c.series[0], width: 2.5 }, hovertemplate: "risk %{x:.1%}, return %{y:.1%}<extra></extra>" },
+        { x: vols, y: est.mu, mode: "markers+text", text: est.syms, textposition: "top center", textfont: { size: 10, color: c.muted }, name: "Single stocks",
+          marker: { size: 7, color: c.muted }, hovertemplate: "%{text}: risk %{x:.1%}, return %{y:.1%}<extra></extra>" },
+        { x: [eq.vol], y: [eq.ret], mode: "markers", name: "Equal weight", marker: { size: 10, color: c.series[2], symbol: "square" }, hovertemplate: "Equal weight: risk %{x:.1%}, return %{y:.1%}<extra></extra>" },
+        { x: [chosen.vol], y: [chosen.ret], mode: "markers", name: "Chosen portfolio", marker: { size: 16, color: c.series[1], symbol: "star", line: { color: c.surface, width: 1 } },
+          hovertemplate: "Chosen: risk %{x:.1%}, return %{y:.1%}<extra></extra>" },
+      ], layout(380, { hovermode: "closest", xaxis: { tickformat: ".0%", title: { text: "Risk (annualised volatility)", font: { size: 11 } }, showgrid: false, linecolor: c.axis, tickfont: { color: c.muted }, rangemode: "tozero" },
+        yaxis: yaxis({ tickformat: ".0%", title: { text: "Expected return (historical mean)", font: { size: 11 } } }) }));
+      const rows = est.syms.map((s, i) => ({ s, w: chosen.w[i] })).sort((a, b) => b.w - a.w);
+      $("#pf-weights", sec).innerHTML = `<div class="grid g3 q-tight">${kpi("Return", pct(chosen.ret, 1), "a year, historical mean")}${kpi("Risk", pct(chosen.vol, 1, false), "volatility")}
+        ${kpi("Sharpe", num(chosen.sharpe, 2), `vs ${pct(rf, 2, false)} T-bills`)}</div>` + table([
+        { h: "Stock", f: (x) => `<b>${esc(x.s)}</b>` }, { h: "Weight", f: (x) => bar(100 * x.w) },
+      ], rows);
+      $("#pf-note", sec).textContent = `${est.n} trading days, ${est.from} to ${est.to}. Historical average returns are very noisy estimates of future returns, `
+        + "so the frontier looks far more precise than it is; that is a classical problem no quantum algorithm fixes.";
+    };
+
+    const drawQubo = () => {
+      const n = est.syms.length;
+      $("#pf-k", sec).max = String(n - 1);
+      P.K = Math.min(Math.max(1, P.K), n - 1);
+      $("#pf-k", sec).value = P.K; $("#pf-ql", sec).value = P.ql;
+      const lam = P.ql / 20;
+      $("#pf-k-v", sec).textContent = String(P.K); $("#pf-ql-v", sec).textContent = num(lam, 2);
+      const qb = quboMatrix(est.mu, est.cov, P.K, lam);
+      $("#pf-qnote", sec).textContent = `Σ and μ are this basket's annualised covariance and mean returns. Penalty P = ${num(qb.penalty, 4)}, constant c = ${num(qb.constant, 4)}.`;
+      $("#pf-qubo", sec).innerHTML = matrixTable(qb.Q, est.syms);
+      const bf = bruteForce(qb.Q, qb.constant, P.K);
+      const desc = (m) => { const w = est.syms.map((_, i) => ((m >> i) & 1) / P.K), s = stats(w, est.mu, est.cov, rf); return `return ${pct(s.ret, 1)}, risk ${pct(s.vol, 1, false)}`; };
+      $("#pf-brute", sec).innerHTML = `<div class="grid g3 q-compare">
+          ${kpi("Classical: exact brute force", esc(pickNames(est.syms, bf.best.mask).join(", ")), `objective ${num(bf.best.f, 4)} · ${desc(bf.best.mask)}`)}
+          ${kpi("Portfolios checked", big(bf.all), `${big(bf.valid)} of them hold exactly ${P.K}`)}
+          ${kpi("Penalty works", bf.global.mask === bf.best.mask ? "Yes" : "No", "the QUBO's overall minimum is a valid portfolio")}
+        </div>
+        ${table([{ h: "Rank", r: 1, f: (x) => x.rank }, { h: "Portfolio", f: (x) => esc(pickNames(est.syms, x.mask).join(", ")) }, { h: "x", f: (x) => `<code>${bits(x.mask, n)}</code>` },
+          { h: "Objective", r: 1, f: (x) => num(x.f, 4) }, { h: "Return / risk", f: (x) => desc(x.mask) }], bf.top.map((x, i) => Object.assign({ rank: i + 1 }, x)))}
+        <p class="caption">Brute force checks all 2<sup>n</sup> choices, which doubles with every stock: fine for 15, hopeless for 500. Real solvers use branch and bound,
+          which handles hundreds of stocks; that is the bar QAOA would have to clear.</p>`;
+    };
+
+    const matrixTable = (Q, syms) => {
+      const maxAbs = Math.max(...Q.flat().map(Math.abs)) || 1;
+      const color = (v) => `background:${v < 0 ? `rgba(227,73,72,${(0.5 * Math.abs(v)) / maxAbs})` : `rgba(42,120,214,${(0.5 * v) / maxAbs})`}`;
+      return `<div class="table-wrap q-matrix"><table><thead><tr><th>Q</th>${syms.map((s) => `<th class="r">${esc(s)}</th>`).join("")}</tr></thead><tbody>
+        ${Q.map((row, i) => `<tr><th>${esc(syms[i])}</th>${row.map((v) => `<td class="r" style="${color(v)}">${num(v, 4)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>
+        <p class="caption">Diagonal: each stock's own risk and return, plus the penalty's −2K·P + P. Off the diagonal: covariances plus P. Red is negative, blue positive.</p>`;
+    };
+
+    const drawQaoa = () => {
+      const box = $("#pf-qaoa", sec);
+      if (!qa) { box.innerHTML = `<p class="soft">Not available yet: the nightly simulation results (data/quantum.json) haven't been published.</p>`; return; }
+      const n = qa.basket.length, mine = bruteForce(qa.q, qa.constant, qa.k), agree = bits(mine.best.mask, n) === qa.brute_force.x;
+      const top = qa.top_samples.slice(0, 8), maxP = Math.max(...top.map((s) => s.probability));
+      box.innerHTML = `
+        <p class="soft">Each night QAOA (${esc(qa.reps)} layers, ${esc(qa.optimizer)}, ${big(qa.shots)} shots) solves the QUBO for <b>${esc(qa.basket.join(", "))}</b> with K = ${esc(qa.k)}
+          and λ = ${esc(qa.lambda)}: ${esc(n)} qubits, one per stock. <span class="badge warn">Results so far are mixed against good classical solvers</span></p>
+        <div class="grid g4 q-compare">
+          ${kpi("QAOA's best sample", esc(qa.best_sampled.picks.join(", ")), `objective ${num(qa.best_sampled.fval, 4)}`)}
+          ${kpi("Brute-force optimum", esc(qa.brute_force.picks.join(", ")), `objective ${num(qa.brute_force.fval, 4)} · your browser agrees: ${agree ? "yes" : "no"}`)}
+          ${kpi("Chance of sampling the optimum", pct(qa.p_optimum, 1, false), `a random valid pick: ${pct(qa.p_random, 1, false)}`)}
+          ${kpi("Valid portfolios sampled", pct(qa.p_feasible, 0, false), `at random: ${pct(qa.p_feasible_random, 0, false)} · approximation ratio ${num(qa.approximation_ratio, 2)} (random ${num(qa.approximation_ratio_random, 2)})`)}
+        </div>
+        ${simTag()}
+        <div class="chart-title">QAOA's most frequent answers</div>
+        ${top.map((s) => `<div class="q-amp q-samp"><span class="k">${esc(s.x)}</span><span class="track"><span class="fill${s.x === qa.brute_force.x ? "" : " shots"}" style="width:${(100 * s.probability) / maxP}%"></span></span>
+          <span class="v">${pct(s.probability, 1, false)}</span><span class="p">${esc(qa.basket.filter((_, i) => s.x[i] === "1").join(" "))}</span></div>`).join("")}
+        <p class="caption">Blue bar: the optimum. Bits are in basket order (${esc(qa.basket.join(", "))}). QAOA learned the "hold exactly ${esc(qa.k)}" rule much better than chance, but
+          among valid portfolios it does about as well as picking at random (approximation ratio: 1 means it always finds the optimum, 0 the worst valid portfolio).
+          Its best sample is the optimum only because ${big(qa.shots)} shots cover all ${2 ** n} answers, which is not a speedup.</p>
+        <details><summary>The nightly QUBO matrix (${esc(n)} × ${esc(n)})</summary>${matrixTable(qa.q, qa.basket)}</details>
+        ${sameSet(B.syms, qa.basket) ? "" : '<div class="row"><button type="button" class="btn q-small" id="pf-load">Load the nightly basket into the lab</button></div>'}`;
+      const load = $("#pf-load", sec);
+      if (load) load.addEventListener("click", () => { B.syms = qa.basket.slice(); P.K = qa.k; P.ql = Math.round(qa.lambda * 20); redraw(); estimate().then(drawQaoa).catch(fail); });
+    };
+
+    const redraw = bindBasket(sec, "pf", B, { min: 3, max: 15, onChange: () => estimate().then(drawQaoa).catch(fail) });
+    sec.querySelectorAll("#pf-look .chip").forEach((b) => b.addEventListener("click", () => { P.look = Number(b.dataset.v); estimate().catch(fail); }));
+    sec.querySelectorAll("#pf-pick .chip").forEach((b) => b.addEventListener("click", () => { P.pick = b.dataset.v; store.set("q:pf", Object.assign(store.get("q:pf", {}), { pick: P.pick })); drawFrontier(); }));
+    $("#pf-lam", sec).addEventListener("input", (e) => { P.lam = Number(e.target.value); drawFrontier(); });
+    $("#pf-k", sec).addEventListener("input", (e) => { P.K = Number(e.target.value); drawQubo(); });
+    $("#pf-ql", sec).addEventListener("input", (e) => { P.ql = Number(e.target.value); drawQubo(); });
+    await estimate();
+    drawQaoa();
+  }
+  SECTIONS.push({ id: "portfolio", title: "Portfolio optimization lab", html: portfolioSec, init: initPortfolio });
 
   function view(el, arg) {
     return render(el, arg);
