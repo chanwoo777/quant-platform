@@ -1155,6 +1155,27 @@
   }
   SECTIONS.push({ id: "nightly", title: "The nightly simulator run", html: nightly });
 
+  // --- 10. Why it's not ready yet --------------------------------------------------------------------------
+  function reality() {
+    const card = (title, body) => `<div class="card q-card"><h3>${title}</h3><p>${body}</p></div>`;
+    return `<p class="soft">The simulations above run on a PC because the circuits are tiny and a simulator has no noise. Four things stand between them and a
+        real advantage.</p>
+      <div class="grid g4 q-cards">
+        ${card("Noise and error correction", `Today's best qubits make roughly one error per thousand operations (approximate), hopeless for the circuits in section 9.
+          Error correction spreads one reliable <b>logical qubit</b> over many physical ones; with surface codes, around a thousand or more physical qubits per
+          logical qubit (approximate; Fowler et al.).`)}
+        ${card("Limited gate sets", `Hardware offers a few native gates. Any other rotation has to be approximated by sequences of them (the Solovay-Kitaev
+          theorem), and on error-corrected machines the T gate those sequences need is expensive, so algorithms are costed in T gates.`)}
+        ${card("Scale", `Published estimates for pricing a useful derivative faster than a classical computer need thousands of logical qubits, and so millions
+          of physical ones, running for a long time (approximate). That is far beyond any machine built so far.`)}
+        ${card("Data loading", `The speedups assume the data is already in qubits. Loading N arbitrary numbers takes about N steps, or a quantum RAM that
+          doesn't exist yet, which can cancel a quadratic speedup. Option pricing escapes this only because its model is a formula.`)}
+      </div>
+      <div class="q-callout"><b>As of 2026, there is no proven practical quantum advantage on a real finance problem.</b> The algorithms in sections 4 to 7 are
+        promising on paper; the hardware to run them at a useful size doesn't exist yet.</div>`;
+  }
+  SECTIONS.push({ id: "reality", title: "Why it's not ready yet", html: reality });
+
   function view(el, arg) {
     return render(el, arg);
   }
