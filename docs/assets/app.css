@@ -422,3 +422,6 @@ kbd { font: 600 0.78rem ui-monospace, monospace; background: var(--bg-soft); bor
 .q-score td, .q-score th { min-width: 120px; }
 .q-score td:first-child, .q-score th:first-child { position: sticky; left: 0; background: var(--surface); z-index: 1; min-width: 150px; }
 .q-score thead th:first-child { background: var(--bg-soft); z-index: 2; }
+.q-pre { overflow-x: auto; background: var(--code-bg); border-radius: 8px; padding: 10px 12px; font: 0.74rem/1.25 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--text); margin: 8px 0 4px; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.88em; }

@@ -1,0 +1,10 @@
+# Free Quant Platform - optional: the website's nightly quantum simulations (quant/web/quantum.py)
+# Simulator only: no quantum hardware, no accounts, no API keys.
+#   pip install -r requirements-quantum.txt
+# Exact versions, tested together on Python 3.14 (Windows). Without them the export skips the
+# simulations and keeps publishing the last good data/quantum.json.
+
+qiskit==2.6.1                # circuits, transpiler, StatevectorSampler
+qiskit-algorithms==0.4.0     # IterativeAmplitudeEstimation, EstimationProblem
+qiskit-finance==0.4.1        # LogNormalDistribution, EuropeanCallPricing
+qiskit-optimization==0.7.0   # QuadraticProgram, MinimumEigenOptimizer, QAOA, COBYLA

@@ -19,6 +19,8 @@ data/site/data/:
   deep/<T>.json   per deep-tier ticker: OHLCV + adjusted close + indicators, news markers,
                   unusual moves, headlines, SEC financials, rolling factor betas
   research.json   factor exposures (FF3, Carhart, FF5), composite scores, strategy backtests
+  quantum.json    the nightly quantum simulations (quant/web/quantum.py, run in a subprocess with
+                  a timeout): the last good result, kept when a run fails
 """
 
 from __future__ import annotations
@@ -29,6 +31,8 @@ import json
 import logging
 import math
 import shutil
+import subprocess
+import sys
 import time
 from dataclasses import asdict
 from pathlib import Path
@@ -439,10 +443,42 @@ def export_research(out: Path, c) -> int:
                                          "note": qm.SURVIVORSHIP_NOTE})
 
 
+# --- quantum simulations ------------------------------------------------------------------------------
+
+QUANTUM_TIMEOUT = 300  # seconds; the simulations take about 2.5 minutes on the PC that publishes
+
+
+def export_quantum(out: Path, keep: Path | None = None, timeout: int = QUANTUM_TIMEOUT, run: bool = True) -> int:
+    """Run the nightly quantum simulations (quant.web.quantum) in a subprocess with a timeout, then
+    publish the last good result. The module replaces `keep` only when every job succeeds, so after a
+    failure or a timeout the site shows the previous night's numbers (with their date); with no file
+    at all, the Quantum page says the results aren't published yet. run=False just republishes."""
+    from quant.config import get_settings
+
+    keep = keep or get_settings().data_dir / "quantum.json"
+    try:
+        if run:
+            done = subprocess.run([sys.executable, "-m", "quant.web.quantum", "--out", str(keep)], cwd=ROOT,
+                                  capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout,
+                                  creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            if done.returncode:
+                log.error("quantum simulations failed (exit %s); keeping the previous results\n%s",
+                          done.returncode, done.stderr[-3000:])
+    except subprocess.TimeoutExpired:
+        log.error("quantum simulations timed out after %ss; keeping the previous results", timeout)
+    except Exception:
+        log.exception("quantum simulations could not start; keeping the previous results")
+    if not keep.exists():
+        return 0
+    shutil.copyfile(keep, out / "quantum.json")
+    return keep.stat().st_size
+
+
 # --- orchestration ----------------------------------------------------------------------------------
 
-def build(site_dir: Path | None = None) -> dict:
-    """Copy the site code from docs/ and write fresh data next to it. Returns sizes and timings."""
+def build(site_dir: Path | None = None, quantum: bool = True) -> dict:
+    """Copy the site code from docs/ and write fresh data next to it. Returns sizes and timings.
+    quantum=False skips the simulations and republishes the last results."""
     logging.getLogger("streamlit").setLevel(logging.ERROR)
     from dashboard import common as c
     from quant.config import get_settings
@@ -457,7 +493,8 @@ def build(site_dir: Path | None = None) -> dict:
     stats, started = {}, time.perf_counter()
     for name, fn in (("global", lambda: export_global(out)), ("factors", lambda: export_factors(out)),
                      ("deep", lambda: export_deep(out, c)),
-                     ("market", lambda: export_market(out, c)), ("research", lambda: export_research(out, c))):
+                     ("market", lambda: export_market(out, c)), ("research", lambda: export_research(out, c)),
+                     ("quantum", lambda: export_quantum(out, run=quantum))):
         t0 = time.perf_counter()
         stats[name] = fn()
         log.info("site %s exported in %.0fs", name, time.perf_counter() - t0)
@@ -477,11 +514,12 @@ def build(site_dir: Path | None = None) -> dict:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Export the dashboard data as a static website.")
     parser.add_argument("--out", type=Path, help="site directory (default: data/site)")
+    parser.add_argument("--no-quantum", action="store_true", help="skip the quantum simulations; republish the last results")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s: %(message)s")
     for noisy in ("yfinance", "urllib3", "peewee", "httpx", "httpx2", "streamlit"):
         logging.getLogger(noisy).setLevel(logging.ERROR)
-    stats = build(args.out)
+    stats = build(args.out, quantum=not args.no_quantum)
     print(json.dumps({k: v for k, v in stats.items() if k != "deep"} | {"deep_bytes": stats["deep"]["deep"]}, indent=1))
     return 0
 

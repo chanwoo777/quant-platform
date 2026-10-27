@@ -1105,6 +1105,56 @@
   }
   SECTIONS.push({ id: "scorecard", title: "Quantum readiness scorecard", html: scorecard });
 
+  // --- 9. The nightly simulator run ---------------------------------------------------------------------
+  function nightly(ctx) {
+    const q = ctx.q;
+    if (!q) {
+      return `<p class="soft">The quantum numbers in sections 4 to 7 come from a nightly job, <code>python -m quant.web.quantum</code>, that runs Qiskit on a
+        simulator. Its results aren't published yet, so those panels say so; everything classical on this page works without them.</p>`;
+    }
+    const o = q.options, v = q.var, a = q.qaoa, queries = o.items.map((it) => it.qae.oracle_queries);
+    const when = new Date(q.generated_at);
+    const jobs = [
+      { job: "Option pricing", what: `${o.items.length} at-the-money calls (${[...new Set(o.items.map((i) => i.ticker))].join(", ")}; ${[...new Set(o.items.map((i) => i.maturity_days))].join("/")} days) by iterative amplitude estimation`,
+        qubits: o.circuit.state_preparation.qubits, depth: o.circuit.deepest.depth, cx: o.circuit.deepest.cx,
+        q: `${big(Math.min(...queries))}–${big(Math.max(...queries))}`, s: sum(o.items.map((i) => i.runtime_s)) },
+      { job: "Tail risk (VaR)", what: `P(loss beyond the 95% VaR) for ${v.basket.join(", ")}, then VaR by bisection`, qubits: v.circuit.state_preparation.qubits,
+        depth: v.circuit.deepest.depth, cx: v.circuit.deepest.cx, q: big(v.tail.oracle_queries), s: v.runtime_s },
+      { job: "Portfolio choice (QAOA)", what: `Hold ${a.k} of ${a.basket.join(", ")}; ${a.reps} QAOA layers`, qubits: a.circuit.qubits, depth: a.circuit.depth, cx: a.circuit.cx,
+        q: `${big(a.shots)} shots per evaluation`, s: a.runtime_s },
+    ];
+    const pre = (t) => `<pre class="q-pre">${esc(t)}</pre>`;
+    return `<p class="soft">Every night, after the market data refresh, the PC that publishes this site runs three small quantum programs on a simulator and writes
+        the results to <code>quantum.json</code>. It runs in its own process with a ${esc(Math.round(300 / 60))}-minute limit; if anything fails, yesterday's file stays.</p>
+      <div class="grid g4">
+        ${kpi("Last run", esc(when.toISOString().slice(0, 10)), `${esc(when.toISOString().slice(11, 16))} UTC, on prices of ${esc(q.prices_as_of)}`)}
+        ${kpi("Runtime", `${num(q.runtime_s, 0)} s`, "all three jobs, on an ordinary PC")}
+        ${kpi("Simulator", "Statevector", "exact amplitudes, read out with sampled shots")}
+        ${kpi("Quantum hardware", "None", "no accounts, no API keys")}
+      </div>
+      ${simTag()}
+      ${table([
+        { h: "Job", f: (j) => `<b>${esc(j.job)}</b>` }, { h: "What it estimates", cls: "wrap-text", f: (j) => esc(j.what) },
+        { h: "Qubits", r: 1, f: (j) => esc(j.qubits) }, { h: "Deepest circuit (layers)", r: 1, f: (j) => big(j.depth) },
+        { h: "CX gates in it", r: 1, f: (j) => big(j.cx) }, { h: "Oracle queries", r: 1, f: (j) => esc(j.q) }, { h: "Runtime", r: 1, f: (j) => `${num(j.s, 1)} s` },
+      ], jobs)}
+      <p class="caption">Depth and gate counts are after compiling to the basic gates rz, sx, x and CX. The deepest option circuit repeats the Grover operator
+        ${esc(o.circuit.deepest.grover_power)} times: ${big(o.circuit.deepest.depth)} layers, far more than today's noisy hardware can run before errors swamp
+        the answer (section 10). A simulator has no noise, which is why these runs work.</p>
+      <div class="q-two">
+        <div>${table([{ h: "Package", f: (r) => esc(r[0]) }, { h: "Version", f: (r) => `<code>${esc(r[1] || "–")}</code>` }], Object.entries(q.versions))}</div>
+        <div>
+          <details><summary>Circuit: option pricing (${esc(o.circuit.ticker)}, ${esc(o.circuit.maturity_days)} days)</summary>${pre(o.circuit.diagram)}
+            <p class="caption">P(X) loads the lognormal price distribution into 5 qubits; F encodes the call payoff into the objective qubit (q_5) using ancilla qubits.</p></details>
+          <details><summary>Circuit: tail probability</summary>${pre(v.diagram)}
+            <p class="caption">P(r) loads the basket's return histogram; r&lt;t flips the objective qubit (q_5) when the return is below the threshold.</p></details>
+          <details><summary>Circuit: QAOA layers</summary>${pre(a.diagram)}
+            <p class="caption">Each cost layer applies the QUBO as phases; each mixer layer lets bits flip. A classical optimizer tunes the angles γ and β.</p></details>
+        </div>
+      </div>`;
+  }
+  SECTIONS.push({ id: "nightly", title: "The nightly simulator run", html: nightly });
+
   function view(el, arg) {
     return render(el, arg);
   }
