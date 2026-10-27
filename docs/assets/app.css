@@ -425,3 +425,6 @@ kbd { font: 600 0.78rem ui-monospace, monospace; background: var(--bg-soft); bor
 .q-pre { overflow-x: auto; background: var(--code-bg); border-radius: 8px; padding: 10px 12px; font: 0.74rem/1.25 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color: var(--text); margin: 8px 0 4px; }
 code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.88em; }
+.q-sec-card { max-width: 980px; }
+.q-sec-card p { color: var(--text-soft); margin: 0 0 10px; }
+.q-sec-card p:last-child { margin-bottom: 0; }
