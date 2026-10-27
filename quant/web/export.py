@@ -18,7 +18,6 @@ data/site/data/:
   deep/<T>.json   per deep-tier ticker: OHLCV + adjusted close + indicators, news markers,
                   unusual moves, headlines, SEC financials, rolling factor betas
   research.json   factor exposures (FF3, Carhart, FF5), composite scores, strategy backtests
-  bot.json        paper and backtest portfolios: equity, positions, signals, ledger
 """
 
 from __future__ import annotations
@@ -433,38 +432,6 @@ def export_research(out: Path, c) -> int:
                                          "note": qm.SURVIVORSHIP_NOTE})
 
 
-# --- paper-trading bot ----------------------------------------------------------------------------
-
-def export_bot(out: Path, c) -> int:
-    portfolios = {}
-    for name in c.portfolio_names():
-        data = c.portfolio(name)
-        info, snaps, positions, trades, signals = (data[k] for k in ("info", "snapshots", "positions", "trades", "signals"))
-        pos = positions.copy()
-        if len(pos):
-            pos["last"] = pos.ticker.map(data["last_close"]).fillna(pos.avg_cost)
-            pos["value"] = pos.shares * pos["last"]
-        equity = info["cash"] + (pos["value"].sum() if len(pos) else 0.0)
-        curve = None
-        if len(snaps):
-            s = snaps.set_index(pd.DatetimeIndex(snaps.date))
-            spy = data["spy"].reindex(s.index).ffill()
-            curve = {"d": dates(s.index), "equity": series(s.equity, 7), "spy": series(spy, 6)}
-        portfolios[name] = {
-            "info": {k: info[k] for k in ("name", "initial_cash", "cash", "last_run_date")}, "params": info["params"],
-            "equity": equity, "curve": curve,
-            "positions": [{"ticker": r.ticker, "shares": r.shares, "avg_cost": r.avg_cost, "last": r.last,
-                           "stop": r.stop_price, "since": r.entry_date} for r in pos.itertuples(index=False)],
-            "signals": [{"date": r.date, "ticker": r.ticker, "action": r.action, "score": r.score, "trend": r.trend,
-                         "fundamentals": r.fundamentals, "valuation": r.valuation, "sentiment": r.sentiment,
-                         "rationale": r.rationale} for r in signals.itertuples(index=False)],
-            "trades": [{"date": r.trade_date, "side": r.side, "ticker": r.ticker, "shares": r.shares, "price": r.price,
-                        "value": r.value, "reason": r.reason, "ret": r.position_return, "rationale": r.rationale}
-                       for r in trades.itertuples(index=False)],
-        }
-    return write(out / "bot.json", {"portfolios": portfolios})
-
-
 # --- orchestration ----------------------------------------------------------------------------------
 
 def build(site_dir: Path | None = None) -> dict:
@@ -483,8 +450,7 @@ def build(site_dir: Path | None = None) -> dict:
     stats, started = {}, time.perf_counter()
     for name, fn in (("global", lambda: export_global(out)), ("factors", lambda: export_factors(out)),
                      ("deep", lambda: export_deep(out, c)),
-                     ("market", lambda: export_market(out, c)), ("research", lambda: export_research(out, c)),
-                     ("bot", lambda: export_bot(out, c))):
+                     ("market", lambda: export_market(out, c)), ("research", lambda: export_research(out, c))):
         t0 = time.perf_counter()
         stats[name] = fn()
         log.info("site %s exported in %.0fs", name, time.perf_counter() - t0)

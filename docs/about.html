@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>About · Free Quant Platform</title>
-<meta name="description" content="Stock, ETF and crypto analysis plus a paper-trading bot, built only on free data: yfinance, FRED, SEC EDGAR, news with FinBERT and the Fama-French library. Research only, not investment advice.">
+<meta name="description" content="Stock, ETF and crypto research built only on free data: yfinance, FRED, SEC EDGAR, news with FinBERT and the Fama-French library. Research only, not investment advice.">
 <meta property="og:title" content="Free Quant Platform">
-<meta property="og:description" content="Screen ~11,000 stocks, ETFs and coins worldwide, dig into one name, and paper-trade a rules-based bot, all on free public data.">
+<meta property="og:description" content="Screen ~11,000 stocks, ETFs and coins worldwide, dig into one name and chart it live, all on free public data.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://chanwoo777.github.io/quant-platform/about.html">
 <meta property="og:image" content="https://chanwoo777.github.io/quant-platform/assets/global-overview.webp">
@@ -206,7 +206,7 @@
     <div class="wrap">
       <div class="eyebrow">Open source · Python · Streamlit</div>
       <h1>Stock, ETF and crypto research on free data only</h1>
-      <p class="lede">Screen about 11,000 stocks, ETFs and coins around the world, dig into any company's chart, news and SEC filings, and paper-trade a rules-based bot. No Bloomberg, no paid APIs, no API keys.</p>
+      <p class="lede">Screen about 11,000 stocks, ETFs and coins around the world, dig into any company's chart, news and SEC filings, and chart it live. No Bloomberg, no paid APIs, no API keys.</p>
       <div class="cta">
         <a class="btn primary" href="./">Open the live dashboard →</a>
         <a class="btn" href="https://github.com/chanwoo777/quant-platform">
@@ -234,13 +234,13 @@
   <section id="features" class="soft">
     <div class="wrap">
       <div class="eyebrow">What it does</div>
-      <h2>One Python codebase, from raw data to a trading ledger</h2>
+      <h2>One Python codebase, from raw data to research</h2>
       <p class="lede">Everything runs on your own machine against one SQLite database. A scheduled daily job keeps it up to date.</p>
       <div class="grid">
         <div class="card"><span class="tag">Data</span><h3>Ingestion engine</h3><p>Ten years of daily bars and 15-minute bars, FRED macro series, 10-K / 10-Q financials from SEC XBRL, headlines from four RSS feeds, and daily Fama-French factors. Re-runs fetch only what's new.</p></div>
         <div class="card"><span class="tag">Analytics</span><h3>Indicators, regimes, explained moves</h3><p>50/200-day averages, RSI, MACD and Bollinger bands. A Bull / Bear / Sideways regime with a Risk-On / Risk-Off stance. Unusual price moves matched to the headlines that came before them, filtered for relevance by company name.</p></div>
         <div class="card"><span class="tag">Models</span><h3>Factor models and scores</h3><p>Fama-French 3-factor and Carhart regressions with Newey-West t-stats, momentum and mean-reversion backtests, and a composite score combining SEC fundamentals, valuation and momentum.</p></div>
-        <div class="card"><span class="tag">Bot</span><h3>Paper-trading bot</h3><p>Signals from trend, fundamentals, valuation and FinBERT news sentiment. Kelly or volatility-parity sizing, ATR trailing stops, and a ledger with a written rationale for every trade. It never places a real order.</p></div>
+        <div class="card"><span class="tag">Charts</span><h3>Live charts</h3><p>A TradingView-style chart drawn by the site: 26 indicators with editable inputs, drawing tools, TradingView's shortcuts and the indicator sets well-known traders use. Crypto streams from Binance; stocks refresh every 15 seconds.</p></div>
         <div class="card"><span class="tag">Global</span><h3>Worldwide screener</h3><p>Every stock of $1B or more in the US, Europe, the UK, Japan, Korea, China, Hong Kong, Taiwan, India, Canada and Australia, plus liquid ETFs and the top coins. Each is ranked against its peers, with a one-line reason for its signal.</p></div>
         <div class="card"><span class="tag">Research</span><h3>Honest backtesting</h3><p>An optional point-in-time S&amp;P 500 universe that includes companies later removed from the index, so results aren't flattered by hindsight. Every result in the README is reported, including the bad ones.</p></div>
       </div>
@@ -250,8 +250,8 @@
   <section id="screens">
     <div class="wrap">
       <div class="eyebrow">Dashboard</div>
-      <h2>Five pages, one database</h2>
-      <p class="lede">A Streamlit and Plotly dashboard reads the same database the pipeline and the bot update. Charts use one colorblind-safe palette in both light and dark mode.</p>
+      <h2>Four views, one database</h2>
+      <p class="lede">A Streamlit and Plotly dashboard reads the same database the pipeline updates. Charts use one colorblind-safe palette in both light and dark mode.</p>
       <div class="gallery">
         <figure>
           <a class="shot" href="assets/global-overview.webp"><img src="assets/global-overview.webp" width="1440" height="1180" loading="lazy" alt="Global Overview screenshot"></a>
@@ -269,10 +269,6 @@
           <a class="shot" href="assets/financials-research.webp"><img src="assets/financials-research.webp" width="1440" height="1180" loading="lazy" alt="Financials and Research screenshot with SEC financials and quarterly charts"></a>
           <figcaption><b>Financials &amp; Research.</b> Trailing-twelve-month figures from SEC filings, quarterly revenue and margins, Fama-French exposures, return attribution and rolling betas.</figcaption>
         </figure>
-        <figure>
-          <a class="shot" href="assets/trading-bot.webp"><img src="assets/trading-bot.webp" width="1440" height="1180" loading="lazy" alt="Live Trading Bot screenshot with equity versus SPY and open positions"></a>
-          <figcaption><b>Live Trading Bot.</b> The paper portfolio against SPY, drawdowns, open positions with their stops, the latest signals and the full trade ledger.</figcaption>
-        </figure>
       </div>
     </div>
   </section>
@@ -281,24 +277,13 @@
     <div class="wrap">
       <div class="eyebrow">Results</div>
       <h2>What the backtests actually show</h2>
-      <p class="lede">The bot was first tested on 10 hand-picked mega-caps. That flatters any strategy, because we already know those companies won. Re-run on the S&amp;P 500 as it really was each day, including companies later dropped from the index, the edge disappears.</p>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Bot backtest, 2018–2026</th><th class="num">CAGR</th><th class="num">Volatility</th><th class="num">Sharpe</th><th class="num">Max drawdown</th><th class="num">Win rate</th></tr></thead>
-          <tbody>
-            <tr><td>10 hand-picked mega-caps</td><td class="num">8.7%</td><td class="num">14.3%</td><td class="num">0.46</td><td class="num">−24.8%</td><td class="num">44%</td></tr>
-            <tr class="highlight"><td><b>Point-in-time S&amp;P 500</b></td><td class="num neg">−1.8%</td><td class="num">15.6%</td><td class="num">−0.22</td><td class="num">−49.1%</td><td class="num">35%</td></tr>
-            <tr><td>SPY buy-and-hold</td><td class="num pos">14.4%</td><td class="num"></td><td class="num"></td><td class="num"></td><td class="num"></td></tr>
-          </tbody>
-        </table>
-      </div>
+      <p class="lede">Strategies were first tested on 10 hand-picked mega-caps. That flatters any strategy, because we already know those companies won. Re-run on the S&amp;P 500 as it really was each day, including companies later dropped from the index, the edge disappears.</p>
       <div class="two" style="margin-top: 36px;">
         <div>
           <h3>What we learned</h3>
           <ul class="points">
             <li><b>The momentum edge was hindsight.</b> On the 10 mega-caps, long-only momentum showed +14.8% a year of alpha. On the point-in-time S&amp;P 500 it is −2.2% (t −0.8).</li>
             <li><b>The composite score doesn't predict returns.</b> Across about 480 stocks a month, its correlation with the next month's return is +0.006 (t 0.43). Quality comes closest, still below significance.</li>
-            <li><b>Most of the bot's loss came in one month.</b> In the March 2020 crash it bought a fresh set of stocks three weeks in a row, and each set was stopped out within days.</li>
           </ul>
         </div>
         <div>
@@ -306,11 +291,10 @@
           <ul class="points">
             <li>A tool that only reports its wins can't be trusted. Every number here can be reproduced with the commands documented in the README.</li>
             <li>The platform is most useful for <b>research and screening</b>: seeing what's moving, why, and how a company's fundamentals and factor exposures compare with its peers.</li>
-            <li>Experiments that block new buys during fast market drops are under way, and they are judged on the S&amp;P 500 universe, not on the 10 names.</li>
           </ul>
         </div>
       </div>
-      <p class="note"><b>Not investment advice.</b> This is a research and paper-trading project. Scores rank names against their peers and are not predictions. Nothing here places real orders.</p>
+      <p class="note"><b>Not investment advice.</b> This is a research project. Scores rank names against their peers and are not predictions. Nothing here places orders.</p>
     </div>
   </section>
 
@@ -340,10 +324,9 @@ python -m quant.universe.refresh       <span class="c"># the global screener (~3
           <div class="code"><button class="copy" type="button">Copy</button><pre><code>streamlit run dashboard/app.py         <span class="c"># http://localhost:8501</span></code></pre></div>
         </div>
         <div class="step">
-          <h3>Run the bot (optional)</h3>
-          <div class="code"><button class="copy" type="button">Copy</button><pre><code>python -m quant.trading_bot signals    <span class="c"># today's BUY / SELL / HOLD with rationales</span>
-python -m quant.trading_bot backtest --save
-python -m quant.scheduler              <span class="c"># run everything daily after the US close</span></code></pre></div>
+          <h3>Keep it up to date (optional)</h3>
+          <div class="code"><button class="copy" type="button">Copy</button><pre><code>python -m quant.scheduler              <span class="c"># refresh everything daily after the US close</span>
+python -m quant.web.publish            <span class="c"># export the website and push it to GitHub Pages</span></code></pre></div>
         </div>
       </div>
     </div>
@@ -354,7 +337,7 @@ python -m quant.scheduler              <span class="c"># run everything daily af
   <div class="wrap">
     <div>Free Quant Platform · <a href="https://github.com/chanwoo777/quant-platform">github.com/chanwoo777/quant-platform</a></div>
     <div>Market data comes from Yahoo Finance, FRED, SEC EDGAR, CoinGecko, Nasdaq Trader and the Kenneth R. French Data Library, each under its own terms. Screenshots show sample data from a local run.</div>
-    <div>Research and paper trading only. Not investment advice.</div>
+    <div>Research only. Not investment advice.</div>
   </div>
 </footer>
 

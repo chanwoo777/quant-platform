@@ -89,25 +89,6 @@ def test_indicators_match_python(tmp_path):
     assert js["bb"]["upper"][-1] == pytest.approx(ref.bb_upper.iloc[-1], rel=1e-6)
 
 
-def test_backtest_has_no_lookahead_and_counts_trades(tmp_path):
-    # A strategy that "knows" tomorrow's winner would earn ~100%/day if the engine leaked
-    # returns. With W[t] applied to R[t+1] it can only earn what yesterday's choice earns.
-    data = {"P": [[100, 100], [110, 90], [99, 99], [108.9, 89.1], [98, 98]], "dates": [f"2026-01-0{i + 1}" for i in range(5)]}
-    js = run_js(tmp_path, """
-        const peek = { weights: (P) => ({ W: P.map((row, t) => t + 1 < P.length ? (P[t + 1][0] > row[0] ? [1, 0] : [0, 1]) : [0, 0]) }) };
-        const bt = Q.backtest({ dates: data.dates, symbols: ["A", "B"], P: data.P, strategy: peek, params: {}, costBps: 0 });
-        const mom = Q.STRATEGIES.find((s) => s.id === "buyhold");
-        const bh = Q.backtest({ dates: data.dates, symbols: ["A", "B"], P: data.P, strategy: mom, params: {}, costBps: 10 });
-        return { rets: bt.rets, trades: bt.trades, bh: bh.rets };""", data)
-    # Day t's return uses W[t-1], which was chosen with data through t-1 (peeking at t), so the
-    # peeking strategy does profit; the engine's job is to apply weights to the *next* day only.
-    assert js["rets"][0] == 0
-    assert js["rets"][1] == pytest.approx(0.10)  # W[0] picked A, which rose 10% on day 1
-    assert len([t for t in js["trades"] if not t.get("open")]) >= 2
-    assert js["bh"][0] == pytest.approx(-0.001)  # entering costs 10 bps on 100% turnover
-    assert js["bh"][1] == pytest.approx(0.0)  # +10% and -10% at 50/50
-
-
 # --- TradingView-style indicators ---------------------------------------------------------------
 # Python references written from the Pine Script built-ins, cross-checked against the `ta`
 # library where it uses the same formulas.
@@ -245,24 +226,6 @@ def test_indicators_match_pine_definitions(tmp_path):
     assert js["vwap"] == pytest.approx(vwap.tolist(), rel=1e-12)
     obv = (np.sign(close.diff()).fillna(0) * df.volume).cumsum()
     assert js["obv"] == pytest.approx(obv.tolist(), rel=1e-12)
-
-
-def test_every_strategy_runs_and_stays_within_bounds(tmp_path):
-    rng = np.random.default_rng(5)
-    P = (100 * np.cumprod(1 + rng.normal(0.0003, 0.015, (600, 3)), axis=0)).tolist()
-    js = run_js(tmp_path, """
-        const dates = data.map((_, i) => new Date(Date.UTC(2023, 0, 2) + i * 864e5).toISOString().slice(0, 10));
-        return Q.STRATEGIES.map((s) => {
-          const params = Object.fromEntries(s.params.map((p) => [p.key, p.def]));
-          const syms = ["A", "B", "C"].slice(0, s.maxAssets || 3), P = data.map((row) => row.slice(0, syms.length));
-          const bt = Q.backtest({ dates, symbols: syms, P, strategy: s, params, costBps: 5 });
-          const gross = Math.max(...bt.W.map((w) => w.reduce((a, x) => a + Math.abs(x), 0)));
-          return { id: s.id, n: bt.rets.length, finite: bt.rets.every(Number.isFinite), gross, trades: bt.trades.length };
-        });""", P)
-    assert {s["id"] for s in js} == {"buyhold", "momentum", "trend", "meanrev", "rsi", "macd", "pairs"}
-    for s in js:
-        assert s["n"] == 600 and s["finite"] and s["gross"] <= 1 + 1e-9, s
-        assert s["trades"] > 0, s
 
 
 def test_indicator_catalogue_runs_on_partial_data(tmp_path):

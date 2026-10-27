@@ -685,7 +685,6 @@ python -m quant.scheduler --run-now --publish-site   # daily cycle, then publish
 | **Markets** | Regime and stance, the S&P 500 stance chart, FRED tiles and news. **Your watchlist**: search to add any stock, ETF, coin or index, ✕ to remove. It is saved in the browser (localStorage). |
 | **Stock** (`#/stock/<ticker>`) | Any of ~11,400 symbols. Deep-tier names get candlesticks with news markers, explained moves and every indicator below. Everything else gets a close-price chart with the close-based indicators, plus returns, risk and peer percentiles. |
 | **Financials** (`#/financials/<ticker>`) | A research view for any ticker: fundamentals, analyst consensus, a peer table, financial statements and the factor model. Statements come from SEC filings for the deep tier, or Finnhub's reported statements for US names when a key is set. |
-| **Paper bot** | The paper and backtest portfolios with a risk dashboard: Sharpe, Sortino, max drawdown, Calmar, alpha and beta vs SPY, win rate, win/loss ratio and profit factor. Also the **strategy lab**. |
 | **Live** (`#/live/<symbol>`) | The **Pro chart**: a TradingView-style chart drawn by the site, with every indicator and setting under your control. Details below. |
 
 The header search autocompletes over the whole universe. Pretty links such as
@@ -777,28 +776,6 @@ Lightweight Charts v5, so indicators aren't limited the way an embedded widget i
   The earlier version embedded TradingView's widget for US stocks; it is no longer
   used.
 
-**Strategy lab** (Paper bot → Strategy lab). The strategies are modules in
-`quant.js` (`Q.STRATEGIES`):
-- *Buy and hold:* equal weight.
-- *Cross-sectional momentum:* lookback, skip, top N and rebalance settings,
-  optionally long/short.
-- *Trend following:* moving-average crossover.
-- *Mean reversion:* Bollinger z-score, and RSI (Connors' RSI 2 with a 200-day
-  trend filter).
-- *MACD crossover:* in the market while the MACD line is above its signal line.
-- *Statistical arbitrage:* pairs trading with a rolling hedge ratio and z-score
-  entry, exit and stop. It also reports the Engle-Granger ADF statistic and the
-  spread's half-life.
-
-Each strategy returns target weights decided with data up to the close. The engine
-applies them to the next day's return, charges costs on turnover, and pays the
-T-bill rate on idle cash. It reports the metrics above, monthly returns and every
-round trip. A new strategy is an object with `params` and `weights(P, params)`.
-On the site, Sharpe uses the standard daily definition: mean daily excess return
-÷ its standard deviation × √252. The Phase 4 table instead uses (CAGR − T-bill
-rate) ÷ volatility, which is why the 2018– backtest shows 0.51 on the site and
-0.46 there.
-
 **Data sources and keys:**
 - *No key needed:* prices, fundamentals and analytics come from the nightly
   export, and crypto charts stream from Binance's public market data
@@ -815,7 +792,7 @@ rate) ÷ volatility, which is why the 2018– backtest shows 0.51 on the site an
 - *Code:* the site's code is versioned on `main` under `docs/`:
   - `index.html`, `about.html` and `404.html`
   - `assets/app.js`: the pages
-  - `assets/quant.js`: statistics, factor models and the backtester
+  - `assets/quant.js`: statistics, factor models and indicators
   - `assets/live.js`: the Pro chart (Lightweight Charts v5, Binance and Finnhub
     WebSockets, CNBC polling, studies, drawings, shortcuts)
   - `assets/app.css`
@@ -828,7 +805,7 @@ rate) ÷ volatility, which is why the 2018– backtest shows 0.51 on the site an
   - `meta`, `global` (the screener), `symbols` (search) and `indices`
   - `sym/<xx>`: about two years of adjusted closes plus fundamentals per symbol,
     in 256 FNV-1a buckets
-  - `factors`, `market`, `deep/<T>`, `research` and `bot`
+  - `factors`, `market`, `deep/<T>` and `research`
 
   The total is about 60 MB raw; GitHub Pages compresses it.
 - *Publishing:* `quant/web/publish.py` commits `data/site` as a fresh one-commit
@@ -839,9 +816,8 @@ rate) ÷ volatility, which is why the 2018– backtest shows 0.51 on the site an
   updates after each 07:30 KST cycle.
 
 **What differs from the local dashboard:**
-- The site is read-only. The watchlist and the strategy lab live in the
-  visitor's browser. Promoting a name to the deep tier (news, SEC filings, the
-  bot) still happens on the PC.
+- The site is read-only. The watchlist lives in the visitor's browser. Promoting
+  a name to the deep tier (news and SEC filings) still happens on the PC.
 - Candlesticks, news markers and explained moves cover the deep tier. Other names
   get close-price charts, because the universe store keeps only closes and volume.
 - There are no 15-minute bars.
