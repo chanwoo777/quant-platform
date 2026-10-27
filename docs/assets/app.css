@@ -418,3 +418,7 @@ kbd { font: 600 0.78rem ui-monospace, monospace; background: var(--bg-soft); bor
 .q-samp { grid-template-columns: 5.5em minmax(40px, 1fr) 4em minmax(80px, 12em); }
 .q-samp .p { text-align: left; font-size: 0.78rem; }
 .q-compare .kpi .value { font-size: 1.15rem; white-space: normal; }
+.q-score table { min-width: 1100px; font-size: 0.8rem; }
+.q-score td, .q-score th { min-width: 120px; }
+.q-score td:first-child, .q-score th:first-child { position: sticky; left: 0; background: var(--surface); z-index: 1; min-width: 150px; }
+.q-score thead th:first-child { background: var(--bg-soft); z-index: 2; }

@@ -1072,6 +1072,39 @@
   }
   SECTIONS.push({ id: "portfolio", title: "Portfolio optimization lab", html: portfolioSec, init: initPortfolio });
 
+  // --- 8. Quantum readiness scorecard ----------------------------------------------------------------------
+  const CHECKS = ["One output number?", "Classical baseline?", "Quantum-friendly structure?", "Data loading affordable?", "Small simulation runs?",
+    "Full-size resource estimate", "Honest decision"];
+  const SCORE = [
+    ["Option pricing (section 5)", "Promising", ["Yes: the option's price, an average payoff", "Yes: Black-Scholes and Monte Carlo",
+      "An average → amplitude estimation", "Yes: a lognormal model loads with a small circuit", "Yes: 5 price qubits, every night",
+      "Thousands of logical qubits; T-depth in the tens of millions (published estimates, approximate)", "Wait for error-corrected hardware; stay classical today"]],
+    ["VaR and CVaR (section 6)", "Promising", ["Yes: a tail probability, or the VaR level", "Yes: historical simulation and Monte Carlo",
+      "A probability → amplitude estimation", "Manageable for a fitted model; costly for raw scenario data", "Yes: a 32-bin distribution, every night",
+      "Similar to option pricing; more for many risk factors (approximate)", "Wait; prototype now, as banks do"]],
+    ["Mean-variance portfolio (section 7a)", "Open question", ["Partly: a vector of weights, read out piece by piece", "Yes: a quadratic program solves 15 stocks in milliseconds",
+      "A linear system → HHL / quantum interior point", "Costly: the covariance matrix needs QRAM or block encodings", "Not here: HHL needs error correction to mean anything",
+      "Depends on condition numbers and precision; the speedup is polynomial at best", "Stay classical; follow the research"]],
+    ["Hold K stocks (section 7b)", "Open question", ["Yes: the objective of the best portfolio", "Yes: brute force here, branch and bound in practice",
+      "A binary choice → QAOA", "Cheap: n² QUBO coefficients", "Yes: 6 qubits, every night",
+      "Unknown: QAOA is a heuristic with no proven speedup", "Stay classical; experiment if curious"]],
+    ["Stock price prediction with quantum ML", "Not yet useful", ["No: \"predict the stock\" isn't one well-defined number", "Yes, and hard to beat: daily returns are mostly noise",
+      "None clear → stop here", "Costly: loading market history can cancel any gain", "Possible, but they show little",
+      "No credible estimate", "Stay classical. Claimed speedups are often matched by \"quantum-inspired\" classical algorithms"]],
+  ];
+  function scorecard() {
+    const tone = { Promising: "good", "Open question": "warn", "Not yet useful": "bad" };
+    return `<p class="soft">A seven-step check to run before anyone spends money on a quantum project: is there one number to estimate, a classical baseline,
+        structure a quantum algorithm can use, an affordable way to load the data, evidence from small simulations, a full-size resource estimate, and an
+        honest decision?</p>
+      <div class="table-wrap q-table q-score"><table><thead><tr><th>Use case</th>${CHECKS.map((c, i) => `<th>${i + 1}. ${esc(c)}</th>`).join("")}<th>Verdict</th></tr></thead>
+        <tbody>${SCORE.map(([name, verdict, cells]) => `<tr><td><b>${esc(name)}</b></td>${cells.map((c) => `<td>${esc(c)}</td>`).join("")}
+          <td><span class="badge ${tone[verdict]}">${esc(verdict)}</span></td></tr>`).join("")}</tbody></table></div>
+      <p class="caption">Promising = the maths fits and the remaining gap is hardware. Open question = the speedup depends on conditions not yet shown to hold for
+        real portfolios. Not yet useful = no structure to exploit. Resource estimates are approximate and come from published studies.</p>`;
+  }
+  SECTIONS.push({ id: "scorecard", title: "Quantum readiness scorecard", html: scorecard });
+
   function view(el, arg) {
     return render(el, arg);
   }
