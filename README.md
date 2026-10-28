@@ -688,7 +688,7 @@ python -m quant.scheduler --run-now --publish-site   # daily cycle, then publish
 | **Global** | The screener (every stock ≥ $1B, liquid US ETF and top coin) with filters, per-symbol charts and signal reasons. ★ adds a name to your watchlist. |
 | **Markets** | Regime and stance, the S&P 500 stance chart, FRED tiles and news. **Your watchlist**: search to add any stock, ETF, coin or index, ✕ to remove. It is saved in the browser (localStorage). |
 | **Stock** (`#/stock/<ticker>`) | Any of ~11,400 symbols: candlesticks with every indicator below, plus returns, risk and peer percentiles. Deep-tier names add news markers and explained moves. The chart loads about two years of daily bars in the browser (see *Price history* below). |
-| **Financials** (`#/financials/<ticker>`) | A research view for any ticker: fundamentals, analyst consensus, a peer table, financial statements and the factor model. Statements come from SEC filings for the deep tier, or Finnhub's reported statements for US names when a key is set. |
+| **Financials** (`#/financials/<ticker>`) | A research view for any ticker: fundamentals, the Analysts pillar (with Finnhub's recommendation trends when a key is set), a peer table, financial statements and the factor model. Statements come from SEC filings for the deep tier, or Finnhub's reported statements for US names when a key is set. |
 | **Quantum** (`#/quantum`) | A beginner's guide to quantum algorithms for investors: basics, a qubit lab, option pricing, VaR/CVaR and portfolio labs with classical baselines, a readiness scorecard and the nightly simulator run. Details below. |
 | **Live** (`#/live/<symbol>`) | The **Pro chart**: a TradingView-style chart drawn by the site, with every indicator and setting under your control. Details below. |
 
@@ -859,8 +859,11 @@ educational, not a trading signal".
 
 **Price history.** The site publishes no price history, because Yahoo's terms
 allow personal use only. The nightly export publishes calculated numbers instead
-(scores, returns, volatility, drawdowns, betas, signals), plus the latest close,
-fundamentals and analyst consensus. Every chart, the Financials factor model and
+(scores, percentiles, returns, volatility, drawdowns, betas, signals), plus the
+latest close and fundamentals. Analyst ratings aren't published either: they are
+licensed data, so the site shows only the calculated Analysts pillar, and the
+signal reasons name that percentile instead of the rating. Every chart, the
+Financials factor model and
 the Quantum labs load past prices in the visitor's browser
 (`window.LIVE.dailyHistory` in `live.js`):
 - *Stocks, ETFs and indices:* about two years of daily bars from CNBC's 1Y range,
@@ -926,9 +929,9 @@ PC; their inputs and results are published, not the prices.
   dashboard's ten years.
 - There are no 15-minute bars.
 
-The site publishes no Yahoo price history. It still publishes the latest close,
-fundamentals and analyst consensus from Yahoo Finance, whose terms allow personal
-use only; publishing those is the owner's decision. BUY / HOLD / AVOID are
+The site publishes no Yahoo price history and no analyst ratings. It still
+publishes the latest close and fundamentals from Yahoo Finance, whose terms allow
+personal use only; publishing those is the owner's decision. BUY / HOLD / AVOID are
 mechanical labels from ranking past data against peers, and the site says so next
 to them: they are not recommendations. To take the site down, disable Pages in the
 repository settings or delete the `gh-pages` branch.

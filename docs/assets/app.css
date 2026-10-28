@@ -203,13 +203,6 @@ footer.site .wrap { display: grid; gap: 6px; }
 a.btn { display: inline-flex; align-items: center; color: var(--text); }
 a.btn:hover { text-decoration: none; }
 
-/* analyst gauge */
-.gauge { position: relative; height: 10px; border-radius: 5px; margin: 14px 0 6px;
-  background: linear-gradient(90deg, var(--good) 0%, #8bc34a 25%, var(--text-faint) 50%, #f0a23b 75%, var(--bad) 100%); }
-.gauge .needle { position: absolute; top: -5px; width: 4px; height: 20px; border-radius: 2px; background: var(--text);
-  transform: translateX(-2px); }
-.gauge-labels { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-faint); }
-
 /* peer table: the symbol's own row */
 tr.me td { background: var(--accent-soft); font-weight: 600; }
 

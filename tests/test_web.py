@@ -44,7 +44,8 @@ def test_export_global_writes_screener_and_price_buckets(tmp_path, monkeypatch):
                                 "last_close", "rsi_14", "dist_200", "also_listed", "analyst_label"]}
     scores = pd.DataFrame([
         base | {"symbol": "AAA", "name": "Aaa Corp", "asset_class": "stock", "market": "US", "sector": "Technology",
-                "signal": "BUY", "composite": 71.234, "unusual": True, "currency": "USD", "rationale": "Buy candidate: x",
+                "signal": "BUY", "composite": 71.234, "unusual": True, "currency": "USD", "analysts": 91.4,
+                "rationale": "Buy candidate: analysts Strong Buy (1.3); trend 80/100.", "analyst_label": "Strong Buy",
                 "sparkline": [1.0, 2.0, 3.0], "market_cap_usd": 2.5e9, "scored_at": pd.Timestamp("2026-10-23")},
         base | {"symbol": "BTC-USD", "name": "Bitcoin", "asset_class": "crypto", "market": "Crypto", "signal": "HOLD",
                 "composite": 50.0, "unusual": False, "currency": "USD", "rationale": "Hold", "sparkline": None,
@@ -59,6 +60,9 @@ def test_export_global_writes_screener_and_price_buckets(tmp_path, monkeypatch):
     rows = [dict(zip(g["cols"], r)) for r in g["rows"]]
     assert stats["symbols"] == 2 and rows[0]["s"] == "AAA" and rows[0]["a"] == "s" and rows[0]["sc"] == 71.2
     assert rows[0]["u"] == 1 and rows[0]["cap"] == 2.5 and rows[0]["sp"] == [0, 50, 99] and rows[1]["sp"] is None
+    # Analyst ratings are licensed: no label column, and the reason names the calculated pillar instead.
+    assert "lab" not in g["cols"] and rows[0]["an"] == 91
+    assert rows[0]["why"] == "Buy candidate: analysts 91/100; trend 80/100."
     assert g["regimes"][0]["market"] == "US"
     bucket = json.loads((tmp_path / "sym" / f"{export.bucket('AAA')}.json").read_text(encoding="utf-8"))
     # No price history is published (pages load it in the browser); every fundamental is NaN here, and

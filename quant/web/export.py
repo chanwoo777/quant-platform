@@ -4,10 +4,10 @@
     python -m quant.web.publish           # export, then push data/site to the gh-pages branch
 
 The data comes from the same functions the Streamlit pages call (dashboard/common.py),
-so the website and the local dashboard show the same numbers. No price history is published:
-Yahoo's terms allow personal use only, so the site publishes calculated numbers (scores, returns,
-volatility, betas) and each page loads price history in the visitor's browser instead
-(docs/assets/live.js, dailyHistory). Files written to data/site/data/:
+so the website and the local dashboard show the same numbers. No price history and no analyst
+ratings are published: Yahoo's terms allow personal use only, so the site publishes calculated
+numbers (scores, percentiles, returns, volatility, betas), and each page loads price history in the
+visitor's browser instead (docs/assets/live.js, dailyHistory). Files written to data/site/data/:
 
   meta.json       freshness dates and counts
   global.json     regimes + the screener (every stock, ETF and coin, columnar)
@@ -32,6 +32,7 @@ import datetime as dt
 import json
 import logging
 import math
+import re
 import shutil
 import subprocess
 import sys
@@ -57,7 +58,7 @@ INFO_FIELDS = {
     "tpe": "trailing_pe", "pecy": "pe_current_year", "pb": "price_to_book", "eve": "ev_to_ebitda",
     "dy": "dividend_yield", "roe": "return_on_equity", "pm": "profit_margin", "de": "debt_to_equity",
     "rg": "revenue_growth", "eg": "earnings_growth", "beta": "beta", "er": "expense_ratio",
-    "aum": "fund_assets_usd", "ar": "analyst_rating", "al": "analyst_label", "w52": "fifty_two_week_change",
+    "aum": "fund_assets_usd", "w52": "fifty_two_week_change",
     "vol": "volatility", "mdd": "max_drawdown_1y", "adv": "adv_usd", "m61": "mom_6_1", "cross": "cross_type",
     "cross_ago": "cross_sessions_ago", "cg": "coingecko_id", "rank": "rank",
 }
@@ -150,8 +151,21 @@ def series(values, digits: int = 5) -> list:
 
 SCREENER_COLS = [
     "s", "n", "a", "m", "sec", "sig", "sc", "t", "mo", "v", "q", "r", "an", "co", "r1d", "r1w", "r1m", "r3m", "ytd",
-    "m121", "fpe", "tpe", "pb", "dy", "roe", "cap", "u", "z", "px", "cur", "rsi", "d200", "also", "lab", "why", "sp",
+    "m121", "fpe", "tpe", "pb", "dy", "roe", "cap", "u", "z", "px", "cur", "rsi", "d200", "also", "why", "sp",
 ]
+
+
+# The scorer's reasons quote the analyst consensus ("analysts Strong Buy (1.4)"). Analyst ratings are
+# licensed data, so the site's copy names the calculated Analysts percentile instead.
+ANALYST_REASON = re.compile(r"analysts [A-Z][A-Za-z]*(?: [A-Z][A-Za-z]*)* \(\d+(?:\.\d+)?\)")
+
+
+def public_reason(text, analysts) -> str | None:
+    if not isinstance(text, str):
+        return None
+    if pd.notna(analysts):
+        return ANALYST_REASON.sub(f"analysts {analysts:.0f}/100", text)
+    return re.sub(r"\s*;\s*([;.])", r"\1", ANALYST_REASON.sub("", text)).replace(": ;", ":").strip(" ;")
 
 
 def _spark(points) -> list[int] | None:
@@ -185,7 +199,7 @@ def export_global(out: Path) -> dict:
             rnd(r.dividend_yield, 2), rnd(r.return_on_equity), rnd(None if pd.isna(r.market_cap_usd) else r.market_cap_usd / 1e9, 2),
             1 if bool(r.unusual) else 0, rnd(r.zscore_1d, 1), sig(r.last_close, 6), r.currency, rnd(r.rsi_14, 0),
             rnd(r.dist_200), None if pd.isna(r.also_listed) else r.also_listed,
-            None if pd.isna(r.analyst_label) else r.analyst_label, r.rationale, _spark(r.sparkline),
+            public_reason(r.rationale, r.analysts), _spark(r.sparkline),
         ])
     size = write(out / "global.json", {
         "scored_at": pd.Timestamp(scores.scored_at.max()).isoformat(),

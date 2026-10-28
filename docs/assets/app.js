@@ -458,7 +458,7 @@ async function openDetail(r, span = "1Y") {
       ${kpi("Momentum 12-1", pct(r.m121, 0))}${kpi("vs 200-day MA", pct(r.d200))}
       ${kpi("Fwd P/E", num(r.fpe, 1))}${kpi("ROE", pct(r.roe, 0, false))}${kpi("Dividend yield", ok(r.dy) ? num(r.dy, 2) + "%" : "–")}${kpi("Mkt cap", ok(r.cap) ? money(r.cap * 1e9) : "–")}
     </div>
-    <p class="caption">Pillars are percentiles among peers (stocks: same market, and same sector for value and quality; ETFs and coins within their class). ${r.lab ? `Analyst consensus: ${esc(r.lab)}.` : ""}</p>
+    <p class="caption">Pillars are percentiles among peers (stocks: same market, and same sector for value and quality; ETFs and coins within their class).</p>
     <div class="asset-actions">
       ${routeLink("stock", r.s, "Stock page →")} · ${routeLink("financials", r.s, "Research →")} · ${link(yahoo, "Yahoo Finance ↗")}
       <button class="btn${inWatch(r.s) ? " on" : ""}" id="d-watch" type="button">${inWatch(r.s) ? "★ In watchlist" : "☆ Add to watchlist"}</button>
@@ -911,7 +911,7 @@ async function viewFinancials(view, arg) {
     </div>
     <h2>Fundamentals</h2>${fundamentalsHtml(r, info)}
     <div class="grid g2">
-      <div><h2>Analyst consensus</h2>${analystHtml(r, info)}<div id="fh-reco"></div></div>
+      <div><h2>Analysts</h2>${analystHtml(r, sym)}<div id="fh-reco"></div></div>
       <div><h2>Peers</h2><div id="peers"><div class="loading">Loading peers…</div></div></div>
     </div>
     <h2>Financial statements</h2><div id="statements"></div>
@@ -959,15 +959,16 @@ function fundamentalsHtml(r, i) {
   </div><p class="caption">From Yahoo Finance's quote summary, refreshed on a rolling basis (a few days old at most once the backlog clears). Blank tiles: not reported yet.</p>`;
 }
 
-function analystHtml(r, i) {
-  const rating = i.ar;
-  if (!ok(rating)) return '<div class="empty">No analyst consensus reported.</div>';
-  const posPct = ((rating - 1) / 4) * 100;
-  return `<div class="card"><div class="kpi"><div class="label">Consensus (1 = strong buy … 5 = strong sell)</div>
-      <div class="value">${num(rating, 1)} · ${esc(i.al || r.lab || "")}</div></div>
-    <div class="gauge"><div class="needle" style="left:${posPct}%"></div></div>
-    <div class="gauge-labels"><span>Strong buy</span><span>Buy</span><span>Hold</span><span>Sell</span><span>Strong sell</span></div>
-    <p class="caption">Mean of the analysts covering it, via Yahoo Finance. The Analysts pillar (${ok(r.an) ? num(r.an, 0) + "th percentile" : "–"}) ranks this against peers.</p></div>`;
+/** Analyst ratings are licensed data, so the site shows only the calculated Analysts pillar (the
+ * consensus ranked against peers) and, with the visitor's own Finnhub key, Finnhub's trends. */
+function analystHtml(r, sym) {
+  const fh = usTicker(sym) && FH.key();
+  return `<div class="card">${ok(r.an)
+    ? `<div class="kpi"><div class="label">Analysts pillar</div><div class="value">${num(r.an, 0)}/100</div>
+        <div class="sub">The analyst consensus, as a percentile among peers (100 = most favourable)</div></div>`
+    : '<div class="empty">No analyst coverage for this name.</div>'}
+    <p class="caption">Individual analyst ratings are licensed by data providers, so the site publishes only the calculated Analysts pillar.
+      ${fh ? "Recommendation trends from your Finnhub key are below." : "With a free Finnhub key (⚙), US stocks also show Finnhub's recommendation trends."}</p></div>`;
 }
 
 async function peersHtml(sym, r) {
