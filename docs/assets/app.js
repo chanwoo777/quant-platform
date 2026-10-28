@@ -346,7 +346,8 @@ const G = { classes: new Set(["s", "e", "c"]), signals: new Set(), market: "", s
 const PAGE = 50;
 
 async function viewGlobal(view) {
-  const [g, rows] = [await load("global.json"), await screenerRows()];
+  const [g, rows, meta] = [await load("global.json"), await screenerRows(), await load("meta.json")];
+  G.asOf = { scored: g.scored_at, prices: meta.prices_as_of };
   await watchlist();
   const markets = [...new Set(rows.map((r) => r.m))].sort();
   const sectors = [...new Set(rows.filter((r) => r.sec).map((r) => r.sec))].sort();
@@ -379,7 +380,7 @@ async function viewGlobal(view) {
     </div>
     <div class="grid g4" id="g-kpis"></div>
     <div class="subtabs" id="g-tabs">
-      <button type="button" data-tab="screener">Screener</button><button type="button" data-tab="movers">Unusual movers today</button><button type="button" data-tab="watch">Watchlist ★</button>
+      <button type="button" data-tab="screener">Screener</button><button type="button" data-tab="sectors">Sector heatmap</button><button type="button" data-tab="movers">Unusual movers today</button><button type="button" data-tab="watch">Watchlist ★</button>
     </div>
     <div id="g-body"></div>`;
 
@@ -441,6 +442,57 @@ function bindStars(root, onChange) {
   }));
 }
 
+// --- sector heatmap (Global, "Sector heatmap" tab) -----------------------------------------------
+const GS = { sector: null };
+function moveColor(x, scale) {
+  if (!ok(x)) return { bg: "var(--bg-soft)", fg: "var(--text-faint)" };
+  const a = 0.15 + 0.75 * Math.min(1, Math.abs(x) / scale);
+  return { bg: x >= 0 ? `rgba(42,120,214,${a.toFixed(3)})` : `rgba(227,73,72,${a.toFixed(3)})`, fg: a > 0.55 ? "#fff" : "var(--text)" };
+}
+/** Sectors as a treemap (size: market cap, colour: the day's move); a click drills into the stocks. */
+function drawSectorMap(body, rows) {
+  const stocks = rows.filter((r) => r.a === "s");
+  if (GS.sector && !stocks.some((r) => r.sec === GS.sector)) GS.sector = null;
+  const W = Math.max(300, body.clientWidth || 900), H = W < 600 ? 460 : 540;
+  let tiles, scale, crumb;
+  if (!GS.sector) {
+    const groups = Q.groupMoves(stocks, "sec");
+    const byCap = groups.length && groups.every((t) => ok(t.cap) && t.cap > 0);
+    tiles = groups.map((t) => ({ label: t.key, sub: `${t.n.toLocaleString()} stocks`, size: byCap ? t.cap : 1, change: t.change, sector: t.key,
+      tip: `${t.key}: ${ok(t.change) ? pct(t.change, 2) : "n/a"} (cap-weighted) · ${t.n} stocks · ${ok(t.cap) ? money(t.cap * 1e9) : "cap n/a"}${t.missing ? ` · ${t.missing} without a 1-day change` : ""}` }));
+    scale = 0.03;
+    crumb = `<b>All sectors</b> · ${stocks.length.toLocaleString()} stocks${byCap ? "" : " (equal-sized: market caps missing)"}. Click a sector for its stocks.`;
+  } else {
+    const members = stocks.filter((r) => r.sec === GS.sector).sort((a, b) => (b.cap || 0) - (a.cap || 0)), shown = members.slice(0, 150);
+    const caps = shown.map((r) => r.cap).filter((c) => ok(c) && c > 0).sort((a, b) => a - b), median = caps.length ? caps[Math.floor(caps.length / 2)] : 1;
+    tiles = shown.map((r) => ({ label: r.s, sub: r.n || "", size: ok(r.cap) && r.cap > 0 ? r.cap : median, change: r.r1d, row: r,
+      tip: `${r.s} · ${r.n || ""}: ${ok(r.r1d) ? pct(r.r1d, 2) : "n/a"} · ${ok(r.cap) ? money(r.cap * 1e9) : "cap n/a"} · ${r.m}` }));
+    scale = 0.05;
+    crumb = `<button type="button" class="btn q-small" id="sm-back">← All sectors</button> <b>${esc(GS.sector)}</b> · ${members.length.toLocaleString()} stocks${members.length > shown.length ? `, the largest ${shown.length} shown` : ""}. Click a stock for its details.`;
+  }
+  const rects = Q.squarify(tiles.map((t) => t.size), 0, 0, W, H);
+  const cell = (r) => {
+    const t = tiles[r.i], col = moveColor(t.change, scale), area = r.w * r.h;
+    const big = area > 9000 && r.w > 70, mid = area > 2500 && r.w > 44;
+    return `<button type="button" class="sm-tile" data-i="${r.i}" title="${esc(t.tip)}" style="left:${(100 * r.x) / W}%;top:${(100 * r.y) / H}%;width:${(100 * r.w) / W}%;height:${(100 * r.h) / H}%;background:${col.bg};color:${col.fg}">
+      ${mid ? `<b>${esc(t.label)}</b><span>${ok(t.change) ? pct(t.change, GS.sector ? 1 : 2) : "n/a"}</span>${big ? `<em>${esc(t.sub)}</em>` : ""}` : ""}</button>`;
+  };
+  body.innerHTML = `
+    <div class="sm-asof">Latest nightly close: prices as of <b>${esc(G.asOf.prices)}</b>, scored ${esc(G.asOf.scored.slice(0, 16).replace("T", " "))} UTC.
+      This is not live intraday data. ${mq("sector-map")}</div>
+    <div class="sm-crumb">${crumb}</div>
+    <div class="sm-map" style="height:${H}px">${rects.map(cell).join("")}</div>
+    <div class="sm-legend"><span>${pct(-scale, 0)}</span><span class="sm-scale"></span><span>${pct(scale, 0)}</span><span class="sm-na">n/a</span></div>
+    <p class="caption">Tile size: market cap in US dollars; colour: the 1-day close-to-close change (sector tiles: cap-weighted average). Sector: the sector field
+      from Yahoo Finance in the nightly export. Stocks only; the filters above apply. Grey tiles have no 1-day change in the export. Not investment advice.</p>`;
+  body.querySelectorAll(".sm-tile").forEach((b) => b.addEventListener("click", () => {
+    const t = tiles[Number(b.dataset.i)];
+    if (t.sector) { GS.sector = t.sector; drawGlobal(); } else if (t.row) openDetail(t.row);
+  }));
+  const back = $("#sm-back", body);
+  if (back) back.addEventListener("click", () => { GS.sector = null; drawGlobal(); });
+}
+
 function drawGlobal() {
   const view = $("#view");
   const rows = filtered();
@@ -451,6 +503,7 @@ function drawGlobal() {
     kpi("Unusual move today", rows.filter((r) => r.u).length.toLocaleString(), "", "≥ 8% (crypto 20%), or ≥ 3 robust σ and ≥ 2% (crypto 5%)");
   view.querySelectorAll("#g-tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === G.tab));
 
+  if (G.tab === "sectors") { drawSectorMap($("#g-body", view), rows); return; }
   let list = rows, cols = SCREEN_COLS;
   if (G.tab === "movers") {
     list = rows.filter((r) => r.u).sort((a, b) => Math.abs(b.r1d || 0) - Math.abs(a.r1d || 0));

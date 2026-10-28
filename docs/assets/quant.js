@@ -823,8 +823,62 @@
     return { average: mean(pairs.map((p) => p.rho)), most: pairs[0], least: pairs[pairs.length - 1], pairs: pairs.length };
   }
 
+  // --- sector map ----------------------------------------------------------------------------
+  /** Squarified treemap (Bruls, Huizing & van Wijk 2000): one rectangle {i, x, y, w, h} per positive
+   * value, areas proportional to the values, filling the w0 x h0 box. */
+  function squarify(values, x0, y0, w0, h0) {
+    const items = values.map((v, i) => ({ v: isNum(v) && v > 0 ? v : 0, i })).filter((d) => d.v > 0).sort((a, b) => b.v - a.v);
+    const total = sum(items.map((d) => d.v)), out = [];
+    if (!total) return out;
+    items.forEach((d) => { d.a = (d.v * w0 * h0) / total; });
+    let x = x0, y = y0, w = w0, h = h0, row = [];
+    const worst = (r, side) => {
+      const s = sum(r.map((d) => d.a)), mx = Math.max(...r.map((d) => d.a)), mn = Math.min(...r.map((d) => d.a));
+      return Math.max((side * side * mx) / (s * s), (s * s) / (side * side * mn));
+    };
+    const place = (r) => {
+      const s = sum(r.map((d) => d.a));
+      if (w >= h) {
+        const rw = s / h; let yy = y;
+        r.forEach((d) => { out.push({ i: d.i, x, y: yy, w: rw, h: d.a / rw }); yy += d.a / rw; });
+        x += rw; w -= rw;
+      } else {
+        const rh = s / w; let xx = x;
+        r.forEach((d) => { out.push({ i: d.i, x: xx, y, w: d.a / rh, h: rh }); xx += d.a / rh; });
+        y += rh; h -= rh;
+      }
+    };
+    for (const d of items) {
+      const side = Math.min(w, h);
+      if (!row.length || worst([...row, d], side) <= worst(row, side)) row.push(d);
+      else { place(row); row = [d]; }
+    }
+    if (row.length) place(row);
+    return out;
+  }
+  /** Rows grouped by `key`: total market cap, the cap-weighted mean 1-day change (equal-weighted
+   * when caps are missing) and counts. Missing changes are left out, never guessed. */
+  function groupMoves(rows, key, { cap = "cap", change = "r1d" } = {}) {
+    const groups = new Map();
+    for (const r of rows) {
+      const k = r[key] || "Unknown";
+      if (!groups.has(k)) groups.set(k, { key: k, n: 0, cap: 0, capKnown: 0, wsum: 0, w: 0, plain: [], missing: 0 });
+      const g = groups.get(k);
+      g.n++;
+      if (isNum(r[cap])) { g.cap += r[cap]; g.capKnown++; }
+      if (!isNum(r[change])) { g.missing++; continue; }
+      g.plain.push(r[change]);
+      if (isNum(r[cap])) { g.wsum += r[cap] * r[change]; g.w += r[cap]; }
+    }
+    return [...groups.values()].map((g) => ({
+      key: g.key, n: g.n, cap: g.capKnown ? g.cap : NaN, missing: g.missing,
+      change: g.w > 0 ? g.wsum / g.w : g.plain.length ? mean(g.plain) : NaN,
+    })).sort((a, b) => (isNum(b.cap) ? b.cap : 0) - (isNum(a.cap) ? a.cap : 0));
+  }
+
   const Q = { TD, isNum, mean, std, variance, covariance, invert, ols, returns, sma, rollingStd, rsi, bollinger, align,
     weekKey, weeklyFactors, riskStats, maxDrawdown, valueAt, shiftIso, returnSince, correlationMatrix, clusterOrder, pairStats,
+    squarify, groupMoves,
     ema, rma, highest, lowest, trueRange, atr, macd, stoch, stochastic, stochRsi, dmi, supertrend, psar, ichimoku, vwap, obv,
     INDICATORS, indicatorFits, wma, hma, vwma, maOf, source, keltner, donchian, willr, cci, roc, mfi, rangeByTime, pivots, anchoredVwap,
     STUDIES, studyFits, PLAYBOOKS,

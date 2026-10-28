@@ -115,3 +115,24 @@ def test_correlation_matrix_is_symmetric_with_unit_diagonal(tmp_path):
     assert js["stats"]["average"] == pytest.approx(upper.mean(), rel=1e-12)
     assert {js["stats"]["most"]["a"], js["stats"]["most"]["b"]} == {"A", "B"}
     assert js["stats"]["least"]["rho"] == pytest.approx(upper.min(), rel=1e-12)
+
+
+def test_squarified_treemap_fills_the_box_proportionally(tmp_path):
+    values = [43.0, 23.8, 19.1, 13.5, 12.8, 10.6, 7.7, 7.2, 6.6, 3.8, 2.8, 0, None]
+    js = run_js(tmp_path, "return Q.squarify(data, 0, 0, 900, 540);", values)
+    assert sorted(r["i"] for r in js) == list(range(11))  # zero and missing sizes get no tile
+    total = sum(v for v in values if v)
+    for r in js:
+        assert r["w"] * r["h"] == pytest.approx(values[r["i"]] / total * 900 * 540, rel=1e-9)
+        assert -1e-6 <= r["x"] and r["x"] + r["w"] <= 900 + 1e-6 and -1e-6 <= r["y"] and r["y"] + r["h"] <= 540 + 1e-6
+    assert sum(r["w"] * r["h"] for r in js) == pytest.approx(900 * 540, rel=1e-9)
+
+
+def test_sector_moves_handle_missing_fields(tmp_path):
+    rows = [{"sec": "Tech", "cap": 3.0, "r1d": 0.02}, {"sec": "Tech", "cap": 1.0, "r1d": -0.02}, {"sec": "Tech", "cap": 2.0, "r1d": None},
+            {"sec": "Energy", "cap": None, "r1d": 0.01}, {"sec": "Energy", "cap": None, "r1d": 0.03},
+            {"sec": None, "cap": 1.0, "r1d": None}]
+    js = {g["key"]: g for g in run_js(tmp_path, 'return Q.groupMoves(data, "sec");', rows)}
+    assert js["Tech"]["change"] == pytest.approx((3 * 0.02 - 1 * 0.02) / 4) and js["Tech"]["missing"] == 1 and js["Tech"]["cap"] == 6
+    assert js["Energy"]["change"] == pytest.approx(0.02) and js["Energy"]["cap"] is None  # equal-weighted, cap n/a
+    assert js["Unknown"]["change"] is None and js["Unknown"]["n"] == 1  # shown as n/a, never guessed
