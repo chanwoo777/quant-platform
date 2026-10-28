@@ -240,3 +240,15 @@ def test_watchlist_tiers(tmp_path, monkeypatch):
 
     from quant.ingestion.news_scraper import universe_names
     assert universe_names(["005930.KS", "AAPL"]) == {"005930.KS": "Samsung Electronics Co., Ltd."}
+
+
+def test_fundamentals_keep_gross_and_operating_margins(monkeypatch):
+    from quant.universe import fundamentals
+
+    info = {"grossMargins": 0.4691, "operatingMargins": 0.3197, "profitMargins": 0.2430, "trailingPE": "n/a",
+            "returnOnEquity": float("nan"), "industry": "Consumer Electronics"}
+    monkeypatch.setattr(fundamentals.yf, "Ticker", lambda symbol: type("T", (), {"info": info})())
+    row = fundamentals.fetch_one("AAPL")
+    assert row["gross_margin"] == 0.4691 and row["operating_margin"] == 0.3197 and row["profit_margin"] == 0.2430
+    assert row["trailing_pe"] is None and row["return_on_equity"] is None  # non-numbers and NaN are dropped
+    assert row["industry"] == "Consumer Electronics"

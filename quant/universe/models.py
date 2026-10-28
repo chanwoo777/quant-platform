@@ -63,6 +63,8 @@ class InstrumentFundamentals(Base):
     ev_to_ebitda: Mapped[float | None] = mapped_column(Float)
     return_on_equity: Mapped[float | None] = mapped_column(Float)
     profit_margin: Mapped[float | None] = mapped_column(Float)
+    gross_margin: Mapped[float | None] = mapped_column(Float)
+    operating_margin: Mapped[float | None] = mapped_column(Float)
     debt_to_equity: Mapped[float | None] = mapped_column(Float)  # Yahoo reports percent (150 = 1.5x)
     revenue_growth: Mapped[float | None] = mapped_column(Float)
     earnings_growth: Mapped[float | None] = mapped_column(Float)

@@ -56,7 +56,8 @@ INDEX_NAMES = {"^GSPC": "S&P 500", "^GSPTSE": "S&P/TSX Composite", "^STOXX": "ST
 INFO_FIELDS = {
     "ex": "exchange", "reg": "region", "ind": "industry", "cat": "category", "fpe": "forward_pe",
     "tpe": "trailing_pe", "pecy": "pe_current_year", "pb": "price_to_book", "eve": "ev_to_ebitda",
-    "dy": "dividend_yield", "roe": "return_on_equity", "pm": "profit_margin", "de": "debt_to_equity",
+    "dy": "dividend_yield", "roe": "return_on_equity", "pm": "profit_margin", "gm": "gross_margin",
+    "om": "operating_margin", "de": "debt_to_equity",
     "rg": "revenue_growth", "eg": "earnings_growth", "beta": "beta", "er": "expense_ratio",
     "aum": "fund_assets_usd", "w52": "fifty_two_week_change",
     "vol": "volatility", "mdd": "max_drawdown_1y", "adv": "adv_usd", "m61": "mom_6_1", "cross": "cross_type",

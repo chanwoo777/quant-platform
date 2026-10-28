@@ -27,6 +27,7 @@ log = logging.getLogger(__name__)
 INFO_FIELDS = {
     "industry": "industry", "trailingPE": "trailing_pe", "forwardPE": "forward_pe", "priceToBook": "price_to_book",
     "enterpriseToEbitda": "ev_to_ebitda", "returnOnEquity": "return_on_equity", "profitMargins": "profit_margin",
+    "grossMargins": "gross_margin", "operatingMargins": "operating_margin",
     "debtToEquity": "debt_to_equity", "revenueGrowth": "revenue_growth", "earningsGrowth": "earnings_growth",
     "beta": "beta", "netExpenseRatio": "expense_ratio", "totalAssets": "fund_assets_usd", "category": "category",
 }

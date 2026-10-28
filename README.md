@@ -611,8 +611,9 @@ watchlist for the full treatment.
 **Sources** (all free, no keys):
 - Yahoo Finance's screener supplies 250 quotes per request. It covers market cap,
   50/200-day averages, current-year P/E, dividend yield and analyst rating.
-- Yahoo prices are downloaded in batches. Per-company ratios come from Yahoo's quote
-  summary, refreshed for about 1,500 names per run.
+- Yahoo prices are downloaded in batches. Per-company ratios (including gross,
+  operating and net margins) come from Yahoo's quote summary, refreshed for about
+  1,500 names per run.
 - CoinGecko supplies the coin list. Nasdaq Trader's directory lists every US-listed ETF.
 - Scraping sites like TradingView or Investing.com breaks their terms and breaks
   whenever their pages change, so they aren't used.
@@ -794,8 +795,9 @@ sources.
   - *Factors:* exposures to the chosen Fama-French model, with t-statistics and
     R². The 3-year window uses weekly prices and weekly-compounded factors.
   - *Fundamentals:* each cell is labelled with its source, SEC EDGAR for the deep
-    tier and Yahoo otherwise. Gross and operating margins show n/a: the pipeline
-    doesn't store them.
+    tier and Yahoo otherwise. Gross and operating margins are Yahoo's trailing
+    twelve months for every name; a name the rolling refresh hasn't reached since
+    they were added shows n/a.
 - *Correlation heatmap:* Pearson correlation of daily returns (3M, 6M, 1Y) or
   weekly returns (3Y). It can be ordered by average-linkage clustering on 1 −
   correlation, or alphabetically, and shows the average pairwise correlation and

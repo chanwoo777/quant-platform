@@ -79,7 +79,7 @@ function fundamentals(t, ctx) {
   const eps = sec && sec.ttm && sec.ttm.eps;
   return {
     revenue_growth: sec && sec.growth && ok(sec.growth.revenue_yoy) ? v(sec.growth.revenue_yoy, "SEC") : v(i.rg, "Yahoo"),
-    gross_margin: v(NaN, ""), operating_margin: v(NaN, ""),
+    gross_margin: v(i.gm, "Yahoo"), operating_margin: v(i.om, "Yahoo"),
     net_margin: sec && sec.ttm && sec.ttm.revenue ? v(sec.ttm.net_income / sec.ttm.revenue, "SEC") : v(i.pm, "Yahoo"),
     roe: rs && ok(rs.roe) ? v(rs.roe, "SEC") : v(i.roe ?? t.row.roe, "Yahoo"),
     debt_to_equity: sec && sec.ttm && ok(sec.ttm.de) ? v(sec.ttm.de, "SEC") : v(ok(i.de) ? i.de / 100 : NaN, "Yahoo"),
@@ -202,7 +202,8 @@ async function viewCompare(view, arg) {
         Risk-free rate: ${esc(rfLabel)}. Beta against the S&amp;P 500 (CNBC).
         Factors: Kenneth R. French Data Library (${esc(CMP.model)}), daily to ${esc(meta.factors_as_of || "–")}${ffAny ? `; regression window ${esc(ffAny.m.ff.start)} to ${esc(ffAny.m.ff.end)} for ${esc(ffAny.sym)}` : ""}, t-statistics with Newey-West errors.
         Fundamentals: SEC EDGAR filings for deep-tier names, otherwise Yahoo Finance via the nightly export of ${esc(meta.generated_at.slice(0, 10))};
-        gross and operating margins aren't in the platform's data, so they show n/a. Scores: nightly export, prices as of ${esc(meta.prices_as_of)}.
+        gross and operating margins are Yahoo's for every name (trailing twelve months), refreshed on a rolling basis, so a few may still show n/a.
+        Scores: nightly export, prices as of ${esc(meta.prices_as_of)}.
         ${SIGNAL_NOTE} Not investment advice.</p>
       ${winNote.length ? `<p class="caption">${winNote.join(" · ")}</p>` : ""}`;
     drawCompareChart(items);
