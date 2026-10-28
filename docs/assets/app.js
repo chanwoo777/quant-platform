@@ -149,7 +149,7 @@ function fresh(...parts) {
 }
 // Each route's default source, given to any panel heading the view didn't label itself (null: no data panels).
 const PAGE_SOURCES = { global: ["scores"], markets: ["deep-prices"], stock: ["scores"], financials: ["yahoo-fundamentals"], compare: ["scores"],
-  quantum: [{ provider: "Simulated in your browser", live: true }], "track-record": ["track"], live: null, methodology: null, status: null, changelog: null };
+  quantum: [{ provider: "Simulated in your browser", live: true }], start: null, "track-record": ["track"], live: null, methodology: null, status: null, changelog: null };
 let pageSources = null;
 /** Give every h2 and chart title in the view (and the drawer) a badge, unless it has one or opts out (data-nofresh). */
 function decorate(root) {
@@ -1528,6 +1528,7 @@ function watchlistResearchHtml(research, model) {
 // ====================================================================================================
 const ROUTES = { global: viewGlobal, markets: viewMarkets, stock: viewStock, financials: viewFinancials,
   compare: (view, arg) => viewCompare(view, arg),
+  start: (view, arg) => (window.START ? window.START.view(view, arg) : (view.innerHTML = '<div class="empty">The Start page failed to load.</div>')),
   methodology: (view, arg) => (window.METHOD ? window.METHOD.view(view, arg) : (view.innerHTML = '<div class="empty">The Methodology page failed to load.</div>')),
   status: (view, arg) => (window.TRUST ? window.TRUST.status(view, arg) : (view.innerHTML = '<div class="empty">The Data status page failed to load.</div>')),
   changelog: (view, arg) => (window.TRUST ? window.TRUST.changelog(view, arg) : (view.innerHTML = '<div class="empty">The Changelog page failed to load.</div>')),
@@ -1560,6 +1561,8 @@ let cleanup = null;
 window.onRouteCleanup = (fn) => { cleanup = fn; };
 
 async function render() {
+  if (!location.hash.replace(/^#\/?/, "") && !store.get("visited")) { location.replace("#/start"); return; }  // a first visit starts here
+  store.set("visited", true);
   const parsed = Util.parseHash(location.hash), name = parsed.route || "global", arg = parsed.arg;
   if (MOVED[name]) { location.replace(MOVED[name]); return; }
   const route = ROUTES[name] ? name : "global";

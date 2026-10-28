@@ -542,3 +542,18 @@ button.dl:hover { color: var(--accent); border-color: var(--accent); }
 .toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); opacity: 0; pointer-events: none; z-index: 60;
   background: var(--text); color: var(--bg); padding: 9px 16px; border-radius: 8px; font-size: 0.88rem; transition: opacity .2s, transform .2s; max-width: calc(100vw - 32px); }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* --- Start here --------------------------------------------------------------------------------- */
+.st-hero { max-width: 760px; }
+.st-cards { margin: 18px 0 8px; }
+.st-card { position: relative; display: flex; flex-direction: column; gap: 6px; text-decoration: none; color: inherit; transition: border-color .15s, transform .15s; }
+.st-card:hover, .st-card:focus-within { border-color: var(--accent); transform: translateY(-2px); }
+.st-card h2 a { color: inherit; text-decoration: none; }
+.st-card h2 { margin: 4px 0 0; font-size: 1.12rem; }
+.st-card p { margin: 0; flex: 1; }
+.st-icon { font-size: 1.6rem; line-height: 1; }
+.st-n { position: absolute; top: 12px; right: 14px; color: var(--text-faint); font-weight: 600; }
+.st-go { align-self: flex-start; margin-top: 8px; }
+.st-mini { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 0.84rem; }
+.st-link { display: flex; flex-direction: column; gap: 4px; text-decoration: none; color: inherit; }
+.st-link:hover { border-color: var(--accent); }
