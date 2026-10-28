@@ -448,3 +448,10 @@ td.cmp-worst { background: var(--bad-soft); color: var(--bad); }
 .mq { display: inline-grid; place-items: center; width: 15px; height: 15px; border-radius: 50%; border: 1px solid var(--border);
   font-size: 0.66rem; font-weight: 700; color: var(--text-faint); text-decoration: none; vertical-align: 1px; margin-left: 3px; }
 .mq:hover { color: var(--accent); border-color: var(--accent); text-decoration: none; }
+/* correlation heatmap */
+.corr-kpis { margin-bottom: 10px; }
+.corr-kpis .kpi .value { font-size: 1.15rem; white-space: normal; }
+.corr-wrap { width: fit-content; max-width: 100%; }
+table.corr th, table.corr td { text-align: center; min-width: 58px; padding: 6px 8px; font-variant-numeric: tabular-nums; }
+table.corr td { color: var(--text); font-size: 0.8rem; }
+table.corr tbody th { background: var(--bg-soft); position: sticky; left: 0; }

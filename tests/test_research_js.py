@@ -96,3 +96,22 @@ def test_returns_drawdown_and_weekly_factors(tmp_path):
     r = np.array(values[:10]) / 10000
     assert js["wf"]["d"] == ["2023-01-01", "2023-01-08"]
     assert js["wf"]["mkt_rf"] == pytest.approx([np.prod(1 + r[:5]) - 1, np.prod(1 + r[5:]) - 1], rel=1e-12)
+
+
+def test_correlation_matrix_is_symmetric_with_unit_diagonal(tmp_path):
+    rng = np.random.default_rng(5)
+    common = rng.normal(0, 0.01, 300)
+    cols = [common + rng.normal(0, s, 300) for s in (0.004, 0.006, 0.02)] + [rng.normal(0, 0.01, 300), -common + rng.normal(0, 0.005, 300)]
+    js = run_js(tmp_path, """const C = Q.correlationMatrix(data);
+        return { C, order: Q.clusterOrder(C), stats: Q.pairStats(C, ["A", "B", "C", "D", "E"]) };""", [c.tolist() for c in cols])
+    C = np.array(js["C"])
+    assert np.array_equal(C, C.T)  # exactly symmetric
+    assert np.all(np.diag(C) == 1.0)
+    assert C == pytest.approx(np.corrcoef(cols), abs=1e-12)
+    # A and B share most of the common factor, so clustering puts them side by side.
+    pos = {k: i for i, k in enumerate(js["order"])}
+    assert abs(pos[0] - pos[1]) == 1 and sorted(js["order"]) == [0, 1, 2, 3, 4]
+    upper = C[np.triu_indices(5, 1)]
+    assert js["stats"]["average"] == pytest.approx(upper.mean(), rel=1e-12)
+    assert {js["stats"]["most"]["a"], js["stats"]["most"]["b"]} == {"A", "B"}
+    assert js["stats"]["least"]["rho"] == pytest.approx(upper.min(), rel=1e-12)

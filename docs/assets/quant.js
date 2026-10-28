@@ -793,8 +793,38 @@
     return years ? (last / base) ** (1 / years) - 1 : last / base - 1;
   }
 
+  // --- correlations -------------------------------------------------------------------------
+  /** Pearson correlations of aligned return columns (cols[i]: one asset's returns). Symmetric by
+   * construction, with exactly 1 on the diagonal. */
+  function correlationMatrix(cols) {
+    const sd = cols.map((c) => std(c));
+    return cols.map((a, i) => cols.map((b, j) => (i === j ? 1 : covariance(a, b) / (sd[i] * sd[j]))));
+  }
+  /** Leaf order of an average-linkage clustering on distance 1 - correlation: correlated assets end
+   * up next to each other. */
+  function clusterOrder(C) {
+    let clusters = C.map((_, i) => [i]);
+    const dist = (a, b) => mean(a.flatMap((i) => b.map((j) => 1 - C[i][j])));
+    while (clusters.length > 1) {
+      let best = [0, 1], bestD = Infinity;
+      for (let i = 0; i < clusters.length; i++) {
+        for (let j = i + 1; j < clusters.length; j++) { const d = dist(clusters[i], clusters[j]); if (d < bestD) { bestD = d; best = [i, j]; } }
+      }
+      const [i, j] = best, merged = [...clusters[i], ...clusters[j]];
+      clusters = clusters.filter((_, k) => k !== i && k !== j).concat([merged]);
+    }
+    return clusters[0];
+  }
+  /** Average pairwise correlation and the most and least correlated pairs. */
+  function pairStats(C, names) {
+    const pairs = [];
+    for (let i = 0; i < C.length; i++) for (let j = i + 1; j < C.length; j++) pairs.push({ a: names[i], b: names[j], rho: C[i][j] });
+    pairs.sort((x, y) => y.rho - x.rho);
+    return { average: mean(pairs.map((p) => p.rho)), most: pairs[0], least: pairs[pairs.length - 1], pairs: pairs.length };
+  }
+
   const Q = { TD, isNum, mean, std, variance, covariance, invert, ols, returns, sma, rollingStd, rsi, bollinger, align,
-    weekKey, weeklyFactors, riskStats, maxDrawdown, valueAt, shiftIso, returnSince,
+    weekKey, weeklyFactors, riskStats, maxDrawdown, valueAt, shiftIso, returnSince, correlationMatrix, clusterOrder, pairStats,
     ema, rma, highest, lowest, trueRange, atr, macd, stoch, stochastic, stochRsi, dmi, supertrend, psar, ichimoku, vwap, obv,
     INDICATORS, indicatorFits, wma, hma, vwma, maOf, source, keltner, donchian, willr, cci, roc, mfi, rangeByTime, pivots, anchoredVwap,
     STUDIES, studyFits, PLAYBOOKS,

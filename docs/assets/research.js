@@ -245,3 +245,56 @@ function downloadCsv(filename, cols, rows) {
   a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
   a.download = filename; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
+
+// --- correlation heatmap (Compare and the Quantum portfolio lab share it) -----------------------------
+const CORR = { win: "1Y", order: "cluster" };
+const CORR_WINDOWS = { "3M": { months: 3 }, "6M": { months: 6 }, "1Y": { years: 1 }, "3Y": { years: 3, weekly: true } };
+
+/** Correlation of daily returns (weekly for 3Y) for `syms`, drawn into `el` with its own controls. */
+async function drawCorrelationPanel(el, syms) {
+  if (!el) return;
+  const run = (el.corrRun = (el.corrRun || 0) + 1);
+  el.innerHTML = `
+    <h2>Correlation of returns ${mq("correlation")}</h2>
+    <div class="controls" style="margin-top:0">
+      <div class="control"><span class="label">Window</span><div class="chips" data-corr="win">${Object.keys(CORR_WINDOWS).map((w) =>
+        `<button type="button" class="chip${w === CORR.win ? " on" : ""}" data-v="${w}">${w}</button>`).join("")}</div></div>
+      <div class="control"><span class="label">Order</span><div class="chips" data-corr="order">${[["cluster", "Clustered"], ["alpha", "Alphabetical"]].map(([v, l]) =>
+        `<button type="button" class="chip${v === CORR.order ? " on" : ""}" data-v="${v}">${l}</button>`).join("")}</div></div>
+    </div>
+    <div class="corr-body"><div class="loading">Loading prices…</div></div>`;
+  el.querySelectorAll("[data-corr] .chip").forEach((b) => b.addEventListener("click", () => {
+    CORR[b.parentElement.dataset.corr] = b.dataset.v;
+    drawCorrelationPanel(el, syms);
+  }));
+  const body = $(".corr-body", el);
+  if (syms.length < 2) { body.innerHTML = '<div class="empty">Add at least two tickers.</div>'; return; }
+  const w = CORR_WINDOWS[CORR.win], weekly = !!w.weekly;
+  const hist = await Promise.all(syms.map((s) => priceHistory(s, { weekly }).catch((e) => ({ error: e.message }))));
+  if (run !== el.corrRun) return;  // the basket or a control changed meanwhile
+  const have = syms.map((s, i) => [s, hist[i]]).filter(([, h]) => !h.error);
+  const missing = syms.filter((_, i) => hist[i].error);
+  if (have.length < 2) { body.innerHTML = `<div class="empty">Need prices for at least two tickers${missing.length ? ` (none for ${esc(missing.join(", "))})` : ""}.</div>`; return; }
+  const al = Q.align(have.map(([, h]) => ({ dates: weekly ? h.dates.map(Q.weekKey) : h.dates, values: h.close })));
+  const end = al.dates[al.dates.length - 1], start = Q.shiftIso(end, w);
+  const i0 = Math.max(0, al.dates.findIndex((d) => d >= start) - 1);
+  const cols = al.values.map((v) => v.slice(i0).slice(1).map((p, t) => p / v[i0 + t] - 1));
+  const n = cols[0].length;
+  if (n < (weekly ? 26 : 40)) { body.innerHTML = `<div class="empty">Only ${n} shared ${weekly ? "weeks" : "days"} of prices in this window.</div>`; return; }
+  const names = have.map(([s]) => s), C = Q.correlationMatrix(cols);
+  const order = CORR.order === "cluster" ? Q.clusterOrder(C) : names.map((_, i) => i).sort((a, b) => names[a].localeCompare(names[b]));
+  const st = Q.pairStats(C, names);
+  const color = (r) => (r >= 0 ? `rgba(42,120,214,${(0.12 + 0.68 * r).toFixed(3)})` : `rgba(227,73,72,${(0.12 + 0.68 * -r).toFixed(3)})`);
+  body.innerHTML = `
+    <div class="grid g3 corr-kpis">
+      ${kpi("Average pairwise correlation", num(st.average, 2), `${st.pairs} pairs`)}
+      ${kpi("Most correlated", `${esc(st.most.a)} · ${esc(st.most.b)}`, num(st.most.rho, 2))}
+      ${kpi("Least correlated", `${esc(st.least.a)} · ${esc(st.least.b)}`, num(st.least.rho, 2))}
+    </div>
+    <div class="table-wrap corr-wrap"><table class="corr"><thead><tr><th></th>${order.map((j) => `<th>${esc(names[j])}</th>`).join("")}</tr></thead>
+      <tbody>${order.map((i) => `<tr><th>${esc(names[i])}</th>${order.map((j) => `<td style="background:${color(C[i][j])}"
+        title="${esc(names[i])} vs ${esc(names[j])}: ${C[i][j].toFixed(3)} over ${n} ${weekly ? "weeks" : "days"}">${C[i][j].toFixed(2)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>
+    <p class="caption">Pearson correlation of ${weekly ? "weekly" : "daily"} returns on the ${n} ${weekly ? "weeks" : "trading days"} all ${names.length} share,
+      ${esc(al.dates[i0 + 1] || "")} to ${esc(end)}. Blue: move together; red: move opposite. ${CORR.order === "cluster" ? "Clustered: average linkage on 1 − correlation, so similar assets sit together." : ""}
+      Prices: CNBC (Binance for coins), loaded in your browser.${missing.length ? ` No prices for ${esc(missing.join(", "))}.` : ""}</p>`;
+}

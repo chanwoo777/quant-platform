@@ -892,6 +892,7 @@
       </div>
       <div class="q-two"><div class="chart" id="pf-front"></div><div id="pf-weights"></div></div>
       <p class="caption" id="pf-note"></p>
+      <div id="pf-corr"></div>
       <div class="q-callout"><b>The quantum route.</b> Kerenidis, Prakash and Szilágyi (2019) write constrained portfolio optimization as a second-order cone program
         and solve it with a quantum interior-point method, whose inner steps solve linear systems with HHL-style quantum linear algebra. The claimed speedup
         is polynomial, not exponential, and it depends on the condition numbers of those systems, on how precisely the weights must be read out, and on
@@ -930,6 +931,7 @@
       est = { syms: B.syms.slice(), mu: mu.map((x) => x * TD), cov: cov.map((r) => r.map((x) => x * TD)), from: px.dates[1], to: px.dates[px.dates.length - 1], n: px.dates.length - 1 };
       est.front = frontier(est.mu, est.cov, rf);
       drawFrontier(); drawQubo();
+      if (typeof drawCorrelationPanel === "function") drawCorrelationPanel($("#pf-corr", sec), est.syms);  // shared with Compare
     };
 
     const drawFrontier = () => {
