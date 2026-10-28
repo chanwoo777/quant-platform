@@ -143,5 +143,30 @@
       ], [...(t.days || [])].reverse(), { tall: true, empty: "Nothing logged yet." })}`;
   }
 
-  root.TRUST = { status, trackRecord };
+  // --- Changelog (#/changelog): changelog.json, from quant/web/changelog.py --------------------------
+  async function changelogView(view) {
+    const c = await load("changelog.json");
+    const entries = c.entries || [], method = entries.filter((e) => e.methodology);
+    const badge = fresh({ provider: "Git history", label: "Changelog", asOf: String(c.generated_at).slice(0, 10), expect: 5 });
+    const months = [];
+    for (const e of entries) { const m = e.date.slice(0, 7); if (!months.length || months[months.length - 1][0] !== m) months.push([m, []]); months[months.length - 1][1].push(e); }
+    const entry = (e) => `<li class="cl-item${e.methodology ? " cl-method" : ""}"><span class="badge ${e.type === "fix" ? "warn" : "info"}">${esc(e.type)}</span>
+      ${e.methodology ? '<span class="badge bad" title="Changes how a number on the site is calculated">methodology</span>' : ""}
+      ${e.breaking ? '<span class="badge bad">breaking</span>' : ""}<b>${esc(e.title)}</b> <span class="muted">${esc(e.date)} ·
+      <a href="${esc(e.url)}" target="_blank" rel="noopener"><code>${esc(e.short)}</code></a>${e.scope ? ` · ${esc(e.scope)}` : ""}</span>
+      ${e.body ? `<div class="soft">${esc(e.body)}</div>` : ""}${e.method_files && e.method_files.length ? `<div class="muted">Calculation files: ${e.method_files.map((f) => `<code>${esc(f)}</code>`).join(", ")}</div>` : ""}</li>`;
+    view.innerHTML = `
+      <h1>Changelog</h1>
+      <p class="soft">Generated from the repository's commit messages: every commit tagged <code>feat:</code> or <code>fix:</code>
+        (<a href="https://www.conventionalcommits.org/" target="_blank" rel="noopener">Conventional Commits</a>). Commits that change how a number is calculated are
+        marked <span class="badge bad">methodology</span>; read those with the <a href="#/methodology">Methodology</a> page. Untagged commits, mostly before this page existed,
+        are in the <a href="${esc(c.repo)}/commits" target="_blank" rel="noopener">full history</a>.${c.stale_reason ? ` <span class="neg">Git wasn't available tonight; this is the last good changelog.</span>` : ""}</p>
+      <div class="grid g3">${kpi("Entries", entries.length.toLocaleString(), "feat and fix commits")}${kpi("Methodology changes", method.length.toLocaleString(), "highlighted below")}
+        ${kpi("Latest", esc(entries.length ? entries[0].date : "–"), entries.length ? esc(entries[0].title).slice(0, 60) : "")}</div>
+      ${method.length ? `<h2>Methodology changes${badge}</h2><ul class="cl-list">${method.map(entry).join("")}</ul>` : ""}
+      <h2>All changes${badge}</h2>
+      ${months.length ? months.map(([m, list]) => `<h3>${esc(m)}</h3><ul class="cl-list">${list.map(entry).join("")}</ul>`).join("") : '<div class="empty">No tagged commits yet.</div>'}`;
+  }
+
+  root.TRUST = { status, trackRecord, changelog: changelogView };
 })(typeof window !== "undefined" ? window : globalThis);

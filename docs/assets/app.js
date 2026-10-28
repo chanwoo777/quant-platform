@@ -1434,6 +1434,7 @@ const ROUTES = { global: viewGlobal, markets: viewMarkets, stock: viewStock, fin
   compare: (view, arg) => viewCompare(view, arg),
   methodology: (view, arg) => (window.METHOD ? window.METHOD.view(view, arg) : (view.innerHTML = '<div class="empty">The Methodology page failed to load.</div>')),
   status: (view, arg) => (window.TRUST ? window.TRUST.status(view, arg) : (view.innerHTML = '<div class="empty">The Data status page failed to load.</div>')),
+  changelog: (view, arg) => (window.TRUST ? window.TRUST.changelog(view, arg) : (view.innerHTML = '<div class="empty">The Changelog page failed to load.</div>')),
   "track-record": (view, arg) => (window.TRUST ? window.TRUST.trackRecord(view, arg) : (view.innerHTML = '<div class="empty">The Track record page failed to load.</div>')),
   quantum: (view, arg) => (window.QUANTUM ? window.QUANTUM.view(view, arg) : (view.innerHTML = '<div class="empty">The Quantum page failed to load.</div>')),
   live: (view, arg) => (window.LIVE ? window.LIVE.view(view, arg) : (view.innerHTML = '<div class="empty">Live charts failed to load.</div>')) };

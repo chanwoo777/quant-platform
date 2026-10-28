@@ -23,6 +23,9 @@ visitor's browser instead (docs/assets/live.js, dailyHistory). Files written to 
   research.json   factor exposures (FF3, Carhart, FF5), composite scores, strategy backtests
   quantum.json    the nightly quantum simulations (quant/web/quantum.py, run in a subprocess with
                   a timeout): the last good result, kept when a run fails
+  track.json      the signal track record: forward returns of the append-only signal log (quant/web/track.py),
+                  with track/signals_<date>.csv for the latest days
+  changelog.json  feat: and fix: commits from the git history, methodology changes marked (quant/web/changelog.py)
   status.json     per source: last successful run, data date, rows, missing tickers, stale series,
                   outliers and the quality checks (quant/web/status.py, quant/web/quality.py)
 
@@ -557,7 +560,7 @@ def build(site_dir: Path | None = None, quantum: bool = True, track_log: bool = 
     logging.getLogger("streamlit").setLevel(logging.ERROR)
     from dashboard import common as c
     from quant.config import get_settings
-    from quant.web import status
+    from quant.web import changelog, status
 
     data_dir = get_settings().data_dir
     site_dir = site_dir or data_dir / "site"
@@ -592,6 +595,7 @@ def build(site_dir: Path | None = None, quantum: bool = True, track_log: bool = 
     step("research", lambda: export_research(out, c))
     step("quantum", lambda: export_quantum(out, run=quantum))
     track_stats = step("track", lambda: export_track(out, data_dir, append=track_log))
+    step("changelog", lambda: write(out / "changelog.json", changelog.build(ROOT, data_dir / "changelog.json")))
 
     def meta():
         f_start, f_end = c.factor_dates()

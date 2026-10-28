@@ -518,3 +518,8 @@ a.fresh.red { background: var(--bad-soft); color: var(--bad); border-color: var(
 button.dl { font: inherit; font-size: 0.74rem; padding: 1px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface);
   color: var(--text-soft); cursor: pointer; }
 button.dl:hover { color: var(--accent); border-color: var(--accent); }
+
+/* --- changelog -------------------------------------------------------------------------------- */
+.cl-list { list-style: none; padding: 0; margin: 8px 0 0; }
+.cl-item { padding: 8px 10px; border-bottom: 1px solid var(--border); }
+.cl-item.cl-method { border-left: 3px solid var(--bad); background: var(--bad-soft); }
