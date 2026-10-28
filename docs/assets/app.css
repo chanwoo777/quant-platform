@@ -491,3 +491,14 @@ table.corr tbody th { background: var(--bg-soft); position: sticky; left: 0; }
 .m-entry dt { color: var(--text-faint); }
 .m-entry dd { margin: 0; color: var(--text-soft); }
 @media (max-width: 560px) { .m-entry dl { grid-template-columns: 1fr; } .m-entry dd { margin-bottom: 6px; } }
+
+/* --- data status, quality flags --------------------------------------------------------------- */
+.state { display: inline-block; font-size: 0.76rem; font-weight: 600; padding: 1px 8px; border-radius: 6px; white-space: nowrap; }
+.state.green { background: var(--good-soft); color: var(--good); }
+.state.amber { background: var(--warn-soft); color: var(--warn); }
+.state.red { background: var(--bad-soft); color: var(--bad); }
+.unavail { margin: 16px 0; padding: 12px 14px; border-left: 3px solid var(--bad); background: var(--bad-soft); border-radius: 0 var(--radius) var(--radius) 0; }
+.note.dq-note { border-left-color: var(--warn); background: var(--warn-soft); }
+a.dq { color: var(--warn); text-decoration: none; font-weight: 700; }
+.st-more summary { cursor: pointer; color: var(--text-faint); font-size: 0.8rem; }
+.st-more ul { margin: 4px 0 0; max-height: 220px; overflow: auto; }

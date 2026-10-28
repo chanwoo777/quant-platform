@@ -23,6 +23,12 @@ visitor's browser instead (docs/assets/live.js, dailyHistory). Files written to 
   research.json   factor exposures (FF3, Carhart, FF5), composite scores, strategy backtests
   quantum.json    the nightly quantum simulations (quant/web/quantum.py, run in a subprocess with
                   a timeout): the last good result, kept when a run fails
+  status.json     per source: last successful run, data date, rows, missing tickers, stale series,
+                  outliers and the quality checks (quant/web/status.py, quant/web/quality.py)
+
+Every step is fail-soft: a step that raises is logged, recorded in status.json and turns the sources it
+publishes red, and the other steps still run, so a missing input shows as a red status on the site
+rather than a half-written page.
 """
 
 from __future__ import annotations
@@ -152,7 +158,7 @@ def series(values, digits: int = 5) -> list:
 
 SCREENER_COLS = [
     "s", "n", "a", "m", "sec", "sig", "sc", "t", "mo", "v", "q", "r", "an", "co", "r1d", "r1w", "r1m", "r3m", "ytd",
-    "m121", "fpe", "tpe", "pb", "dy", "roe", "cap", "u", "z", "px", "cur", "rsi", "d200", "also", "why", "sp",
+    "m121", "fpe", "tpe", "pb", "dy", "roe", "cap", "u", "z", "px", "cur", "rsi", "d200", "also", "why", "sp", "dq",
 ]
 
 
@@ -180,7 +186,9 @@ def _spark(points) -> list[int] | None:
     return [50] * len(v) if hi == lo else [int(round(99 * (x - lo) / (hi - lo))) for x in v]
 
 
-def export_global(out: Path) -> dict:
+def export_global(out: Path, flags: dict[str, list[str]] | None = None) -> dict:
+    """flags: {symbol: [quality flag codes]} from quant.web.quality, published as "dq" so the site
+    marks every number that comes from a series that failed a check."""
     from quant.universe.prices import load as load_prices
     from quant.universe.scoring import BENCHMARKS, load_regimes, load_scores, price_metrics
 
@@ -200,7 +208,7 @@ def export_global(out: Path) -> dict:
             rnd(r.dividend_yield, 2), rnd(r.return_on_equity), rnd(None if pd.isna(r.market_cap_usd) else r.market_cap_usd / 1e9, 2),
             1 if bool(r.unusual) else 0, rnd(r.zscore_1d, 1), sig(r.last_close, 6), r.currency, rnd(r.rsi_14, 0),
             rnd(r.dist_200), None if pd.isna(r.also_listed) else r.also_listed,
-            public_reason(r.rationale, r.analysts), _spark(r.sparkline),
+            public_reason(r.rationale, r.analysts), _spark(r.sparkline), ",".join((flags or {}).get(r.symbol, [])) or None,
         ])
     size = write(out / "global.json", {
         "scored_at": pd.Timestamp(scores.scored_at.max()).isoformat(),
@@ -228,6 +236,7 @@ def export_global(out: Path) -> dict:
 
     # Per-symbol fundamentals and statistics (no prices), bucketed so a page loads ~1/256 of them.
     info = scores.drop_duplicates("symbol").set_index("symbol")
+    fetched = fundamentals_dates()
     buckets: dict[str, dict] = {}
     for sym in list(scores.symbol) + [i["s"] for i in indices]:
         entry: dict = {}
@@ -235,12 +244,32 @@ def export_global(out: Path) -> dict:
             row = info.loc[sym]
             fields = {k: clean(row[col]) for k, col in INFO_FIELDS.items() if col in row.index}
             entry["i"] = {k: v for k, v in fields.items() if v is not None}
+            if sym in fetched:
+                entry["i"]["fa"] = fetched[sym]  # the date Yahoo's fundamentals for it were read
+        if (flags or {}).get(sym):
+            entry.setdefault("i", {})["dq"] = ",".join(flags[sym])
         if entry:
             buckets.setdefault(bucket(sym), {})[sym] = entry
     for old in ("px", "sym"):
         shutil.rmtree(out / old, ignore_errors=True)
     sym_size = sum(write(out / "sym" / f"{b}.json", content) for b, content in buckets.items())
     return {"global": size, "sym": sym_size, "symbols": len(rows), "indices": len(indices)}
+
+
+def fundamentals_dates() -> dict[str, str]:
+    """{symbol: YYYY-MM-DD} of each symbol's last successful Yahoo fundamentals read (empty on failure)."""
+    try:
+        from sqlalchemy import select
+
+        from quant.db import init_db, session_scope
+        from quant.universe.models import InstrumentFundamentals as F
+
+        with session_scope(init_db()) as s:
+            rows = s.execute(select(F.symbol, F.fetched_at).where(F.error.is_(None))).all()
+        return {sym: f"{pd.Timestamp(ts):%Y-%m-%d}" for sym, ts in rows if ts is not None}
+    except Exception:
+        log.exception("fundamentals dates unavailable")
+        return {}
 
 
 def export_factors(out: Path) -> int:
@@ -484,35 +513,64 @@ def export_quantum(out: Path, keep: Path | None = None, timeout: int = QUANTUM_T
 
 def build(site_dir: Path | None = None, quantum: bool = True) -> dict:
     """Copy the site code from docs/ and write fresh data next to it. Returns sizes and timings.
-    quantum=False skips the simulations and republishes the last results."""
+    quantum=False skips the simulations and republishes the last results. Every step is fail-soft
+    (see the module docstring)."""
     logging.getLogger("streamlit").setLevel(logging.ERROR)
     from dashboard import common as c
     from quant.config import get_settings
+    from quant.web import status
 
-    site_dir = site_dir or get_settings().data_dir / "site"
+    data_dir = get_settings().data_dir
+    site_dir = site_dir or data_dir / "site"
     site_dir.mkdir(parents=True, exist_ok=True)
     for item in site_dir.iterdir():  # keep the publish repo (.git), replace everything else
         if item.name != ".git":
             shutil.rmtree(item) if item.is_dir() else item.unlink()
     shutil.copytree(SITE_SRC, site_dir, dirs_exist_ok=True)
     out = site_dir / "data"
-    stats, started = {}, time.perf_counter()
-    for name, fn in (("global", lambda: export_global(out)), ("factors", lambda: export_factors(out)),
-                     ("deep", lambda: export_deep(out, c)),
-                     ("market", lambda: export_market(out, c)), ("research", lambda: export_research(out, c)),
-                     ("quantum", lambda: export_quantum(out, run=quantum))):
+    out.mkdir(parents=True, exist_ok=True)
+    stats, steps, started = {}, {}, time.perf_counter()
+
+    def step(name, fn):
         t0 = time.perf_counter()
-        stats[name] = fn()
-        log.info("site %s exported in %.0fs", name, time.perf_counter() - t0)
-    ctx = c.context()
-    f_start, f_end = c.factor_dates()
-    news = c.headlines()
-    write(out / "meta.json", {
-        "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
-        "prices_as_of": f"{ctx.sessions[-1]:%Y-%m-%d}", "factors_as_of": f_end,
-        "latest_headline_et": f"{news.published_et.max():%Y-%m-%d %H:%M}" if len(news) else None,
-        "deep": stats["deep"]["tickers"], "buckets": BUCKETS,
-    })
+        try:
+            stats[name] = fn()
+            steps[name] = {"ok": True, "seconds": round(time.perf_counter() - t0, 1)}
+            log.info("site %s exported in %.0fs", name, time.perf_counter() - t0)
+        except Exception as exc:
+            log.exception("site %s export failed", name)
+            stats[name] = None
+            steps[name] = {"ok": False, "seconds": round(time.perf_counter() - t0, 1), "error": f"{type(exc).__name__}: {exc}"}
+        return stats[name]
+
+    ctx = step("context", c.context)
+    deep_tickers = list(ctx.universe.tickers) if ctx is not None else []
+    checks = step("checks", lambda: status.collect(data_dir, deep_tickers))
+    step("global", lambda: export_global(out, checks.flags if checks is not None else {}))
+    step("factors", lambda: export_factors(out))
+    step("deep", lambda: export_deep(out, c))
+    step("market", lambda: export_market(out, c))
+    step("research", lambda: export_research(out, c))
+    step("quantum", lambda: export_quantum(out, run=quantum))
+
+    def meta():
+        f_start, f_end = c.factor_dates()
+        news = c.headlines()
+        deep = (stats.get("deep") or {}).get("tickers") or [{"ticker": t, "name": t} for t in deep_tickers]
+        return write(out / "meta.json", {
+            "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+            "prices_as_of": f"{ctx.sessions[-1]:%Y-%m-%d}" if ctx is not None else None, "factors_as_of": f_end,
+            "latest_headline_et": f"{news.published_et.max():%Y-%m-%d %H:%M}" if len(news) else None,
+            "deep": deep, "buckets": BUCKETS,
+        })
+    step("meta", meta)
+
+    if checks is None:  # the source checks themselves failed: publish a status that says so
+        checks = status.Builder()
+        reason = steps["checks"].get("error") or steps["context"].get("error") or "the source checks failed"
+        checks.add("checks", "Source checks", "quant.web.status", 1, lambda: {"error": reason})
+    stats["status"] = write(out / "status.json", checks.to_dict(steps))
+    stats["failed_steps"] = [k for k, v in steps.items() if not v["ok"]]
     stats["seconds"] = round(time.perf_counter() - started)
     return stats
 
@@ -526,7 +584,10 @@ def main(argv: list[str] | None = None) -> int:
     for noisy in ("yfinance", "urllib3", "peewee", "httpx", "httpx2", "streamlit"):
         logging.getLogger(noisy).setLevel(logging.ERROR)
     stats = build(args.out, quantum=not args.no_quantum)
-    print(json.dumps({k: v for k, v in stats.items() if k != "deep"} | {"deep_bytes": stats["deep"]["deep"]}, indent=1))
+    summary = {k: v for k, v in stats.items() if k not in ("deep", "checks", "context")}
+    print(json.dumps(summary | {"deep_bytes": (stats.get("deep") or {}).get("deep")}, indent=1, default=str))
+    if stats["failed_steps"]:
+        log.error("export steps failed: %s (see status.json)", ", ".join(stats["failed_steps"]))
     return 0
 
 

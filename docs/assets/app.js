@@ -14,7 +14,7 @@ function load(path) {
     cache.set(path, fetch("data/" + path).then((r) => {
       if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
       return r.json();
-    }).catch((e) => { cache.delete(path); throw e; }));
+    }).catch((e) => { cache.delete(path); e.dataPath = path; throw e; }));  // dataPath: the page says which file is missing
   }
   return cache.get(path);
 }
@@ -90,6 +90,55 @@ function table(cols, rows, opts = {}) {
 }
 const link = (url, text = "Open") => (url ? `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(text)}</a>` : "–");
 const routeLink = (route, sym, text) => `<a href="#/${route}/${encodeURIComponent(sym)}">${text ?? `<b>${esc(sym)}</b>`}</a>`;
+
+// --- data status (status.json, written by the nightly job: quant/web/status.py) ---------------------
+/** Weekdays from an ISO date to today (UTC), like numpy.busday_count in status.py: 1 = yesterday's close.
+ * calendar: count every day (coins trade at weekends). */
+function ageDays(iso, calendar = false, now = new Date()) {
+  if (!iso) return null;
+  const a = Date.parse(String(iso).slice(0, 10) + "T00:00:00Z"), b = Date.parse(now.toISOString().slice(0, 10) + "T00:00:00Z");
+  if (!Number.isFinite(a)) return null;
+  if (calendar) return Math.max(0, Math.round((b - a) / 864e5));
+  let n = 0;
+  for (let t = a; t < b; t += 864e5) { const w = new Date(t).getUTCDay(); if (w !== 0 && w !== 6) n++; }
+  return n;
+}
+/** green, amber when older than expected, red beyond three times that (the same rule as status.py). */
+const ageState = (age, expect = 1) => (age === null || age === undefined ? "red" : age > 3 * expect ? "red" : age > expect ? "amber" : "green");
+const STATE_RANK = { green: 0, amber: 1, red: 2 };
+const worstState = (states) => states.reduce((w, s) => (STATE_RANK[s] > STATE_RANK[w] ? s : w), "green");
+const STATE_TEXT = { green: "fresh", amber: "older than expected", red: "missing or stale" };
+let statusDoc;  // status.json once loaded; null when it isn't published
+async function dataStatus() {
+  if (statusDoc === undefined) statusDoc = await load("status.json").catch(() => null);
+  return statusDoc;
+}
+/** A status.json source with its age and state recomputed for today: never better than the nightly state,
+ * so a site that stopped updating turns amber, then red, on its own. */
+function sourceState(id) {
+  const s = statusDoc && (statusDoc.sources || []).find((x) => x.id === id);
+  if (!s) return { id, label: id, provider: "", asOf: null, age: null, expect: 1, state: "red",
+    error: statusDoc ? `no "${id}" source in status.json` : "status.json is missing from this export" };
+  const age = ageDays(s.as_of, s.calendar);
+  return { id, label: s.label, provider: s.provider, asOf: s.as_of, age, expect: s.expect_days || 1, error: s.error,
+    state: worstState([s.state || "red", s.error ? "red" : "green", ageState(age, s.expect_days || 1)]) };
+}
+// Quality flags from the nightly checks (quant/web/quality.py), published per symbol as "dq".
+const DQ_LABEL = { duplicate: "repeated rows", gap: "3+ missing sessions", negative: "a close at or below zero", zero_volume: "zero volume on 5+ of 20 sessions",
+  unit_change: "a 20x one-day jump (a unit change?)", stale: "no price for 5+ sessions", outlier: "a move beyond 5 standard deviations (flagged for review)" };
+const dqCodes = (s) => (s ? String(s).split(",").filter(Boolean) : []);
+/** ⚠ next to a symbol whose series failed a check (outliers alone are only for review, so no mark). */
+function dqMark(dq) {
+  const codes = dqCodes(dq).filter((c) => c !== "outlier");
+  return codes.length ? ` <a class="dq" href="#/status" title="Data check failed: ${esc(codes.map((c) => DQ_LABEL[c] || c).join("; "))}. Numbers from this series may be wrong.">⚠</a>` : "";
+}
+function dqNote(dq) {
+  const codes = dqCodes(dq);
+  if (!codes.length) return "";
+  const review = codes.length === 1 && codes[0] === "outlier";
+  return `<div class="note ${review ? "" : "dq-note"}"><b>${review ? "Flagged for review" : "Data check failed"}:</b> tonight's checks found ${esc(codes.map((c) => DQ_LABEL[c] || c).join("; "))}
+    in this symbol's price series. ${review ? "The move may be real; it is listed for review." : "Scores and returns from it may be wrong."} <a href="#/status">Data status</a></div>`;
+}
 
 // --- theme and charts -----------------------------------------------------------------------------
 const PAL = {
@@ -413,7 +462,7 @@ function filtered() {
 const starCell = { h: "★", f: (r) => `<button class="star${inWatch(r.s) ? " on" : ""}" data-star="${esc(r.s)}" title="Add to or remove from your watchlist">${inWatch(r.s) ? "★" : "☆"}</button>` };
 const SCREEN_COLS = [
   starCell,
-  { h: "Symbol", sort: "s", f: (r) => `<b>${esc(r.s)}</b>` },
+  { h: "Symbol", sort: "s", f: (r) => `<b>${esc(r.s)}</b>${dqMark(r.dq)}` },
   { h: "Name", cls: "clip", f: (r) => esc(r.n) },
   { h: "Market", f: (r) => esc(r.m) },
   { h: "Sector", cls: "clip", f: (r) => esc(r.sec || { e: "ETF", c: "Crypto" }[r.a] || "–") },
@@ -934,6 +983,7 @@ async function viewStockUniverse(view, sym, row) {
     </div>
     <div class="chart-title">${esc(sym)} · daily${err ? "" : ` · ${esc(px.source)}, loaded in your browser`}</div>
     <div class="chart" id="u-chart" style="min-height:460px">${err ? `<div class="empty">${esc(err)}</div>` : ""}</div>
+    ${dqNote(row.dq)}
     ${row.why ? `<div class="note"><b>Why ${SIGNAL[row.sig] || ""}:</b> ${esc(row.why)} <span class="muted">${SIGNAL_NOTE}</span></div>` : ""}
     <div class="grid g2">
       <div><h2>Returns and risk ${mq("returns")}</h2>${table([{ h: "Measure", f: (x) => esc(x[0]) + (x[2] ? mq(x[2]) : "") }, { h: "Value", r: 1, f: (x) => x[1] }], [
@@ -1015,6 +1065,7 @@ async function viewFinancials(view, arg) {
       ${kpi("Momentum 12-1", pct(r.m121, 0), "", "", "momentum")}
       ${kpi("Volatility (60-day)", pct(info.vol, 0, false), "", "", "volatility")}
     </div>
+    ${dqNote(r.dq || info.dq)}
     <h2>Fundamentals</h2>${fundamentalsHtml(r, info)}
     <div class="grid g2">
       <div><h2>Analysts ${mq("pillars")}</h2>${analystHtml(r, sym)}<div id="fh-reco"></div></div>
@@ -1249,6 +1300,7 @@ function watchlistResearchHtml(research, model) {
 const ROUTES = { global: viewGlobal, markets: viewMarkets, stock: viewStock, financials: viewFinancials,
   compare: (view, arg) => viewCompare(view, arg),
   methodology: (view, arg) => (window.METHOD ? window.METHOD.view(view, arg) : (view.innerHTML = '<div class="empty">The Methodology page failed to load.</div>')),
+  status: (view, arg) => (window.TRUST ? window.TRUST.status(view, arg) : (view.innerHTML = '<div class="empty">The Data status page failed to load.</div>')),
   quantum: (view, arg) => (window.QUANTUM ? window.QUANTUM.view(view, arg) : (view.innerHTML = '<div class="empty">The Quantum page failed to load.</div>')),
   live: (view, arg) => (window.LIVE ? window.LIVE.view(view, arg) : (view.innerHTML = '<div class="empty">Live charts failed to load.</div>')) };
 const MOVED = { bot: "#/global" };  // retired routes: old links land somewhere useful
@@ -1262,6 +1314,7 @@ async function render() {
   const route = ROUTES[name] ? name : "global";
   if (cleanup) { try { cleanup(); } catch (e) { console.error(e); } cleanup = null; }
   closeDrawer();
+  await dataStatus();
   document.querySelectorAll("nav.tabs a[data-route]").forEach((a) => a.classList.toggle("on", a.dataset.route === route));
   const view = $("#view");
   view.innerHTML = '<div class="loading">Loading…</div>';
@@ -1269,8 +1322,11 @@ async function render() {
     await ROUTES[route](view, arg);
   } catch (e) {
     console.error(e);
-    view.innerHTML = `<h1>Data not available</h1><p class="soft">This page couldn't load its data (${esc(e.message)}).
-      The site is refreshed once a day; if this persists, the latest export may not have been published.</p>`;
+    view.innerHTML = `<h1>Data not available</h1>${e.dataPath
+      ? `<div class="unavail"><span class="state red">● missing</span> <code>data/${esc(e.dataPath)}</code> isn't in the published site (${esc(e.message)}),
+          so this page shows nothing rather than a partial chart. <a href="#/status">Data status</a> shows which nightly source or export step failed.</div>`
+      : `<p class="soft">This page couldn't load its data (${esc(e.message)}).</p>`}
+      <p class="soft">The site is refreshed once a day; if this persists, the latest export may not have been published.</p>`;
   }
 }
 
