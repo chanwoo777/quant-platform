@@ -685,12 +685,14 @@ python -m quant.scheduler --run-now --publish-site   # daily cycle, then publish
 
 | Page | What it does |
 |---|---|
-| **Global** | The screener (every stock ≥ $1B, liquid US ETF and top coin) with filters, per-symbol charts and signal reasons. ★ adds a name to your watchlist. |
+| **Global** | The screener (every stock ≥ $1B, liquid US ETF and top coin) with filters, per-symbol charts and signal reasons, plus a **sector heatmap** of the day's moves. ★ adds a name to your watchlist. |
+| **Compare** (`#/compare/<A,B,C>`) | 2-5 tickers side by side: returns, risk, factor exposures, fundamentals and a correlation heatmap. Details below. |
 | **Markets** | Regime and stance, the S&P 500 stance chart, FRED tiles and news. **Your watchlist**: search to add any stock, ETF, coin or index, ✕ to remove. It is saved in the browser (localStorage). |
 | **Stock** (`#/stock/<ticker>`) | Any of ~11,400 symbols: candlesticks with every indicator below, plus returns, risk and peer percentiles. Deep-tier names add news markers and explained moves. The chart loads about two years of daily bars in the browser (see *Price history* below). |
 | **Financials** (`#/financials/<ticker>`) | A research view for any ticker: fundamentals, the Analysts pillar (with Finnhub's recommendation trends when a key is set), a peer table, financial statements and the factor model. Statements come from SEC filings for the deep tier, or Finnhub's reported statements for US names when a key is set. |
 | **Quantum** (`#/quantum`) | A beginner's guide to quantum algorithms for investors: basics, a qubit lab, option pricing, VaR/CVaR and portfolio labs with classical baselines, a readiness scorecard and the nightly simulator run. Details below. |
-| **Live** (`#/live/<symbol>`) | The **Pro chart**: a TradingView-style chart drawn by the site, with every indicator and setting under your control. Details below. |
+| **Live** (`#/live/<symbol>`) | The **Pro chart**: a TradingView-style chart drawn by the site, with every indicator and setting under your control, and **price alerts**. Details below. |
+| **Methodology** (`#/methodology/<id>`) | How every score, signal and metric is calculated, from the code; every "?" on the dashboard links here. |
 
 The header search autocompletes over the whole universe. Pretty links such as
 `/quant-platform/stock/AAPL` also work: `404.html` turns them into the hash route.
@@ -779,6 +781,51 @@ Lightweight Charts v5, so indicators aren't limited the way an embedded widget i
 
   The earlier version embedded TradingView's widget for US stocks; it is no longer
   used.
+
+**Research tools.** Five tools added on top of the pages above. Each uses only the
+nightly export and the in-browser price history (see *Price history*); no new data
+sources.
+- *Compare* (`#/compare/AAPL,MSFT,NVDA`): 2-5 tickers side by side. The tickers
+  live in the URL, so a link shares the comparison. The table has a column per
+  ticker, best/worst highlighting per row and a CSV download.
+  - *Returns:* 1M, 3M, YTD, 1Y and 3Y annualised, plus a growth-of-100 chart.
+  - *Risk:* volatility, max drawdown, Sharpe and Sortino, and beta vs the S&P 500,
+    over a 1, 2 or 3-year window. The risk-free rate is FRED DGS3MO, daily.
+  - *Factors:* exposures to the chosen Fama-French model, with t-statistics and
+    R². The 3-year window uses weekly prices and weekly-compounded factors.
+  - *Fundamentals:* each cell is labelled with its source, SEC EDGAR for the deep
+    tier and Yahoo otherwise. Gross and operating margins show n/a: the pipeline
+    doesn't store them.
+- *Correlation heatmap:* Pearson correlation of daily returns (3M, 6M, 1Y) or
+  weekly returns (3Y). It can be ordered by average-linkage clustering on 1 −
+  correlation, or alphabetically, and shows the average pairwise correlation and
+  the most and least correlated pairs. One component (`drawCorrelationPanel`)
+  serves both Compare and the Quantum portfolio lab.
+- *Sector heatmap* (Global → Sector heatmap): a squarified treemap of the latest
+  nightly close's moves by sector. Tile size is market cap; colour is the
+  cap-weighted 1-day change. It drills down to each sector's largest 150 stocks.
+  The sector is the exported Yahoo sector field, which every stock has, so no SIC
+  mapping is needed. Missing values show as grey n/a tiles.
+- *Price alerts* (Live): price at or above or below a level, or a % move from the
+  previous close. They are saved in the browser and checked every 15 s while the
+  tab is open, on any page:
+  - *Stocks, ETFs and indices:* one batched CNBC quote request. Markets without a
+    quote, such as Korea, use CNBC's 1-day chart and can't check % alerts.
+  - *Coins:* Binance's trading-day ticker.
+
+  Each alert fires once, as a browser notification, or an in-page toast if
+  permission is denied. It can then be re-armed or deleted.
+- *Methodology* (`#/methodology/<id>`): 43 entries written from the code, each with
+  a description, the formula (MathML), inputs and sources, window, update
+  frequency, limitations, and the file and function. A "?" next to each dashboard
+  metric links to its entry.
+
+`tests/test_research_js.py` checks the maths under Node.js against numpy:
+- Sharpe, Sortino, beta, volatility, factor betas and R² against a hand
+  calculation;
+- the correlation matrix, symmetric with 1 on the diagonal;
+- clustering, the treemap layout and grouping with missing fields;
+- the alert conditions.
 
 **Quantum tab** (`#/quantum`). A beginner's guide to quantum algorithms and
 where they might help investors, with a classical baseline next to every quantum
@@ -900,7 +947,10 @@ PC; their inputs and results are published, not the prices.
   - `assets/quantum.js`: the Quantum page and its maths (state-vector simulator,
     option pricing, VaR, frontier, QUBO)
   - `assets/live.js`: the Pro chart (Lightweight Charts v5, Binance and Finnhub
-    WebSockets, CNBC polling, studies, drawings, shortcuts)
+    WebSockets, CNBC polling, studies, drawings, shortcuts), the in-browser price
+    history and price alerts
+  - `assets/research.js`: Compare and the shared correlation heatmap
+  - `assets/methodology.js`: the Methodology page
   - `assets/app.css`
 
   It is plain JavaScript, with Plotly and Lightweight Charts from jsDelivr and no
@@ -911,7 +961,8 @@ PC; their inputs and results are published, not the prices.
   - `meta`, `global` (the screener), `symbols` (search) and `indices`
   - `sym/<xx>`: fundamentals and statistics per symbol (no prices), in 256
     FNV-1a buckets
-  - `factors`, `market`, `deep/<T>`, `research` and `quantum`
+  - `factors`, `market` (with four years of daily DGS3MO for Compare's Sharpe),
+    `deep/<T>`, `research` and `quantum`
 
   The total is about 11 MB raw; GitHub Pages compresses it.
 - *Publishing:* `quant/web/publish.py` commits `data/site` as a fresh one-commit
