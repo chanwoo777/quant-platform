@@ -24,6 +24,8 @@ def test_csv_headers_use_the_same_words():
 
 def test_no_other_disclaimer_wording():
     for f in [*DOCS.glob("*.html"), *(DOCS / "assets").glob("*.js")]:
+        if f.name.startswith("i18n."):  # the dictionary translates the block itself, keyed by its English
+            continue
         text = BLOCK.sub("", f.read_text(encoding="utf-8"))
         text = re.sub(r'<meta [^>]*>', "", text).replace(f'const DISCLAIMER = "{TEXT}";', "")
         assert not re.search(r"investment advice", text, re.I), f.name

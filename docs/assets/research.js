@@ -179,7 +179,7 @@ async function viewCompare(view, arg) {
     }
     last = { items, ctx };
     const rows = compareRows(ctx);
-    const head = `<tr><th>Metric</th>${items.map((t) => `<th class="r">${starBtn(t.sym)}<a href="#/stock/${encodeURIComponent(t.sym)}">${esc(t.sym)}</a><div class="cmp-name">${esc(t.name)}</div></th>`).join("")}</tr>`;
+    const head = `<tr><th>Metric</th>${items.map((t) => `<th class="r">${starBtn(t.sym)}<a href="#/stock/${encodeURIComponent(t.sym)}">${esc(t.sym)}</a><div class="cmp-name" translate="no">${esc(t.name)}</div></th>`).join("")}</tr>`;
     let group = "";
     const body = rows.map(([g, label, , get, fmt, better, mid]) => {
       const vals = items.map((t) => get(t)), nums = vals.map(cellValue);

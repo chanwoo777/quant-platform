@@ -55,7 +55,7 @@
         { h: "Stale series", cls: "wrap-text", f: (s) => `${count(s.stale)}${examples((s.stale || {}).sample, item)}` },
         { h: "Outliers (review)", r: 1, f: (s) => count(s.outliers) },
         { h: "Check failures", r: 1, f: (s) => (s.checks ? failedChecks(s).toLocaleString() + (brokenChecks(s).length ? ` · ${brokenChecks(s).length} check errored` : "") : "–") },
-        { h: "Notes", cls: "wrap-text", f: (s) => [s.error ? `<span class="neg">${esc(s.error)}</span>` : "", esc(s.note || ""), s.file ? `<span class="muted">${esc(s.file)}</span>` : ""].filter(Boolean).join("<br>") },
+        { h: "Notes", cls: "wrap-text", f: (s) => [s.error ? `<span class="neg">${esc(s.error)}</span>` : "", esc(s.note || ""), s.file ? `<span class="muted" translate="no">${esc(s.file)}</span>` : ""].filter(Boolean).join("<br>") },
       ], sources)}
       <h2>Quality checks${sb}</h2>
       <p class="caption">Fail-soft checks on each price table (quant/web/quality.py). A failing series is never dropped silently: its symbol carries a ⚠ in the
@@ -90,7 +90,7 @@
     const box = $("#st-files", view);
     if (box) box.innerHTML = table([
       { h: "File", f: (r) => `<code>data/${esc(r.f)}</code>` }, { h: "State", f: (r) => (r.ok ? pill("green", "published") : pill("red", `missing (${r.code})`)) },
-      { h: "Size", r: 1, f: (r) => (r.size ? `${num(r.size / 1024, 0)} KB` : "–") }, { h: "Last modified", f: (r) => esc(r.modified || "–") },
+      { h: "Size", r: 1, f: (r) => (r.size ? `${num(r.size / 1024, 0)} KB` : "–") }, { h: "Last modified", f: (r) => raw(r.modified || "–") },
     ], rows);
   }
   const CHECK_NAME = { duplicates: "Duplicates", gaps: "Gaps (3+ missing sessions)", negative_prices: "Negative or zero prices",
@@ -138,7 +138,7 @@
       ${table([
         { h: "Signal date", f: (d) => esc(d.date) }, { h: "BUY", r: 1, f: (d) => num(d.buy, 0) }, { h: "HOLD", r: 1, f: (d) => num(d.hold, 0) },
         { h: "AVOID", r: 1, f: (d) => num(d.avoid, 0) }, { h: "Logged at", f: (d) => esc(String(d.logged_at || "").replace("T", " ").slice(0, 16)) },
-        { h: "SHA-256", f: (d) => `<code title="${esc(d.sha256)}">${esc(String(d.sha256).slice(0, 12))}…</code>` },
+        { h: "SHA-256", f: (d) => `<code translate="no" title="${esc(d.sha256)}">${esc(String(d.sha256).slice(0, 12))}…</code>` },
         { h: "Signals", f: (d) => ((t.published_days || []).includes(d.date) ? `<a href="data/track/signals_${esc(d.date)}.csv" download>CSV</a>` : "–") },
       ], [...(t.days || [])].reverse(), { tall: true, empty: "Nothing logged yet." })}`;
   }
@@ -152,9 +152,9 @@
     for (const e of entries) { const m = e.date.slice(0, 7); if (!months.length || months[months.length - 1][0] !== m) months.push([m, []]); months[months.length - 1][1].push(e); }
     const entry = (e) => `<li class="cl-item${e.methodology ? " cl-method" : ""}"><span class="badge ${e.type === "fix" ? "warn" : "info"}">${esc(e.type)}</span>
       ${e.methodology ? '<span class="badge bad" title="Changes how a number on the site is calculated">methodology</span>' : ""}
-      ${e.breaking ? '<span class="badge bad">breaking</span>' : ""}<b>${esc(e.title)}</b> <span class="muted">${esc(e.date)} ·
+      ${e.breaking ? '<span class="badge bad">breaking</span>' : ""}<b translate="no">${esc(e.title)}</b> <span class="muted">${esc(e.date)} ·
       <a href="${esc(e.url)}" target="_blank" rel="noopener"><code>${esc(e.short)}</code></a>${e.scope ? ` · ${esc(e.scope)}` : ""}</span>
-      ${e.body ? `<div class="soft">${esc(e.body)}</div>` : ""}${e.method_files && e.method_files.length ? `<div class="muted">Calculation files: ${e.method_files.map((f) => `<code>${esc(f)}</code>`).join(", ")}</div>` : ""}</li>`;
+      ${e.body ? `<div class="soft" translate="no">${esc(e.body)}</div>` : ""}${e.method_files && e.method_files.length ? `<div class="muted">Calculation files: ${e.method_files.map((f) => `<code>${esc(f)}</code>`).join(", ")}</div>` : ""}</li>`;
     view.innerHTML = `
       <h1>Changelog</h1>
       <p class="soft">Generated from the repository's commit messages: every commit tagged <code>feat:</code> or <code>fix:</code>
@@ -162,7 +162,7 @@
         marked <span class="badge bad">methodology</span>; read those with the <a href="#/methodology">Methodology</a> page. Untagged commits, mostly before this page existed,
         are in the <a href="${esc(c.repo)}/commits" target="_blank" rel="noopener">full history</a>.${c.stale_reason ? ` <span class="neg">Git wasn't available tonight; this is the last good changelog.</span>` : ""}</p>
       <div class="grid g3">${kpi("Entries", entries.length.toLocaleString(), "feat and fix commits")}${kpi("Methodology changes", method.length.toLocaleString(), "highlighted below")}
-        ${kpi("Latest", esc(entries.length ? entries[0].date : "–"), entries.length ? esc(entries[0].title).slice(0, 60) : "")}</div>
+        ${kpi("Latest", esc(entries.length ? entries[0].date : "–"), entries.length ? raw(entries[0].title.slice(0, 60)) : "")}</div>
       ${method.length ? `<h2>Methodology changes${badge}</h2><ul class="cl-list">${method.map(entry).join("")}</ul>` : ""}
       <h2>All changes${badge}</h2>
       ${months.length ? months.map(([m, list]) => `<h3>${esc(m)}</h3><ul class="cl-list">${list.map(entry).join("")}</ul>`).join("") : '<div class="empty">No tagged commits yet.</div>'}`;

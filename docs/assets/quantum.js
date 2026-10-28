@@ -677,7 +677,7 @@
       shareLab("options", { sym: O.sym, days: O.days, kind: O.kind, win: O.win, n: O.n });
       chipsOn("op-win", O.win); chipsOn("op-days", O.days); chipsOn("op-kind", O.kind);
       $("#op-n", sec).value = String(O.n);
-      $("#op-sym", sec).innerHTML = `${esc(O.sym)}${name ? ` <span class="soft">${esc(name)}</span>` : ""}`;
+      $("#op-sym", sec).innerHTML = `${esc(O.sym)}${name ? ` <span class="soft" translate="no">${esc(name)}</span>` : ""}`;
       const S = data.values[data.values.length - 1], vol = annualVol(data.values, O.win), T = O.days / 365, r = rf.r;
       if (!isNum(O.strike) || O.strike <= 0) O.strike = Math.round(S * 100) / 100;
       $("#op-k", sec).value = O.strike.toFixed(2);

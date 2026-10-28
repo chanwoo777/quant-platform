@@ -283,7 +283,7 @@
     el.innerHTML = `
       <div class="pc" id="pc">
         <div class="pc-head">
-          <div class="pc-title"><h1>${esc(r.sym)}</h1>${starBtn(r.row ? r.row.s : r.sym)}<span class="soft">${esc(r.name || "")}</span>
+          <div class="pc-title"><h1>${esc(r.sym)}</h1>${starBtn(r.row ? r.row.s : r.sym)}<span class="soft" translate="no">${esc(r.name || "")}</span>
             <span class="ticker-price" id="pc-price">–</span><span id="pc-change"></span>
             <span class="status wait" id="pc-status"><i></i><span>Loading…</span></span><span id="pc-fresh"></span></div>
           <div class="pc-links">${r.row ? `<a href="#/stock/${encodeURIComponent(r.sym)}">Stock page</a> · <a href="#/financials/${encodeURIComponent(r.sym)}">Research</a> · ` : ""}
@@ -628,7 +628,7 @@
       drawAll();
     }
     el.querySelectorAll(".pc-tool").forEach((b) => b.addEventListener("click", () => {
-      if (b.dataset.tool === "clear") { if (drawings.length && confirm(`Remove all ${drawings.length} drawings on ${r.sym}?`)) { drawings = []; selected = null; saveDrawings(); drawAll(); } return; }
+      if (b.dataset.tool === "clear") { if (drawings.length && confirm(tr(`Remove all ${drawings.length} drawings on ${r.sym}?`))) { drawings = []; selected = null; saveDrawings(); drawAll(); } return; }
       setTool(b.dataset.tool);
     }));
     // Drawing clicks come from pointer events on the stage, not the chart's click event: the chart

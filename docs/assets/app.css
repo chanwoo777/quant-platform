@@ -565,3 +565,7 @@ button.dl:hover { color: var(--accent); border-color: var(--accent); }
 .brief-pick { margin-left: auto; font-size: 0.82rem; color: var(--text-soft); }
 .brief-list { margin: 10px 0 4px; padding-left: 20px; }
 .brief-list li { margin: 4px 0; }
+
+/* --- language toggle ------------------------------------------------------------------------- */
+.icon-btn.lang-btn { width: auto; padding: 0 9px; font-size: 0.78rem; font-weight: 600; white-space: nowrap; }
+.i18n-missing { position: fixed; right: 8px; bottom: 8px; max-width: 46vw; max-height: 40vh; overflow: auto; z-index: 80; font-size: 11px; background: var(--surface); border: 1px solid var(--bad); padding: 8px; }

@@ -88,7 +88,9 @@ function table(cols, rows, opts = {}) {
     `<td class="${c.r ? "r" : ""}${c.cls ? " " + c.cls : ""}"${c.style ? ` style="${c.style(r)}"` : ""}>${c.f(r)}</td>`).join("")}</tr>`).join("");
   return `<div class="table-wrap${opts.tall ? " tall" : ""}"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
-const link = (url, text = "Open") => (url ? `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(text)}</a>` : "–");
+const link = (url, text = "Open", data = false) => (url ? `<a href="${esc(url)}" target="_blank" rel="noopener"${data ? ' translate="no"' : ""}>${esc(text)}</a>` : "–");
+/** Data shown as is in every language (company names, headlines): the page translator skips it. */
+const raw = (s) => `<span translate="no">${esc(s ?? "")}</span>`;
 const routeLink = (route, sym, text) => `<a href="#/${route}/${encodeURIComponent(sym)}">${text ?? `<b>${esc(sym)}</b>`}</a>`;
 
 // --- data status (status.json, written by the nightly job: quant/web/status.py) ---------------------
@@ -141,11 +143,12 @@ function fresh(...parts) {
   const infos = parts.flat().filter(Boolean).map((p) => (typeof p === "string" ? sourceState(p) : partState(p)));
   if (!infos.length) return "";
   const state = worstState(infos.map((i) => i.state)), oldest = infos.map((i) => i.asOf).filter(Boolean).sort()[0];
-  const names = [...new Set(infos.map((i) => i.provider || i.label))].join(" + ");
+  const names = [...new Set(infos.map((i) => tr(i.provider || i.label)))].join(" + ");
   const src = infos.map((i) => `${i.label}${i.provider && i.provider !== i.label ? ` (${i.provider})` : ""}, ${i.asOf ? `as of ${i.asOf}` : "no date"}`).join("; ");
-  const tip = infos.map((i) => `${i.label}${i.provider && i.provider !== i.label ? ` · ${i.provider}` : ""}: ${i.asOf
-    ? `as of ${i.asOf}, ${i.age} ${i.calendar ? "days" : "weekdays"} old (expected ≤ ${i.expect})` : "no data"} · ${STATE_TEXT[i.state]}${i.error ? ` · ${i.error}` : ""}`).join("\n");
-  return ` <a class="fresh ${state}" href="#/status" data-src="${esc(src)}" data-asof="${esc(oldest || "")}" title="${esc(tip + "\nData status →")}"><i></i>${esc(names)} · ${oldest ? esc(oldest) : "missing"}</a>`;
+  const tip = infos.map((i) => `${tr(i.label)}${i.provider && i.provider !== i.label ? ` · ${tr(i.provider)}` : ""}: ${i.asOf
+    ? tr(`as of ${i.asOf}, ${i.age} ${i.calendar ? "days" : "weekdays"} old (expected ≤ ${i.expect})`) : tr("no data")} · ${tr(STATE_TEXT[i.state])}${i.error ? ` · ${tr(i.error)}` : ""}`).join("\n");
+  // Translated here, so the page translator leaves the badge alone (translate="no"); data-src stays English for CSV headers.
+  return ` <a class="fresh ${state}" href="#/status" translate="no" data-src="${esc(src)}" data-asof="${esc(oldest || "")}" title="${esc(tip + "\n" + tr("Data status →"))}"><i></i>${esc(names)} · ${oldest ? esc(I18N.localToken(oldest)) : esc(tr("missing"))}</a>`;
 }
 // Each route's default source, given to any panel heading the view didn't label itself (null: no data panels).
 const PAGE_SOURCES = { global: ["scores"], markets: ["deep-prices"], stock: ["scores"], financials: ["yahoo-fundamentals"], compare: ["scores"],
@@ -346,6 +349,7 @@ function plot(el, traces, lay) {
   if (!el) return;
   if (!window.Plotly) { el.innerHTML = '<div class="empty">Charts are loading… (needs cdn.jsdelivr.net)</div>'; return; }
   if (!el.classList.contains("js-plotly-plot")) el.innerHTML = "";  // drop any "Loading…" placeholder
+  [traces, lay] = I18N.plotly(traces, lay);  // trace names and axis titles in the visitor's language
   Plotly.react(el, traces, lay, { displaylogo: false, responsive: true, modeBarButtonsToRemove: ["lasso2d", "select2d"] });
   if (el.parentElement) addDownloads(el.parentElement);  // the CSV button (chart redraws don't reach the panel observer)
 }
@@ -557,7 +561,7 @@ function bindSearch(root, onPick) {
   const close = () => { box.hidden = true; input.setAttribute("aria-expanded", "false"); };
   const draw = () => {
     box.innerHTML = items.length ? items.map((s, i) => `<div class="opt${i === active ? " on" : ""}" role="option" data-i="${i}">
-        <b>${esc(s[0])}</b><span>${esc(s[1] || "")}</span><em>${esc(CLASS_NAME[s[2]] || s[2])} · ${esc(s[3])}</em></div>`).join("")
+        <b>${esc(s[0])}</b>${raw(s[1] || "")}<em>${esc(CLASS_NAME[s[2]] || s[2])} · ${esc(s[3])}</em></div>`).join("")
       : `<div class="none">Not in the universe. Press Enter to look it up anyway.</div>`;
     box.hidden = false; input.setAttribute("aria-expanded", "true");
   };
@@ -706,7 +710,7 @@ function drawBrief(el, doc) {
     <div class="brief-head"><h2>Daily brief · ${esc(pick.date)}${fresh({ provider: "Nightly brief", label: "Daily brief", asOf: latest ? pick.date : doc.briefs[0].date })}</h2>
       <label class="brief-pick">Archive <select id="brief-date">${doc.briefs.map((b) => `<option value="${esc(b.date)}"${b === pick ? " selected" : ""}>${esc(b.date)}${b === doc.briefs[0] ? " (latest)" : ""}</option>`).join("")}</select></label></div>
     ${latest ? "" : `<p class="note">An archived brief, written on the night of ${esc(pick.date)}. <a href="#" id="brief-latest">Back to the latest</a></p>`}
-    <ul class="brief-list">${pick.items.map((it) => `<li data-kind="${esc(it.kind)}">${esc(it.en)}</li>`).join("")}</ul>
+    <ul class="brief-list" translate="no">${pick.items.map((it) => `<li data-kind="${esc(it.kind)}">${esc(I18N.lang === "ko" && it.ko ? it.ko : it.en)}</li>`).join("")}</ul>
     <p class="caption">Written by rules from the nightly data, not by AI: the largest moves among stocks worth $10B or more, the best and worst sector (cap-weighted),
       factor ETFs against SPY, the VIX and Treasury yields. Prices as of the close of ${esc(pick.date)}. ${SIGNAL_NOTE}</p></div>`;
   $("#brief-date", el).addEventListener("change", (e) => { G.brief = e.target.value === doc.briefs[0].date ? "" : e.target.value; globalToUrl(); drawBrief(el, doc); });
@@ -731,7 +735,7 @@ const starCell = { h: "★", f: (r) => starBtn(r.s) };
 const SCREEN_COLS = [
   starCell,
   { h: "Symbol", sort: "s", f: (r) => `<b>${esc(r.s)}</b>${dqMark(r.dq)}` },
-  { h: "Name", cls: "clip", f: (r) => esc(r.n) },
+  { h: "Name", cls: "clip", f: (r) => raw(r.n) },
   { h: "Market", f: (r) => esc(r.m) },
   { h: "Sector", cls: "clip", f: (r) => esc(r.sec || { e: "ETF", c: "Crypto" }[r.a] || "–") },
   { h: "Signal", q: "signal", f: (r) => `<span class="sig-${esc(r.sig)}">${SIGNAL[r.sig] || "–"}</span>` },
@@ -767,15 +771,15 @@ function drawSectorMap(body, rows) {
   if (!GS.sector) {
     const groups = Q.groupMoves(stocks, "sec");
     const byCap = groups.length && groups.every((t) => ok(t.cap) && t.cap > 0);
-    tiles = groups.map((t) => ({ label: t.key, sub: `${t.n.toLocaleString()} stocks`, size: byCap ? t.cap : 1, change: t.change, sector: t.key,
-      tip: `${t.key}: ${ok(t.change) ? pct(t.change, 2) : "n/a"} (cap-weighted) · ${t.n} stocks · ${ok(t.cap) ? money(t.cap * 1e9) : "cap n/a"}${t.missing ? ` · ${t.missing} without a 1-day change` : ""}` }));
+    tiles = groups.map((t) => ({ label: tr(t.key), sub: tr(`${t.n.toLocaleString()} stocks`), size: byCap ? t.cap : 1, change: t.change, sector: t.key,
+      tip: `${tr(t.key)}: ${tr(`${ok(t.change) ? pct(t.change, 2) : "n/a"} (cap-weighted) · ${t.n} stocks · ${ok(t.cap) ? money(t.cap * 1e9) : "cap n/a"}${t.missing ? ` · ${t.missing} without a 1-day change` : ""}`)}` }));
     scale = 0.03;
     crumb = `<b>All sectors</b> · ${stocks.length.toLocaleString()} stocks${byCap ? "" : " (equal-sized: market caps missing)"}. Click a sector for its stocks.`;
   } else {
     const members = stocks.filter((r) => r.sec === GS.sector).sort((a, b) => (b.cap || 0) - (a.cap || 0)), shown = members.slice(0, 150);
     const caps = shown.map((r) => r.cap).filter((c) => ok(c) && c > 0).sort((a, b) => a - b), median = caps.length ? caps[Math.floor(caps.length / 2)] : 1;
     tiles = shown.map((r) => ({ label: r.s, sub: r.n || "", size: ok(r.cap) && r.cap > 0 ? r.cap : median, change: r.r1d, row: r,
-      tip: `${r.s} · ${r.n || ""}: ${ok(r.r1d) ? pct(r.r1d, 2) : "n/a"} · ${ok(r.cap) ? money(r.cap * 1e9) : "cap n/a"} · ${r.m}` }));
+      tip: `${r.s} · ${r.n || ""}: ${ok(r.r1d) ? pct(r.r1d, 2) : "n/a"} · ${ok(r.cap) ? I18N.localToken(money(r.cap * 1e9)) : tr("cap n/a")} · ${tr(r.m)}` }));
     scale = 0.05;
     crumb = `<button type="button" class="btn q-small" id="sm-back">← All sectors</button> <b>${esc(GS.sector)}</b> · ${members.length.toLocaleString()} stocks${members.length > shown.length ? `, the largest ${shown.length} shown` : ""}. Click a stock for its details.`;
   }
@@ -784,7 +788,7 @@ function drawSectorMap(body, rows) {
   const cell = (r) => {
     const t = tiles[r.i], col = moveColor(t.change, scale), area = r.w * r.h;
     const big = area > 9000 && r.w > 70, mid = area > 2500 && r.w > 44;
-    return `<button type="button" class="sm-tile" data-i="${r.i}" title="${esc(t.tip)}" style="left:${(100 * r.x) / W}%;top:${(100 * r.y) / H}%;width:${(100 * r.w) / W}%;height:${(100 * r.h) / H}%;background:${col.bg};color:${col.fg}">
+    return `<button type="button" class="sm-tile" data-i="${r.i}" translate="no" title="${esc(t.tip)}" style="left:${(100 * r.x) / W}%;top:${(100 * r.y) / H}%;width:${(100 * r.w) / W}%;height:${(100 * r.h) / H}%;background:${col.bg};color:${col.fg}">
       ${mid ? `<b>${esc(t.label)}</b><span>${ok(t.change) ? pct(t.change, GS.sector ? 1 : 2) : "n/a"}</span>${big ? `<em>${esc(t.sub)}</em>` : ""}` : ""}</button>`;
   };
   body.innerHTML = `
@@ -866,8 +870,8 @@ async function openDetail(r, span = "1Y") {
   const pill = (label, v) => `<div class="card kpi"><div class="label">${label}${mq(label === "Score" ? "composite" : label.startsWith("RSI") ? "rsi" : "pillars")}</div>
     <div class="value">${ok(v) ? v.toFixed(0) : "–"}</div></div>`;
   drawer.innerHTML = `
-    <div class="head"><div><h2>${esc(r.s)} · ${esc(r.n || "")}</h2>
-      <div class="caption">${esc(r.m)} · ${esc(r.sec || { e: "ETF", c: "Crypto" }[r.a] || "")}${r.also ? ` · also listed: ${esc(r.also)}` : ""} · last ${num(r.px, 2)} ${esc(r.cur || "")}</div></div>
+    <div class="head"><div><h2>${esc(r.s)} · ${raw(r.n || "")}</h2>
+      <div class="caption"><span>${esc(r.m)}</span> · <span>${esc(r.sec || { e: "ETF", c: "Crypto" }[r.a] || "")}</span>${r.also ? ` · <span>also listed:</span> ${raw(r.also)}` : ""} · <span>last</span> ${num(r.px, 2)} ${raw(r.cur || "")}</div></div>
       <button class="btn close" id="d-close">Close ✕</button></div>
     <p><span class="badge ${r.sig === "BUY" ? "good" : r.sig === "AVOID" ? "bad" : ""}">${SIGNAL[r.sig] || "–"}</span>
       <span class="soft">${esc(r.why || "")}</span></p><p class="caption">${SIGNAL_NOTE}</p>
@@ -1076,14 +1080,14 @@ async function viewMarkets(view) {
     $("#m-news").innerHTML = table([
       { h: "Time (ET)", f: (n) => esc(n.t.slice(5)) },
       { h: "Ticker", f: (n) => (n.ticker ? routeLink("stock", n.ticker) : "Market") },
-      { h: "Headline", cls: "wrap-text", f: (n) => link(n.url, n.title) },
-      { h: "Source", cls: "clip", f: (n) => esc(n.src || "") },
+      { h: "Headline", cls: "wrap-text", f: (n) => link(n.url, n.title, true) },
+      { h: "Source", cls: "clip", f: (n) => raw(n.src || "") },
       { h: "Tone", f: (n) => toneMark[n.tone] || "–" },
       { h: "FinBERT", r: 1, f: (n) => num(n.score, 2, true) },
     ], news, { tall: true, empty: "No headlines." });
   };
   bindSearch($("#w-add", view), async (sym) => {
-    if (!(await rowFor(sym))) { alert(`${sym} isn't in the platform's universe, so there is no data to show for it.`); return; }
+    if (!(await rowFor(sym))) { alert(tr(`${sym} isn't in the platform's universe, so there is no data to show for it.`)); return; }
     setWatchlist([...(await watchlist()), sym]); drawWatchlist();
   });
   $("#w-reset", view).addEventListener("click", async () => {
@@ -1105,7 +1109,7 @@ async function drawWatchlist() {
   if (!el) return;
   el.innerHTML = table([
     { h: "Symbol", f: (r) => routeLink("stock", r.s) },
-    { h: "Name", cls: "clip", f: (r) => esc(r.n || "") },
+    { h: "Name", cls: "clip", f: (r) => raw(r.n || "") },
     { h: "Class", f: (r) => esc(CLASS_NAME[r.a] || "–") },
     { h: "Last", r: 1, f: (r) => num(r.px, r.px >= 1000 ? 0 : 2) },
     { h: "1D", r: 1, f: (r) => signed(r.r1d, 1) },
@@ -1128,9 +1132,12 @@ async function drawWatchlist() {
 // ====================================================================================================
 const S = { span: new Set(["6M"]), layers: new Set(["News", "Unusual moves"]) };
 
+/** "Market · sector · industry · exchange · currency": market and sector are translated, the rest is data. */
+const assetSub = (r, info) => [...[r.m, r.sec || CLASS_NAME[r.a]].filter(Boolean).map((s) => `<span>${esc(s)}</span>`),
+  ...[info.ind, info.ex, r.cur].filter(Boolean).map(raw)].join(" · ");
 function assetHeader(sym, name, sub, route) {
   return `
-    <div class="asset-head"><h1>${esc(sym)}</h1><span class="soft">${esc(name || "")}</span></div>
+    <div class="asset-head"><h1>${esc(sym)}</h1><span class="soft" translate="no">${esc(name || "")}</span></div>
     <p class="caption">${sub}</p>
     <div class="asset-actions">
       <div style="width:min(320px,100%)" id="asset-search">${searchBox(route === "financials" ? "Research another ticker" : "Open another ticker")}</div>
@@ -1176,7 +1183,7 @@ async function viewStockDeep(view, ticker) {
   const spread = snap.sma_200 ? snap.sma_50 / snap.sma_200 - 1 : null;
   const rsi = snap.rsi_14;
   view.innerHTML = `
-    ${assetHeader(ticker, d.name, `${esc(d.sic || "")}${d.exchange ? " · " + esc(d.exchange) : ""} · deep tier: candlesticks, news and explained moves`, "stock")}
+    ${assetHeader(ticker, d.name, `${raw(d.sic || "")}${d.exchange ? " · " + raw(d.exchange) : ""} · <span>deep tier: candlesticks, news and explained moves</span>`, "stock")}
     <div class="controls">
       <div class="control"><span class="label">Range</span>${chips("span", ["3M", "6M", "1Y", "All"].map((s) => [s, s]), S.span, false)}</div>
       <div class="control"><span class="label">Annotations</span>${chips("layers", ["News", "Unusual moves"].map((s) => [s, s]), S.layers)}</div>
@@ -1205,8 +1212,8 @@ async function viewStockDeep(view, ticker) {
       ], [...d.moves].reverse(), { tall: true, empty: "No unusual moves in the last three years." })}</div>
       <div><h2>Headlines ${mq("news-sentiment")}${fresh("news")}</h2>${table([
         { h: "Time (ET)", f: (h) => esc(h.t.slice(5)) },
-        { h: "Headline", cls: "wrap-text", f: (h) => link(h.url, h.title) },
-        { h: "Source", cls: "clip", f: (h) => esc(h.src || "") },
+        { h: "Headline", cls: "wrap-text", f: (h) => link(h.url, h.title, true) },
+        { h: "Source", cls: "clip", f: (h) => raw(h.src || "") },
         { h: "Tone", f: (h) => toneMark[h.tone] || "–" },
         { h: "FinBERT", r: 1, f: (h) => num(h.score, 2, true) },
         { h: "1h reaction", r: 1, f: (h) => pct(h.react, 2) },
@@ -1262,7 +1269,7 @@ async function viewStockUniverse(view, sym, row) {
   const ma50 = Q.sma(vals, 50), ma200 = Q.sma(vals, 200), rsi = Q.rsi(vals, 14);
   const last = n ? vals[n - 1] : null, chg = n > 1 ? vals[n - 1] / vals[n - 2] - 1 : null;
   const spread = n && ma200[n - 1] ? ma50[n - 1] / ma200[n - 1] - 1 : null;
-  const sub = [row.m, row.sec || CLASS_NAME[row.a], info.ind, info.ex, row.cur].filter(Boolean).map(esc).join(" · ");
+  const sub = assetSub(row, info);
   view.innerHTML = `
     ${assetHeader(sym, row.n, sub, "stock")}
     <div class="controls">
@@ -1279,7 +1286,7 @@ async function viewStockUniverse(view, sym, row) {
     <div class="chart-title">${esc(sym)} · daily${err ? "" : ` · ${esc(px.source)}, loaded in your browser`}${fresh(pxSrc(px))}</div>
     <div class="chart" id="u-chart" style="min-height:460px">${err ? `<div class="empty">${esc(err)}</div>` : ""}</div>
     ${dqNote(row.dq)}
-    ${row.why ? `<div class="note"><b>Why ${SIGNAL[row.sig] || ""}:</b> ${esc(row.why)} <span class="muted">${SIGNAL_NOTE}</span></div>` : ""}
+    ${row.why ? `<div class="note"><b>Why ${SIGNAL[row.sig] || ""}:</b> <span>${esc(row.why)}</span> <span class="muted">${SIGNAL_NOTE}</span></div>` : ""}
     <div class="grid g2">
       <div><h2>Returns and risk ${mq("returns")}${fresh("scores", "yahoo-prices")}</h2>${table([{ h: "Measure", f: (x) => esc(x[0]) + (x[2] ? mq(x[2]) : "") }, { h: "Value", r: 1, f: (x) => x[1] }], [
         ["1 day", signed(row.r1d, 2)], ["1 week", signed(row.r1w, 2)], ["1 month", signed(row.r1m, 1)], ["3 months", signed(row.r3m, 1)],
@@ -1350,7 +1357,7 @@ async function viewFinancials(view, arg) {
   const d = deep ? await load(`deep/${sym.replace("^", "_")}.json`) : null;
   const info = (sd && sd.info) || {}, r = row || {};
   const name = (d && d.name) || r.n || sym;
-  const sub = [r.m, r.sec || CLASS_NAME[r.a], info.ind, info.ex, r.cur].filter(Boolean).map(esc).join(" · ");
+  const sub = assetSub(r, info);
   const model = [...F.model][0];
 
   view.innerHTML = `
@@ -1441,11 +1448,11 @@ async function peersHtml(sym, r) {
   if (!top.some((x) => x.s === sym)) top.push(r);
   const med = (k) => { const v = peers.map((x) => x[k]).filter(ok).sort((a, b) => a - b); return v.length ? v[Math.floor(v.length / 2)] : null; };
   return table([
-    { h: "★", f: (x) => starBtn(x.s) }, { h: "Symbol", f: (x) => routeLink("financials", x.s) }, { h: "Name", cls: "clip", f: (x) => esc(x.n || "") },
+    { h: "★", f: (x) => starBtn(x.s) }, { h: "Symbol", f: (x) => routeLink("financials", x.s) }, { h: "Name", cls: "clip", f: (x) => raw(x.n || "") },
     { h: "Mkt cap $B", r: 1, f: (x) => num(x.cap, x.cap >= 100 ? 0 : 1) }, { h: "Fwd P/E", r: 1, f: (x) => num(x.fpe, 1) },
     { h: "ROE", r: 1, f: (x) => pct(x.roe, 0, false) }, { h: "YTD", r: 1, f: (x) => signed(x.ytd, 0) }, { h: "Score", f: (x) => bar(x.sc) },
   ], top, { rowClass: (x) => (x.s === sym ? "me" : "") }) +
-    `<p class="caption">${peers.length} peers in ${esc(r.m)}${r.a === "s" ? " · " + esc(r.sec || "") : ""}, largest first. Peer medians: forward P/E ${num(med("fpe"), 1)}, ROE ${pct(med("roe"), 0, false)}, YTD ${pct(med("ytd"), 0)}.</p>`;
+    `<p class="caption">${peers.length} peers in <span>${esc(r.m)}</span>${r.a === "s" ? " · <span>" + esc(r.sec || "") + "</span>" : ""}, largest first. Peer medians: forward P/E ${num(med("fpe"), 1)}, ROE ${pct(med("roe"), 0, false)}, YTD ${pct(med("ytd"), 0)}.</p>`;
 }
 
 function secHtml(d) {
@@ -1548,7 +1555,7 @@ async function drawFactorModel(sym, r, model) {
     <div class="grid g6">${kpi("Alpha / year", pct(e.alpha_annual), `t = ${num(e.alpha_t, 1)}${Math.abs(e.alpha_t) >= 2 ? " · significant" : ""}`, "Return not explained by the factors")}
       ${cols.map((f) => kpi(FACTOR[f], num(e.betas[f], 2), `t = ${num(e.t_stats[f], 1)}${Math.abs(e.t_stats[f]) >= 2 ? " · significant" : ""}`)).join("")}
       ${kpi("R²", num(e.r_squared, 2), `driven by ${esc(e.dominant_driver)}`)}</div>
-    ${e.tilts.length ? `<p><b>Reading:</b> ${esc(e.tilts.join(", "))}.</p>` : ""}
+    ${e.tilts.length ? `<p><b>Reading:</b> <span translate="no">${esc(e.tilts.map((x) => tr(x)).join(", "))}</span>.</p>` : ""}
     <div class="grid g2">
       <div><div class="chart-title">Factor loadings with 95% confidence intervals${fb}</div><div class="chart" id="f-coef"></div></div>
       <div><div class="chart-title">Where the annual return came from${fb}</div><div class="chart" id="f-waterfall"></div>
@@ -1583,7 +1590,7 @@ function watchlistResearchHtml(research, model) {
       ...cols.map((f) => ({ h: FACTOR[f], r: 1, f: (x) => num(x.betas[f], 2) })),
       { h: "R²", r: 1, f: (x) => num(x.r_squared, 2) },
       { h: "Stock-specific variance", f: (x) => bar(100 * (x.variance_share?.idiosyncratic ?? NaN)) },
-      { h: "Tilts", cls: "wrap-text", f: (x) => esc((x.tilts || []).join(", ")) },
+      { h: "Tilts", cls: "wrap-text", f: (x) => raw((x.tilts || []).map((y) => tr(y)).join(", ")) },
     ], exps)}
     <h3 style="margin-top:18px">Composite factor scores ${mq("deep-scores")}${fresh("deep-prices", "sec")}</h3>
     <p class="caption">Each metric is ranked across the deep tier (0 = worst, 100 = best) and averaged into pillars: Value (E/P, FCF/P, B/M, S/P),
@@ -1683,7 +1690,7 @@ async function copyLink() {
 function toast(text) {
   let t = $("#toast");
   if (!t) { t = Object.assign(document.createElement("div"), { id: "toast", className: "toast" }); t.setAttribute("role", "status"); document.body.appendChild(t); }
-  t.textContent = text; t.classList.add("show");
+  t.textContent = tr(text); t.classList.add("show");
   clearTimeout(t.timer); t.timer = setTimeout(() => t.classList.remove("show"), 3200);
 }
 

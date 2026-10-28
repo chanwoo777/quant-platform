@@ -989,6 +989,45 @@ mechanical labels from ranking past data against peers, and the site says so nex
 to them: they are not recommendations. To take the site down, disable Pages in the
 repository settings or delete the `gh-pages` branch.
 
+## Using the site with others
+
+- **Start here** (`#/start`) is where a first visit lands. It has three one-click examples:
+  Samsung against its big-tech peers on Compare, a basket in the VaR / CVaR lab, and an
+  option priced classically and by the nightly quantum run.
+- **Shareable links.** Every page writes what it shows after the route, for example
+  `#/global?sig=BUY&mkt=US&sort=r1m&page=2` or `#/quantum/risk?syms=AAPL,TSM&w=50,50`.
+  - The 🔗 button copies that link, and it opens the same view in a fresh browser.
+  - Links unfurl in KakaoTalk, Slack and Discord with a preview card
+    (`docs/assets/og-preview.png`).
+- **Daily brief** (Global). Each night `quant/web/brief.py` writes a few sentences by rule, not AI,
+  in English and Korean. It covers:
+  - the largest moves among stocks worth $10B or more;
+  - the best and worst sector;
+  - factor ETFs against SPY;
+  - the VIX;
+  - Treasury yields.
+
+  The last 30 briefs are a click away.
+- **Watchlist.** ☆ next to any ticker adds it. The list is kept in your browser and shown on
+  Global and Live, and it can be exported and imported as JSON.
+- **PNG and CSV.** Every chart downloads as a PNG marked with the site's address and the data's
+  as-of date. Every table and chart downloads as CSV.
+- **Feedback.** "Suggest a feature / report a bug" opens GitHub Issues, with forms for bugs, data
+  errors and ideas (`.github/ISSUE_TEMPLATE`).
+- **한국어 / English.** The button in the header switches the language. The choice is remembered
+  in the browser, and a Korean-language browser starts in Korean.
+  - *How it works:* the pages are written in English. In Korean, `docs/assets/i18n.js` translates
+    the interface as it draws, from the dictionary in `docs/assets/i18n.ko.js`, keyed by the
+    English text.
+  - *Values:* numbers, dates and tickers become placeholders. Dates and dollar amounts are
+    written the Korean way (2026. 10. 27., 5.1조 달러).
+  - *Kept as is:* tickers, company names, headlines and formulas.
+  - *Finding gaps:* any interface text without an entry stays English and is listed by
+    `I18N.report()` in the browser console, or on screen when `?i18n=missing` is added to a
+    page's address. That list is how to find hard-coded text.
+  - *Tests:* `tests/test_i18n.py` checks that every entry keeps its placeholders and that alerts
+    use the dictionary.
+
 ## How to verify a number
 
 Every number on the site can be traced to its source, its date and the code that computed it.
