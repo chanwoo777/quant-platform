@@ -523,3 +523,6 @@ button.dl:hover { color: var(--accent); border-color: var(--accent); }
 .cl-list { list-style: none; padding: 0; margin: 8px 0 0; }
 .cl-item { padding: 8px 10px; border-bottom: 1px solid var(--border); }
 .cl-item.cl-method { border-left: 3px solid var(--bad); background: var(--bad-soft); }
+
+/* --- the site-wide disclaimer (one block, the same words on every page and in every CSV) -------- */
+.disclaimer { padding: 8px 12px; border-left: 3px solid var(--warn); background: var(--warn-soft); color: var(--text); border-radius: 0 6px 6px 0; }

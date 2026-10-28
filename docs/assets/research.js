@@ -206,7 +206,7 @@ async function viewCompare(view, arg) {
         Fundamentals: SEC EDGAR filings for deep-tier names, otherwise Yahoo Finance via the nightly export of ${esc(meta.generated_at.slice(0, 10))};
         gross and operating margins are Yahoo's for every name (trailing twelve months), refreshed on a rolling basis, so a few may still show n/a.
         Scores: nightly export, prices as of ${esc(meta.prices_as_of)}.
-        ${SIGNAL_NOTE} Not investment advice.</p>
+        ${SIGNAL_NOTE}</p>
       ${winNote.length ? `<p class="caption">${winNote.join(" · ")}</p>` : ""}`;
     drawCompareChart(items);
     if (typeof window.drawCorrelationPanel === "function") window.drawCorrelationPanel($("#cmp-corr", view), CMP.syms);

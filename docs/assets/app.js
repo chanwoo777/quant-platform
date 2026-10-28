@@ -646,7 +646,7 @@ function drawSectorMap(body, rows) {
     <div class="sm-map" style="height:${H}px">${rects.map(cell).join("")}</div>
     <div class="sm-legend"><span>${pct(-scale, 0)}</span><span class="sm-scale"></span><span>${pct(scale, 0)}</span><span class="sm-na">n/a</span></div>
     <p class="caption">Tile size: market cap in US dollars; colour: the 1-day close-to-close change (sector tiles: cap-weighted average). Sector: the sector field
-      from Yahoo Finance in the nightly export. Stocks only; the filters above apply. Grey tiles have no 1-day change in the export. Not investment advice.</p>`;
+      from Yahoo Finance in the nightly export. Stocks only; the filters above apply. Grey tiles have no 1-day change in the export.</p>`;
   body.querySelectorAll(".sm-tile").forEach((b) => b.addEventListener("click", () => {
     const t = tiles[Number(b.dataset.i)];
     if (t.sector) { GS.sector = t.sector; drawGlobal(); } else if (t.row) openDetail(t.row);

@@ -13,6 +13,7 @@
 <meta name="color-scheme" content="light dark">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232563eb'/%3E%3Cpath d='M6 22l6-7 5 4 9-11' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <style>
+  .disclaimer { padding: 8px 12px; border-left: 3px solid #c98500; background: rgba(201,133,0,0.12); border-radius: 0 6px 6px 0; }
   :root {
     --bg: #ffffff;
     --bg-soft: #f6f7f9;
@@ -295,7 +296,7 @@
           </ul>
         </div>
       </div>
-      <p class="note"><b>Not investment advice.</b> This is a research project. Scores rank names against their peers and are not predictions. Nothing here places orders.</p>
+      <p class="note">This is a research project. Scores rank names against their peers and are not predictions. Nothing here places orders.</p>
     </div>
   </section>
 
@@ -365,7 +366,7 @@ python -m quant.web.publish            <span class="c"># export the website and 
   <div class="wrap">
     <div>Free Quant Platform · <a href="https://github.com/chanwoo777/quant-platform">View the code on GitHub</a> · <a href="./#/methodology">Methodology</a> · <a href="./#/status">Data status</a> · <a href="privacy.html">Privacy and data sources</a> · MIT license</div>
     <div>Market data comes from Yahoo Finance, FRED, SEC EDGAR, CoinGecko, Nasdaq Trader and the Kenneth R. French Data Library, each under its own terms. Screenshots show sample data from a local run.</div>
-    <div>Research only. Not investment advice.</div>
+    <div class="disclaimer" role="note"><b>Research and education only, not investment advice.</b> Data may be delayed or wrong. Past performance does not predict future results.</div>
   </div>
 </footer>
 

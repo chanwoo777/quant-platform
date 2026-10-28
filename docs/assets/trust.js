@@ -131,7 +131,7 @@
           { h: "Hit means", cls: "wrap-text", f: (s) => esc(per[s].hit_rule || (s === "AVOID" ? "underperformed its benchmark" : "beat its benchmark")) },
           { h: "Signal dates", f: (s) => (per[s].first ? `${esc(per[s].first)} to ${esc(per[s].last)}` : "none matured yet") },
         ], SIG_ORDER)}`).join("")}
-      <p class="caption">${esc(t.method || "")} Past performance does not predict future results.</p>
+      <p class="caption">${esc(t.method || "")}</p>
       <h2>The log, day by day${fresh("track")}</h2>
       <p class="caption">Each day's file is written once and never changed. Its SHA-256 is recorded with the hash of the previous line, so editing any earlier day
         breaks the chain. The latest ${(t.published_days || []).length} days' signals (without prices) can be downloaded.</p>

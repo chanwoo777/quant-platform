@@ -82,7 +82,7 @@
       math(mt("BUY"), mo("⟺"), mt("alignment = +1"), mo("∧"), mt("composite ≥ 60"), mo("∧"), mt("market not in a Bear regime")),
       "MA alignment, the composite score and the market regime.",
       "AVOID: alignment = −1 and composite ≤ 40. HOLD: everything else; N/A without a composite. The reason lists the four pillars furthest from 50 in the signal's direction, plus any unusual move; on this site the analyst phrase shows the Analysts percentile instead of the rating.",
-      SCHEDULE, "Not investment advice. A Bear regime pauses BUY labels for the whole market.", "quant/universe/scoring.py · add_signals; quant/web/export.py · public_reason"],
+      SCHEDULE, "A Bear regime pauses BUY labels for the whole market.", "quant/universe/scoring.py · add_signals; quant/web/export.py · public_reason"],
     ["regimes-global", "Global screener", "Market regime cards",
       "One regime per market, from its main index: trend from the moving averages and drawdown, volatility from the VIX (US) or the index's own realised volatility.",
       math(mt("realised vol"), mo("="), sd(row(mt("20 daily returns"))), mo("×"), sqrt(mn("252")), mo("×"), mn("100")),
@@ -294,7 +294,7 @@
       <h1>Methodology</h1>
       <p class="soft q-lede">How every score, signal and metric on this site is calculated, written from the code that computes it. Each entry names the
         file and function, its inputs and their source, the window, how often it updates, and what it can't tell you. A <span class="mq">?</span> next to a number
-        on the dashboard links here. Research only, not investment advice.</p>
+        on the dashboard links here.</p>
       <nav class="m-toc" aria-label="Methodology contents">${groups.map((g) => `<div><b>${esc(g)}</b>${E.filter((e) => e[1] === g).map((e) =>
         `<a href="#/methodology/${e[0]}">${esc(e[2])}</a>`).join("")}</div>`).join("")}</nav>
       ${groups.map((g) => `<h2>${esc(g)}</h2>${E.filter((e) => e[1] === g).map(([id, , title, what, formula, inputs, windowText, updated, limits, code]) => `

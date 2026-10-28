@@ -1203,7 +1203,7 @@
         <div><h3>A 9-week beginner path</h3><ol class="q-path">${PATH.map(([w, t, d]) => `<li><span class="badge info">${esc(w)}</span> <b>${esc(t)}.</b> ${esc(d)}</li>`).join("")}</ol>
           <h3>References</h3><ul class="q-refs">${REFS.map(([who, title, url]) => `<li>${esc(who)}, <a href="${esc(url)}" target="_blank" rel="noopener">${esc(title)}</a></li>`).join("")}</ul></div>
       </div>
-      <p class="caption">${simTag()} applies to every quantum number on this page. Not investment advice.</p>`;
+      <p class="caption">${simTag()} applies to every quantum number on this page.</p>`;
   }
   SECTIONS.push({ id: "learn", title: "Learn more: glossary, path and references", html: learn });
 
@@ -1227,7 +1227,7 @@
       <p class="soft q-lede">How quantum algorithms work, explained from zero, and where they might one day help with stocks: pricing options,
         measuring risk and choosing portfolios. Every quantum result sits next to the classical method it would have to beat.</p>
       <div class="q-banner">⚛ Every quantum number on this page comes from a simulator: Qiskit, run nightly on an ordinary PC, or a small simulator
-        in your browser. No quantum hardware is used. <b>${SIM}.</b> Not investment advice.</div>
+        in your browser. No quantum hardware is used. <b>${SIM}.</b></div>
       <nav class="q-toc" aria-label="Sections">${SECTIONS.map((s) => `<button type="button" class="chip" data-go="${s.id}">${s.n} · ${esc(s.title)}</button>`).join("")}</nav>
       ${SECTIONS.map((s) => { const src = SECTION_SOURCES[s.id];
         return `<section class="q-sec" id="q-${s.id}"${src ? "" : " data-nofresh"}><h2><span class="q-n">${s.n}</span>${esc(s.title)}${src ? fresh(src) : ""}</h2>${s.html(ctx)}</section>`; }).join("")}`;
