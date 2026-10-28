@@ -192,10 +192,12 @@ async function viewCompare(view, arg) {
     const winNote = items.map((t) => t.m.error ? `${esc(t.sym)}: ${esc(t.m.error)}` : t.m.ffError && t.row.a === "s" ? `${esc(t.sym)} factors: ${esc(t.m.ffError)}` : "").filter(Boolean);
     const rfLabel = (items.find((t) => t.m.rfLabel) || { m: {} }).m.rfLabel || "FRED DGS3MO";
     const ffAny = items.find((t) => t.m.ff);
+    const pxParts = items.map((t) => pxSrc(CMP.years > 2 ? t.weekly : t.daily));
     out.innerHTML = `
-      <div class="chart-title">Growth of 100 over ${CMP.years} year${CMP.years > 1 ? "s" : ""} ${mq("cmp-rebased")}</div>
+      <div class="chart-title">Growth of 100 over ${CMP.years} year${CMP.years > 1 ? "s" : ""} ${mq("cmp-rebased")}${fresh(pxParts)}</div>
       <div class="chart" id="cmp-chart"></div>
       <p class="caption">Rebased to 100 on the first date the charted tickers share; ${CMP.years > 2 ? "weekly" : "daily"} closes to ${esc((items.find((t) => t.daily && !t.daily.error) || { daily: { dates: ["–"] } }).daily.dates.slice(-1)[0])}. Prices: CNBC (Binance for coins), loaded in your browser.</p>
+      <div class="chart-title">Side by side${fresh(pxParts, "scores", "yahoo-fundamentals", "french", "fred", items.some((t) => t.fin) ? "sec" : null)}</div>
       <div class="table-wrap cmp-table"><table><thead>${head}</thead><tbody>${body}</tbody></table></div>
       <p class="caption">Blue: best in the row, red: worst (no colours where higher isn't simply better).
         ${CMP.years > 2 ? "The 3-year window uses weekly prices and weekly-compounded factors, because the browser loads two years of daily prices." : ""}
@@ -256,7 +258,7 @@ async function drawCorrelationPanel(el, syms) {
   if (!el) return;
   const run = (el.corrRun = (el.corrRun || 0) + 1);
   el.innerHTML = `
-    <h2>Correlation of returns ${mq("correlation")}</h2>
+    <h2 data-nofresh class="corr-title">Correlation of returns ${mq("correlation")}</h2>
     <div class="controls" style="margin-top:0">
       <div class="control"><span class="label">Window</span><div class="chips" data-corr="win">${Object.keys(CORR_WINDOWS).map((w) =>
         `<button type="button" class="chip${w === CORR.win ? " on" : ""}" data-v="${w}">${w}</button>`).join("")}</div></div>
@@ -274,6 +276,7 @@ async function drawCorrelationPanel(el, syms) {
   const hist = await Promise.all(syms.map((s) => priceHistory(s, { weekly }).catch((e) => ({ error: e.message }))));
   if (run !== el.corrRun) return;  // the basket or a control changed meanwhile
   const have = syms.map((s, i) => [s, hist[i]]).filter(([, h]) => !h.error);
+  $(".corr-title", el).insertAdjacentHTML("beforeend", fresh(hist.map(pxSrc)));
   const missing = syms.filter((_, i) => hist[i].error);
   if (have.length < 2) { body.innerHTML = `<div class="empty">Need prices for at least two tickers${missing.length ? ` (none for ${esc(missing.join(", "))})` : ""}.</div>`; return; }
   const al = Q.align(have.map(([, h]) => ({ dates: weekly ? h.dates.map(Q.weekKey) : h.dates, values: h.close })));

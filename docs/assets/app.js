@@ -123,6 +123,54 @@ function sourceState(id) {
   return { id, label: s.label, provider: s.provider, asOf: s.as_of, age, expect: s.expect_days || 1, error: s.error,
     state: worstState([s.state || "red", s.error ? "red" : "green", ageState(age, s.expect_days || 1)]) };
 }
+// --- freshness badges: every panel names its source and as-of date, coloured by age -------------------
+/** A part loaded in the browser, or a per-symbol date: {provider, label, asOf, expect?, calendar?, live?, error?}. */
+function partState(p) {
+  const asOf = p.live ? new Date().toISOString().slice(0, 10) : p.asOf, expect = p.expect || 1;
+  const age = ageDays(asOf, p.calendar);
+  return { label: p.label || p.provider, provider: p.provider || "", asOf, age, expect, calendar: !!p.calendar, error: p.error,
+    state: p.error ? "red" : p.state || ageState(age, expect) };
+}
+/** Badge for prices loaded in the browser (priceHistory), or for the error that stopped them. */
+const pxSrc = (h) => (h && !h.error && h.dates && h.dates.length
+  ? { provider: h.source, label: `${h.weekly ? "Weekly" : "Daily"} prices loaded in your browser`, asOf: h.dates[h.dates.length - 1], calendar: h.source === "Binance", expect: h.weekly ? 5 : 1 }
+  : { provider: "CNBC / Binance", label: "Prices loaded in your browser", error: (h && h.error) || "no prices" });
+/** The freshness badge: status.json source ids and/or browser parts. Shows the providers and the oldest
+ * as-of date; green, amber (older than expected) or red (missing, failed or 3x too old); links to #/status. */
+function fresh(...parts) {
+  const infos = parts.flat().filter(Boolean).map((p) => (typeof p === "string" ? sourceState(p) : partState(p)));
+  if (!infos.length) return "";
+  const state = worstState(infos.map((i) => i.state)), oldest = infos.map((i) => i.asOf).filter(Boolean).sort()[0];
+  const names = [...new Set(infos.map((i) => i.provider || i.label))].join(" + ");
+  const src = infos.map((i) => `${i.label}${i.provider && i.provider !== i.label ? ` (${i.provider})` : ""}, ${i.asOf ? `as of ${i.asOf}` : "no date"}`).join("; ");
+  const tip = infos.map((i) => `${i.label}${i.provider && i.provider !== i.label ? ` · ${i.provider}` : ""}: ${i.asOf
+    ? `as of ${i.asOf}, ${i.age} ${i.calendar ? "days" : "weekdays"} old (expected ≤ ${i.expect})` : "no data"} · ${STATE_TEXT[i.state]}${i.error ? ` · ${i.error}` : ""}`).join("\n");
+  return ` <a class="fresh ${state}" href="#/status" data-src="${esc(src)}" data-asof="${esc(oldest || "")}" title="${esc(tip + "\nData status →")}"><i></i>${esc(names)} · ${oldest ? esc(oldest) : "missing"}</a>`;
+}
+// Each route's default source, given to any panel heading the view didn't label itself (null: no data panels).
+const PAGE_SOURCES = { global: ["scores"], markets: ["deep-prices"], stock: ["scores"], financials: ["yahoo-fundamentals"], compare: ["scores"],
+  quantum: [{ provider: "Simulated in your browser", live: true }], "track-record": ["track"], live: null, methodology: null, status: null, changelog: null };
+let pageSources = null;
+/** Give every h2 and chart title in the view (and the drawer) a badge, unless it has one or opts out (data-nofresh). */
+function decorate(root) {
+  if (!pageSources) return;
+  root.querySelectorAll("h2, .chart-title").forEach((h) => {
+    if (h.querySelector(".fresh") || h.closest("[data-nofresh]") || !h.textContent.trim()) return;
+    h.insertAdjacentHTML("beforeend", fresh(pageSources));
+    h.lastElementChild.dataset.default = "1";
+  });
+}
+function watchPanels() {
+  let timer = null;
+  const run = () => { timer = null; decorate($("#view")); decorate($("#drawer")); };
+  const obs = new MutationObserver((records) => {
+    if (records.every((r) => r.target.closest && r.target.closest(".js-plotly-plot, .pc-stage"))) return;  // chart internals
+    if (!timer) timer = setTimeout(run, 60);
+  });
+  obs.observe($("#view"), { childList: true, subtree: true });
+  obs.observe($("#drawer"), { childList: true, subtree: true });
+}
+
 // Quality flags from the nightly checks (quant/web/quality.py), published per symbol as "dq".
 const DQ_LABEL = { duplicate: "repeated rows", gap: "3+ missing sessions", negative: "a close at or below zero", zero_volume: "zero volume on 5+ of 20 sessions",
   unit_change: "a 20x one-day jump (a unit change?)", stale: "no price for 5+ sessions", outlier: "a move beyond 5 standard deviations (flagged for review)" };
@@ -415,7 +463,7 @@ async function viewGlobal(view) {
     <p class="caption">${counts.s.toLocaleString()} stocks ≥ $1B in 21 markets · ${counts.e.toLocaleString()} liquid US-listed ETFs ·
       ${counts.c.toLocaleString()} coins · scored ${esc(g.scored_at.slice(0, 16).replace("T", " "))} UTC. Click a row for its chart and the reasons behind its signal.
       ${SIGNAL_NOTE}</p>
-    <h2>Market regimes ${mq("regimes-global")}</h2>
+    <h2>Market regimes ${mq("regimes-global")}${fresh("scores", "yahoo-prices")}</h2>
     <div class="grid g6">${regimes}</div>
     <div class="controls">
       <div class="control"><span class="label">Asset class</span>${chips("cls", [["s", "Stocks"], ["e", "ETFs"], ["c", "Crypto"]], G.classes)}</div>
@@ -431,6 +479,7 @@ async function viewGlobal(view) {
     <div class="subtabs" id="g-tabs">
       <button type="button" data-tab="screener">Screener</button><button type="button" data-tab="sectors">Sector heatmap</button><button type="button" data-tab="movers">Unusual movers today</button><button type="button" data-tab="watch">Watchlist ★</button>
     </div>
+    <div class="panel-meta" id="g-meta"></div>
     <div id="g-body"></div>`;
 
   const refresh = () => { G.page = 0; drawGlobal(); };
@@ -528,7 +577,7 @@ function drawSectorMap(body, rows) {
   };
   body.innerHTML = `
     <div class="sm-asof">Latest nightly close: prices as of <b>${esc(G.asOf.prices)}</b>, scored ${esc(G.asOf.scored.slice(0, 16).replace("T", " "))} UTC.
-      This is not live intraday data. ${mq("sector-map")}</div>
+      This is not live intraday data. ${mq("sector-map")}${fresh("scores", "yahoo-prices")}</div>
     <div class="sm-crumb">${crumb}</div>
     <div class="sm-map" style="height:${H}px">${rects.map(cell).join("")}</div>
     <div class="sm-legend"><span>${pct(-scale, 0)}</span><span class="sm-scale"></span><span>${pct(scale, 0)}</span><span class="sm-na">n/a</span></div>
@@ -552,6 +601,7 @@ function drawGlobal() {
     kpi("Unusual move today", rows.filter((r) => r.u).length.toLocaleString(), "", "≥ 8% (crypto 20%), or ≥ 3 robust σ and ≥ 2% (crypto 5%)", "unusual");
   view.querySelectorAll("#g-tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === G.tab));
 
+  $("#g-meta", view).innerHTML = G.tab === "sectors" ? "" : `${{ screener: "Screener", movers: "Unusual movers today", watch: "Watchlist" }[G.tab]}: nightly scores and fundamentals${fresh("scores", "yahoo-prices", "yahoo-fundamentals")}`;
   if (G.tab === "sectors") { drawSectorMap($("#g-body", view), rows); return; }
   let list = rows, cols = SCREEN_COLS;
   if (G.tab === "movers") {
@@ -605,7 +655,9 @@ async function openDetail(r, span = "1Y") {
     <p><span class="badge ${r.sig === "BUY" ? "good" : r.sig === "AVOID" ? "bad" : ""}">${SIGNAL[r.sig] || "–"}</span>
       <span class="soft">${esc(r.why || "")}</span></p><p class="caption">${SIGNAL_NOTE}</p>
     <div class="chips" id="d-span">${["6M", "1Y", "All"].map((s) => `<button class="chip${s === span ? " on" : ""}" data-v="${s}">${s}</button>`).join("")}</div>
+    <div class="chart-title" id="d-title" data-nofresh>Price, 50 and 200-day averages</div>
     <div class="chart" id="d-chart" style="min-height:320px"><div class="loading">Loading prices…</div></div>
+    <div class="chart-title">Pillars and returns${fresh("scores", "yahoo-prices")}</div>
     <div class="pillars">${pill("Score", r.sc)}${pill("Trend", r.t)}${pill("Momentum", r.mo)}${pill("Risk", r.r)}${pill("Value", r.v)}${pill("Quality", r.q)}${pill("Analysts", r.an)}${pill(r.a === "e" ? "Cost" : "RSI (14)", r.a === "e" ? r.co : r.rsi)}</div>
     <div class="grid g4" style="margin-top:12px">
       ${kpi("1 month", signed(r.r1m, 1))}${kpi("Year to date", signed(r.ytd, 1))}
@@ -625,8 +677,11 @@ async function openDetail(r, span = "1Y") {
   $("#d-watch").onclick = async () => { const on = await toggleWatch(r.s); $("#d-watch").classList.toggle("on", on); $("#d-watch").textContent = on ? "★ In watchlist" : "☆ Add to watchlist"; };
 
   const el = $("#d-chart");
-  try { priceChart(el, await priceHistory(r.s), span, { height: 340 }); }
-  catch (e) { el.innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+  let h;
+  try { h = await priceHistory(r.s); priceChart(el, h, span, { height: 340 }); }
+  catch (e) { h = { error: e.message }; el.innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+  const t = $("#d-title");
+  if (t) t.insertAdjacentHTML("beforeend", fresh(pxSrc(h)));
 }
 
 /** Line chart of closes with 50/200-day MAs (and optional Bollinger + RSI panel). */
@@ -755,9 +810,9 @@ async function viewMarkets(view) {
         ${kpi("Stance", esc(reg.stance), `<span class="badge ${stanceClass}">${esc(reg.stance)} · as of ${esc(reg.as_of)}</span>`, "From the 0-1 risk score: trend, volatility, credit, labour, curve, inflation", "stance")}
         ${kpi("Risk score", num(reg.risk_score, 2), "0 = benign · 1 = stressed", "Risk-On < 0.33, Risk-Off > 0.6", "risk-score")}
       </div></div>
-      <div class="card"><h3>Why</h3><ul class="reasons">${(reg.reasons || []).map((r) => `<li>${esc(r)}</li>`).join("")}</ul></div>
+      <div class="card"><h3>Why${fresh("deep-prices", "fred")}</h3><ul class="reasons">${(reg.reasons || []).map((r) => `<li>${esc(r)}</li>`).join("")}</ul></div>
     </div>
-    <h2>Your watchlist</h2>
+    <h2>Your watchlist${fresh("scores", "yahoo-prices")}</h2>
     <div class="controls" style="margin-top:0">
       <div class="control" style="width:min(360px,100%)"><span class="label">Add a stock, ETF, coin or index</span><div id="w-add">${searchBox("Search to add (e.g. 005930.KS, BTC, ^N225)")}</div></div>
       <button class="btn" id="w-reset" type="button">Reset to default</button>
@@ -766,12 +821,12 @@ async function viewMarkets(view) {
     <div id="w-table"></div>
     <div class="controls"><div class="control"><span class="label">Range</span>${chips("span", [["6M", "6M"], ["1Y", "1Y"], ["2Y", "2Y"], ["10Y", "10Y (weekly)"]], M.span, false)}</div></div>
     <div class="controls" style="margin-top:0">${indicatorChipsHtml(spx.error ? { close: [] } : ohlcv(spx))}</div>
-    <div class="chart-title">S&amp;P 500 with regime stance ${mq("stance")}</div>
+    <div class="chart-title">S&amp;P 500 with regime stance ${mq("stance")}${fresh(pxSrc(spx), "deep-prices")}</div>
     <div class="chart" id="m-spx">${spx.error ? `<div class="empty">${esc(spx.error)}</div>` : ""}</div>
     <p class="caption">Prices load in your browser from CNBC: daily bars for two years, weekly bars for ten (indicator lengths then count weeks).</p>
-    <h2>Economic indicators (FRED) ${mq("fred-tiles")}</h2>
+    <h2>Economic indicators (FRED) ${mq("fred-tiles")}${fresh("fred")}</h2>
     <div class="grid g5">${tiles}</div>
-    <h2>Breaking news</h2><div class="controls" style="margin-top:0">${chips("scope", [["All", "All"], ["Watchlist", "Watchlist"], ["Market-wide", "Market-wide"]], M.scope, false)}</div><div id="m-news"></div>`;
+    <h2>Breaking news${fresh("news")}</h2><div class="controls" style="margin-top:0">${chips("scope", [["All", "All"], ["Watchlist", "Watchlist"], ["Market-wide", "Market-wide"]], M.scope, false)}</div><div id="m-news"></div>`;
 
   const drawSpx = async () => {
     const span = [...M.span][0], el = $("#m-spx");
@@ -879,7 +934,7 @@ async function viewStock(view, arg) {
 
 async function viewStockDeep(view, ticker) {
   const [d, h] = await Promise.all([load(`deep/${ticker.replace("^", "_")}.json`), priceHistory(ticker).catch((e) => ({ error: e.message }))]);
-  Object.assign(d, h.error ? { d: [], o: [], h: [], l: [], c: [], v: null } : { d: h.dates, o: h.open, h: h.high, l: h.low, c: h.close, v: h.volume });
+  Object.assign(d, h.error ? { d: [], o: [], h: [], l: [], c: [], v: null } : { d: h.dates, o: h.open, h: h.high, l: h.low, c: h.close, v: h.volume, src: h.source });
   const n = d.c.length, snap = d.snapshot;
   const chg = n > 1 ? d.c[n - 1] / d.c[n - 2] - 1 : null;
   const spread = snap.sma_200 ? snap.sma_50 / snap.sma_200 - 1 : null;
@@ -898,13 +953,13 @@ async function viewStockDeep(view, ticker) {
       ${kpi("Momentum 12-1", d.score ? pct(d.score.momentum_12_1, 0) : "–", "", "Return from 12 months to 1 month ago (Jegadeesh & Titman 1993)", "deep-scores")}
       ${kpi("Factor score", d.score ? `${num(d.score.composite, 0)}/100` : "–", d.score ? `rank ${d.score.rank} of ${d.score.of}` : "", "", "deep-scores")}
     </div>
-    <div class="chart-title" id="s-title"></div>
+    <div class="chart-title" id="s-title" data-nofresh></div>
     <div class="chart" id="s-chart" style="min-height:640px">${h.error ? `<div class="empty">${esc(h.error)}</div>` : ""}</div>
     <p class="caption">Candles: blue up, red down. ▲ / ▼ / ● news markers = bullish / bearish / neutral FinBERT average of on-topic headlines,
       placed on the session they first affected. ★ = unusual move; hover for the explanation. ${h.error ? "" : `About two years of daily bars, loaded in your browser from ${esc(h.source)}.`}</p>
     <details><summary>Indicator readings ${mq("indicators")}</summary><ul class="reasons">${(snap.readings || []).map((r) => `<li>${esc(r)}</li>`).join("")}</ul></details>
     <div class="grid g2">
-      <div><h2>Unusual moves ${mq("explained-moves")}</h2>${table([
+      <div><h2>Unusual moves ${mq("explained-moves")}${fresh("deep-prices", "news")}</h2>${table([
         { h: "When", f: (m) => esc(m.d) },
         { h: "Move", r: 1, f: (m) => signed(m.ret, 1) },
         { h: "z", r: 1, f: (m) => num(m.z, 1) },
@@ -912,7 +967,7 @@ async function viewStockDeep(view, ticker) {
         { h: "Explanation", cls: "wrap-text", f: (m) => esc(m.why) },
         { h: "Catalyst", f: (m) => link(m.url) },
       ], [...d.moves].reverse(), { tall: true, empty: "No unusual moves in the last three years." })}</div>
-      <div><h2>Headlines ${mq("news-sentiment")}</h2>${table([
+      <div><h2>Headlines ${mq("news-sentiment")}${fresh("news")}</h2>${table([
         { h: "Time (ET)", f: (h) => esc(h.t.slice(5)) },
         { h: "Headline", cls: "wrap-text", f: (h) => link(h.url, h.title) },
         { h: "Source", cls: "clip", f: (h) => esc(h.src || "") },
@@ -954,7 +1009,7 @@ function drawStockChart(d) {
     }
     return out;
   };
-  $("#s-title").textContent = `${d.ticker} · ${span} daily`;
+  $("#s-title").innerHTML = `${esc(d.ticker)} · ${esc(span)} daily${fresh(pxSrc({ source: d.src, dates: d.d }), "news", "deep-prices")}`;
   indicatorChart($("#s-chart"), deepSeries(d), span, { candles: true, height: 560, extra, rangebreaks: true });
 }
 
@@ -981,19 +1036,19 @@ async function viewStockUniverse(view, sym, row) {
       ${kpi("Momentum 12-1", pct(row.m121, 0), "", "Return from 12 months to 1 month ago", "momentum")}
       ${kpi("Composite score", ok(row.sc) ? `${num(row.sc, 0)}/100` : "–", `<span class="sig-${esc(row.sig)}">${SIGNAL[row.sig] || "–"}</span>`)}
     </div>
-    <div class="chart-title">${esc(sym)} · daily${err ? "" : ` · ${esc(px.source)}, loaded in your browser`}</div>
+    <div class="chart-title">${esc(sym)} · daily${err ? "" : ` · ${esc(px.source)}, loaded in your browser`}${fresh(pxSrc(px))}</div>
     <div class="chart" id="u-chart" style="min-height:460px">${err ? `<div class="empty">${esc(err)}</div>` : ""}</div>
     ${dqNote(row.dq)}
     ${row.why ? `<div class="note"><b>Why ${SIGNAL[row.sig] || ""}:</b> ${esc(row.why)} <span class="muted">${SIGNAL_NOTE}</span></div>` : ""}
     <div class="grid g2">
-      <div><h2>Returns and risk ${mq("returns")}</h2>${table([{ h: "Measure", f: (x) => esc(x[0]) + (x[2] ? mq(x[2]) : "") }, { h: "Value", r: 1, f: (x) => x[1] }], [
+      <div><h2>Returns and risk ${mq("returns")}${fresh("scores", "yahoo-prices")}</h2>${table([{ h: "Measure", f: (x) => esc(x[0]) + (x[2] ? mq(x[2]) : "") }, { h: "Value", r: 1, f: (x) => x[1] }], [
         ["1 day", signed(row.r1d, 2)], ["1 week", signed(row.r1w, 2)], ["1 month", signed(row.r1m, 1)], ["3 months", signed(row.r3m, 1)],
         ["Year to date", signed(row.ytd, 1)], ["52 weeks", ok(info.w52) ? signed(info.w52 / 100, 1) : "–"], ["Momentum 12-1", pct(row.m121, 1), "momentum"],
         ["Momentum 6-1", pct(info.m61, 1), "momentum"], ["Distance to 200-day MA", pct(row.d200, 1), "moving-averages"],
         ["Volatility (60-day, annualised)", pct(info.vol ?? row.vol, 1, false), "volatility"],
         ["Max drawdown (1y)", pct(info.mdd ?? row.mdd, 1), "max-drawdown"], ["Last MA cross", info.cross ? `${esc(info.cross)} cross, ${info.cross_ago} sessions ago` : "–", "moving-averages"],
       ])}</div>
-      <div><h2>Peer percentiles ${mq("pillars")}</h2>${row.a === "i" ? '<div class="empty">Indices are not scored.</div>' : table([{ h: "Pillar", f: (x) => esc(x[0]) }, { h: "Percentile among peers", f: (x) => bar(x[1]) }], [
+      <div><h2>Peer percentiles ${mq("pillars")}${fresh("scores")}</h2>${row.a === "i" ? '<div class="empty">Indices are not scored.</div>' : table([{ h: "Pillar", f: (x) => esc(x[0]) }, { h: "Percentile among peers", f: (x) => bar(x[1]) }], [
         ["Composite", row.sc], ["Trend", row.t], ["Momentum", row.mo], ["Risk (low is better)", row.r], ["Value", row.v], ["Quality", row.q],
         ["Analysts", row.an], ...(row.a === "e" ? [["Cost", row.co]] : []),
       ])}
@@ -1066,13 +1121,14 @@ async function viewFinancials(view, arg) {
       ${kpi("Volatility (60-day)", pct(info.vol, 0, false), "", "", "volatility")}
     </div>
     ${dqNote(r.dq || info.dq)}
-    <h2>Fundamentals</h2>${fundamentalsHtml(r, info)}
+    <h2>Fundamentals${r.a === "c" ? fresh("coingecko") : r.a === "i" ? fresh("scores") : fresh({ provider: "Yahoo Finance quote summary", label: "This symbol's fundamentals",
+      asOf: info.fa, expect: 7, error: info.fa ? null : "not read yet by the rolling refresh" })}</h2>${fundamentalsHtml(r, info)}
     <div class="grid g2">
-      <div><h2>Analysts ${mq("pillars")}</h2>${analystHtml(r, sym)}<div id="fh-reco"></div></div>
-      <div><h2>Peers</h2><div id="peers"><div class="loading">Loading peers…</div></div></div>
+      <div><h2>Analysts ${mq("pillars")}${fresh("scores")}</h2>${analystHtml(r, sym)}<div id="fh-reco"></div></div>
+      <div><h2>Peers${fresh("scores")}</h2><div id="peers"><div class="loading">Loading peers…</div></div></div>
     </div>
-    <h2>Financial statements ${mq("sec-financials")}</h2><div id="statements"></div>
-    <h2>Factor model ${mq("factor-model")}</h2>
+    <h2>Financial statements ${mq("sec-financials")}${d && d.fin ? fresh("sec") : usTicker(sym) && FH.key() ? fresh({ provider: "Finnhub", label: "Reported statements, loaded with your key", live: true }) : fresh({ provider: "SEC EDGAR", label: "Statements", error: "kept for the deep tier only" })}</h2><div id="statements"></div>
+    <h2 data-nofresh id="ff-title">Factor model ${mq("factor-model")}</h2>
     <div class="controls" style="margin-top:0"><div class="control"><span class="label" title="${esc(MODEL_HELP)}">Model ⓘ</span>
       ${chips("model", [["FF3", "FF3"], ["Carhart", "Carhart"], ["FF5", "FF5"]], F.model, false)}</div></div>
     <div id="ff"><div class="loading">Running the regression…</div></div>
@@ -1158,8 +1214,8 @@ function secHtml(d) {
       ${kpi("Debt / equity", num(t.de, 2))}
     </div>
     <div class="grid g2">
-      <div><div class="chart-title">Quarterly revenue and net income</div><div class="chart" id="f-rev"></div></div>
-      <div><div class="chart-title">Quarterly margins</div><div class="chart" id="f-margin"></div></div>
+      <div><div class="chart-title">Quarterly revenue and net income${fresh("sec")}</div><div class="chart" id="f-rev"></div></div>
+      <div><div class="chart-title">Quarterly margins${fresh("sec")}</div><div class="chart" id="f-margin"></div></div>
     </div>
     <details><summary>Filings (10-K / 10-Q)</summary>${table([
       { h: "Form", f: (r) => esc(r.form) }, { h: "Period end", f: (r) => esc(r.period) }, { h: "Filed", f: (r) => esc(r.filed) },
@@ -1222,8 +1278,14 @@ async function drawFactorModel(sym, r, model) {
   if (!el) return;
   if (r.a === "c" || r.a === "i") { el.innerHTML = '<div class="empty">Factor models describe stock returns; they are not estimated for coins and indices.</div>'; return; }
   let hist;
-  try { hist = await priceHistory(sym); } catch (e) { el.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  const title0 = $("#ff-title");
+  try { hist = await priceHistory(sym); } catch (e) {
+    if (title0) title0.insertAdjacentHTML("beforeend", fresh("french", pxSrc({ error: e.message })));
+    el.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return;
+  }
   const factors = factorData || (factorData = await load("factors.json"));
+  const fb = fresh("french", pxSrc(hist)), title = $("#ff-title");
+  if (title && !title.querySelector(".fresh")) title.insertAdjacentHTML("beforeend", fb);
   const stock = { dates: hist.dates, returns: Q.returns(hist.values) };
   const e = Q.factorRegression(stock, factors, model);
   const roll = Q.rollingExposures(stock, factors, model, { window: Math.min(Q.TD, Math.floor(e.n_obs / 2)) });
@@ -1240,11 +1302,11 @@ async function drawFactorModel(sym, r, model) {
       ${kpi("R²", num(e.r_squared, 2), `driven by ${esc(e.dominant_driver)}`)}</div>
     ${e.tilts.length ? `<p><b>Reading:</b> ${esc(e.tilts.join(", "))}.</p>` : ""}
     <div class="grid g2">
-      <div><div class="chart-title">Factor loadings with 95% confidence intervals</div><div class="chart" id="f-coef"></div></div>
-      <div><div class="chart-title">Where the annual return came from</div><div class="chart" id="f-waterfall"></div>
+      <div><div class="chart-title">Factor loadings with 95% confidence intervals${fb}</div><div class="chart" id="f-coef"></div></div>
+      <div><div class="chart-title">Where the annual return came from${fb}</div><div class="chart" id="f-waterfall"></div>
         <p class="caption">Annualised: risk-free rate + β × each factor's average premium + alpha.</p></div>
     </div>
-    <div class="chart-title">Rolling betas (${roll.d.length ? Math.min(Q.TD, Math.floor(e.n_obs / 2)) : 0}-day window, monthly steps)</div><div class="chart" id="f-rolling"></div>`;
+    <div class="chart-title">Rolling betas (${roll.d.length ? Math.min(Q.TD, Math.floor(e.n_obs / 2)) : 0}-day window, monthly steps)${fb}</div><div class="chart" id="f-rolling"></div>`;
   const c = pal();
   const labels = cols.map((f) => FACTOR[f]);
   plot($("#f-coef"), [{ type: "scatter", mode: "markers", y: labels, x: cols.map((f) => e.betas[f]), name: "β",
@@ -1267,7 +1329,7 @@ async function drawFactorModel(sym, r, model) {
 function watchlistResearchHtml(research, model) {
   const exps = research.exposures[model] || [];
   const cols = Q.MODELS[model];
-  return `<h3 style="margin-top:12px">Deep-tier factor exposures (${esc(model)}, Python) ${mq("factor-model")}</h3>${table([
+  return `<h3 style="margin-top:12px">Deep-tier factor exposures (${esc(model)}, Python) ${mq("factor-model")}${fresh("deep-prices", "french")}</h3>${table([
       { h: "Ticker", f: (x) => routeLink("financials", x.ticker) },
       { h: "Alpha/yr", r: 1, f: (x) => pct(x.alpha_annual) }, { h: "Alpha t", r: 1, f: (x) => num(x.alpha_t, 1) },
       ...cols.map((f) => ({ h: FACTOR[f], r: 1, f: (x) => num(x.betas[f], 2) })),
@@ -1275,7 +1337,7 @@ function watchlistResearchHtml(research, model) {
       { h: "Stock-specific variance", f: (x) => bar(100 * (x.variance_share?.idiosyncratic ?? NaN)) },
       { h: "Tilts", cls: "wrap-text", f: (x) => esc((x.tilts || []).join(", ")) },
     ], exps)}
-    <h3 style="margin-top:18px">Composite factor scores ${mq("deep-scores")}</h3>
+    <h3 style="margin-top:18px">Composite factor scores ${mq("deep-scores")}${fresh("deep-prices", "sec")}</h3>
     <p class="caption">Each metric is ranked across the deep tier (0 = worst, 100 = best) and averaged into pillars: Value (E/P, FCF/P, B/M, S/P),
       Quality (ROE, cash ROA, low leverage, low accruals), Momentum (12-1, 6-1).</p>
     ${table([
@@ -1285,7 +1347,7 @@ function watchlistResearchHtml(research, model) {
       { h: "B/M", r: 1, f: (s) => num(s.bm, 2) }, { h: "ROE", r: 1, f: (s) => pct(s.roe, 0, false) }, { h: "D/E", r: 1, f: (s) => num(s.de, 2) },
       { h: "Mom 12-1", r: 1, f: (s) => pct(s.m121, 0) },
     ], research.scores)}
-    <h3 style="margin-top:18px">Academic strategy backtests ${mq("strategy-backtests")}</h3>${table([
+    <h3 style="margin-top:18px">Academic strategy backtests ${mq("strategy-backtests")}${fresh("deep-prices", "french")}</h3>${table([
       { h: "Strategy", f: (s) => esc(s.strategy) }, { h: "Paper", cls: "clip", f: (s) => esc(s.paper) },
       { h: "CAGR", r: 1, f: (s) => pct(s.cagr, 1, false) }, { h: "Vol", r: 1, f: (s) => pct(s.vol, 1, false) },
       { h: "Sharpe", r: 1, f: (s) => num(s.sharpe, 2) }, { h: "Max drawdown", r: 1, f: (s) => pct(s.mdd, 1, false) },
@@ -1315,6 +1377,7 @@ async function render() {
   if (cleanup) { try { cleanup(); } catch (e) { console.error(e); } cleanup = null; }
   closeDrawer();
   await dataStatus();
+  pageSources = PAGE_SOURCES[route] === undefined ? null : PAGE_SOURCES[route];
   document.querySelectorAll("nav.tabs a[data-route]").forEach((a) => a.classList.toggle("on", a.dataset.route === route));
   const view = $("#view");
   view.innerHTML = '<div class="loading">Loading…</div>';
@@ -1372,6 +1435,7 @@ async function shell() {
     render();
   });
   window.addEventListener("hashchange", render);
+  watchPanels();
   render();
 }
 // Deferred scripts (quant.js, app.js, live.js) all run before DOMContentLoaded, so every route exists by then.

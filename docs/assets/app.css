@@ -502,3 +502,13 @@ table.corr tbody th { background: var(--bg-soft); position: sticky; left: 0; }
 a.dq { color: var(--warn); text-decoration: none; font-weight: 700; }
 .st-more summary { cursor: pointer; color: var(--text-faint); font-size: 0.8rem; }
 .st-more ul { margin: 4px 0 0; max-height: 220px; overflow: auto; }
+
+/* --- freshness badges ---------------------------------------------------------------------- */
+a.fresh { display: inline-flex; align-items: center; gap: 5px; margin-left: 8px; padding: 1px 8px; border-radius: 999px; font-size: 0.72rem;
+  font-weight: 500; letter-spacing: 0; text-transform: none; text-decoration: none; vertical-align: middle; white-space: nowrap; border: 1px solid transparent; }
+a.fresh i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+a.fresh.green { background: var(--good-soft); color: var(--good); } a.fresh.green i { background: var(--good); }
+a.fresh.amber { background: var(--warn-soft); color: var(--warn); } a.fresh.amber i { background: var(--warn); }
+a.fresh.red { background: var(--bad-soft); color: var(--bad); border-color: var(--bad); } a.fresh.red i { background: var(--bad); }
+.panel-meta { margin: 10px 0 2px; font-size: 0.82rem; color: var(--text-soft); }
+@media (max-width: 640px) { a.fresh { white-space: normal; margin-left: 0; margin-top: 2px; } }

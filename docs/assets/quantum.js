@@ -1207,6 +1207,13 @@
   }
   SECTIONS.push({ id: "learn", title: "Learn more: glossary, path and references", html: learn });
 
+  // Freshness badges per section: the nightly Qiskit run, prices loaded in the browser, or a simulation run here.
+  // Sections of explanation only have no data, so no badge.
+  const SIM_HERE = { provider: "Simulated in your browser", live: true };
+  const PRICES_HERE = { provider: "CNBC / Binance", label: "Prices loaded in your browser", live: true };
+  const SECTION_SOURCES = { lab: [SIM_HERE], converge: [SIM_HERE], options: ["quantum", PRICES_HERE], risk: ["quantum", PRICES_HERE],
+    portfolio: ["quantum", PRICES_HERE], nightly: ["quantum"] };
+
   function view(el, arg) {
     return render(el, arg);
   }
@@ -1222,7 +1229,8 @@
       <div class="q-banner">⚛ Every quantum number on this page comes from a simulator: Qiskit, run nightly on an ordinary PC, or a small simulator
         in your browser. No quantum hardware is used. <b>${SIM}.</b> Not investment advice.</div>
       <nav class="q-toc" aria-label="Sections">${SECTIONS.map((s) => `<button type="button" class="chip" data-go="${s.id}">${s.n} · ${esc(s.title)}</button>`).join("")}</nav>
-      ${SECTIONS.map((s) => `<section class="q-sec" id="q-${s.id}"><h2><span class="q-n">${s.n}</span>${esc(s.title)}</h2>${s.html(ctx)}</section>`).join("")}`;
+      ${SECTIONS.map((s) => { const src = SECTION_SOURCES[s.id];
+        return `<section class="q-sec" id="q-${s.id}"${src ? "" : " data-nofresh"}><h2><span class="q-n">${s.n}</span>${esc(s.title)}${src ? fresh(src) : ""}</h2>${s.html(ctx)}</section>`; }).join("")}`;
     timers.splice(0).forEach((stop) => stop());
     window.onRouteCleanup(() => timers.splice(0).forEach((stop) => stop()));
     el.querySelectorAll("[data-go]").forEach((b) => b.addEventListener("click", () => go(b.dataset.go, true)));

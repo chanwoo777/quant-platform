@@ -281,7 +281,7 @@
         <div class="pc-head">
           <div class="pc-title"><h1>${esc(r.sym)}</h1><span class="soft">${esc(r.name || "")}</span>
             <span class="ticker-price" id="pc-price">–</span><span id="pc-change"></span>
-            <span class="status wait" id="pc-status"><i></i><span>Loading…</span></span></div>
+            <span class="status wait" id="pc-status"><i></i><span>Loading…</span></span><span id="pc-fresh"></span></div>
           <div class="pc-links">${r.row ? `<a href="#/stock/${encodeURIComponent(r.sym)}">Stock page</a> · <a href="#/financials/${encodeURIComponent(r.sym)}">Research</a> · ` : ""}
             <span class="muted">Quick:</span> <span class="chips" style="display:inline-flex">${picks(CRYPTO_PICKS)}${picks(STOCK_PICKS)}</span></div>
         </div>
@@ -320,10 +320,14 @@
       const msg = e.throttled ? "CNBC is throttling requests right now; try again in a minute." : e.message;
       $("#pc-chart").innerHTML = `<div class="empty">${esc(msg)}${r.row ? `<br><a href="#/stock/${encodeURIComponent(r.sym)}">The stock page</a> still has its scores and returns.` : ""}</div>`;
       setStatus("err", msg);
+      $("#pc-fresh").innerHTML = fresh({ provider: r.feed === "binance" ? "Binance" : "CNBC", label: "Live chart", error: msg });
       renderAlerts($("#pc-alerts", el), r.sym);
       return;
     }
     const pc = proChart(el, r, iv, bars);
+    const lastBar = bars.length ? new Date(bars[bars.length - 1].t * 1000).toISOString().slice(0, 10) : null;
+    $("#pc-fresh").innerHTML = fresh({ provider: feed === "binance" ? "Binance" : "CNBC", label: "Live chart: latest bar", asOf: lastBar,
+      calendar: feed === "binance", expect: isIntraday(iv) ? 1 : 5 });
     current = pc;
     window.onRouteCleanup(() => { if (current) { current.destroy(); current = null; } });
     $("#pc-int").innerHTML = FEED_INTERVALS[feed].map((i) => `<button type="button" class="chip${i === iv ? " on" : ""}" data-v="${i}">${LABEL[i] || i}</button>`).join("");
