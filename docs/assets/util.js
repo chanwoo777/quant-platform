@@ -24,7 +24,43 @@
     return { list: good.slice(0, WATCH_MAX), skipped: raw.length - Math.min(good.length, WATCH_MAX) };
   }
 
-  const U = { WATCH_FORMAT, isTicker, exportWatchlist, parseWatchlist };
+  // --- page state in the URL: #/route/arg?key=value&list=a,b ----------------------------------------
+  // Every page writes what it shows (tickers, windows, filters, basket) after the "?", so a copied link
+  // reproduces the view in a fresh browser. Lists are comma-separated; empty values are left out.
+  const enc = (s) => encodeURIComponent(String(s)).replace(/%2C/gi, ",").replace(/%5E/gi, "^");
+  function parseHash(hash) {
+    const h = String(hash || "").replace(/^#\/?/, "");
+    const i = h.indexOf("?");
+    const path = i < 0 ? h : h.slice(0, i), qs = i < 0 ? "" : h.slice(i + 1);
+    const [route = "", ...rest] = path.split("/");
+    const params = {};
+    for (const part of qs.split("&")) {
+      if (!part) continue;
+      const j = part.indexOf("=");
+      const dec = (s) => { try { return decodeURIComponent(s.replace(/\+/g, " ")); } catch (e) { return s; } };
+      params[dec(j < 0 ? part : part.slice(0, j))] = j < 0 ? "" : dec(part.slice(j + 1));
+    }
+    let arg;
+    try { arg = rest.length ? decodeURIComponent(rest.join("/")) : undefined; } catch (e) { arg = rest.join("/"); }
+    return { route, arg: arg === "" ? undefined : arg, params };
+  }
+  function buildHash(route, arg, params = {}) {
+    const keep = Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== "" && !(Array.isArray(v) && !v.length)
+      && !(typeof v === "number" && !Number.isFinite(v)));
+    const qs = keep.map(([k, v]) => `${enc(k)}=${enc(Array.isArray(v) ? v.join(",") : v)}`).join("&");
+    return `#/${route}${arg !== undefined && arg !== null && arg !== "" ? "/" + enc(arg) : ""}${qs ? "?" + qs : ""}`;
+  }
+  /** A comma list from a URL value ("" -> []). */
+  const listParam = (s) => (s === undefined || s === null || s === "" ? [] : String(s).split(",").map((x) => x.trim()).filter(Boolean));
+  /** A number from a URL value within [lo, hi], or the fallback. */
+  function numParam(s, fallback, lo = -Infinity, hi = Infinity) {
+    const x = Number(s);
+    return s === undefined || s === "" || !Number.isFinite(x) ? fallback : Math.min(hi, Math.max(lo, x));
+  }
+  /** A value from a URL only when it is one of `allowed`. */
+  const oneOf = (s, allowed, fallback) => (allowed.includes(s) ? s : fallback);
+
+  const U = { WATCH_FORMAT, isTicker, exportWatchlist, parseWatchlist, parseHash, buildHash, listParam, numParam, oneOf };
   if (typeof module !== "undefined" && module.exports) module.exports = U;
   root.Util = U;
 })(typeof window !== "undefined" ? window : globalThis);

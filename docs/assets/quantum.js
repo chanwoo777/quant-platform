@@ -674,6 +674,7 @@
 
     const draw = () => {
       store.set("q:opt", { sym: O.sym, win: O.win, days: O.days, kind: O.kind, n: O.n });
+      shareLab("options", { sym: O.sym, days: O.days, kind: O.kind, win: O.win, n: O.n });
       chipsOn("op-win", O.win); chipsOn("op-days", O.days); chipsOn("op-kind", O.kind);
       $("#op-n", sec).value = String(O.n);
       $("#op-sym", sec).innerHTML = `${esc(O.sym)}${name ? ` <span class="soft">${esc(name)}</span>` : ""}`;
@@ -816,6 +817,7 @@
     const compute = async () => {
       const run = ++R.run;
       store.set("q:risk", { syms: B.syms, w: B.w, look: R.look, amt: R.amt });
+      shareLab("risk", { syms: B.syms, w: B.w.map((x) => +(100 * x).toFixed(2)), look: R.look, amt: R.amt });
       chipsOn();
       const out = $("#rk-out", sec);
       if (!B.syms.length) { out.innerHTML = '<div class="empty">Add at least one stock.</div>'; return; }
@@ -925,6 +927,7 @@
     const estimate = async () => {
       const run = ++P.run;
       store.set("q:pf", { syms: B.syms, look: P.look, pick: P.pick, lam: P.lam, K: P.K, ql: P.ql });
+      shareLab("portfolio", { syms: B.syms, look: P.look, pick: P.pick, lam: P.lam, K: P.K, ql: P.ql });
       chipsOn("pf-look", P.look);
       const px = await basketPrices(B.syms, P.look);
       if (run !== P.run) return;
@@ -1022,7 +1025,8 @@
 
     const redraw = bindBasket(sec, "pf", B, { min: 3, max: 15, onChange: () => estimate().then(drawQaoa).catch(fail) });
     sec.querySelectorAll("#pf-look .chip").forEach((b) => b.addEventListener("click", () => { P.look = Number(b.dataset.v); estimate().catch(fail); }));
-    sec.querySelectorAll("#pf-pick .chip").forEach((b) => b.addEventListener("click", () => { P.pick = b.dataset.v; store.set("q:pf", Object.assign(store.get("q:pf", {}), { pick: P.pick })); drawFrontier(); }));
+    sec.querySelectorAll("#pf-pick .chip").forEach((b) => b.addEventListener("click", () => { P.pick = b.dataset.v; store.set("q:pf", Object.assign(store.get("q:pf", {}), { pick: P.pick }));
+      shareLab("portfolio", { syms: B.syms, look: P.look, pick: P.pick, lam: P.lam, K: P.K, ql: P.ql }); drawFrontier(); }));
     $("#pf-lam", sec).addEventListener("input", (e) => { P.lam = Number(e.target.value); drawFrontier(); });
     $("#pf-k", sec).addEventListener("input", (e) => { P.K = Number(e.target.value); drawQubo(); });
     $("#pf-ql", sec).addEventListener("input", (e) => { P.ql = Number(e.target.value); drawQubo(); });
@@ -1214,11 +1218,34 @@
   const SECTION_SOURCES = { lab: [SIM_HERE], converge: [SIM_HERE], options: ["quantum", PRICES_HERE], risk: ["quantum", PRICES_HERE],
     portfolio: ["quantum", PRICES_HERE], nightly: ["quantum"] };
 
+  // --- lab state in the link: #/quantum/options?sym=AAPL&days=90, #/quantum/risk?syms=..., #/quantum/portfolio?syms=...
+  let labsReady = false;  // the labs save their state while they first draw; only changes after that rewrite the link
+  function shareLab(section, params) { if (labsReady) setPageParams("quantum", params, section); }
+  /** A link's lab settings win over this browser's saved ones (each value checked before use). */
+  function applyLabLink(section, p) {
+    if (!Object.keys(p || {}).length) return;
+    const tickers = (s) => Util.listParam(s).filter(Util.isTicker).slice(0, 15);
+    if (section === "options") {
+      store.set("q:opt", Object.assign(store.get("q:opt", {}), {
+        sym: Util.isTicker(p.sym || "") ? p.sym : "AAPL", days: Util.oneOf(Number(p.days), [30, 90, 180], 90), kind: Util.oneOf(p.kind, ["call", "put"], "call"),
+        win: Util.oneOf(Number(p.win), WINDOWS.map((w) => w[0]), 126), n: Util.numParam(p.n, 1e5, 1e3, 1e6) }));
+    } else if (section === "risk") {
+      const syms = tickers(p.syms), w = Util.listParam(p.w).map(Number);
+      store.set("q:risk", { syms, w: w.length === syms.length && w.every((x) => x >= 0) ? w.map((x) => x / 100) : syms.map(() => 1 / syms.length),
+        look: Util.oneOf(Number(p.look), [252, 500], 500), amt: Util.numParam(p.amt, 1e6, 1, 1e12) });
+    } else if (section === "portfolio") {
+      store.set("q:pf", { syms: tickers(p.syms), look: Util.oneOf(Number(p.look), [252, 500], 500), pick: Util.oneOf(p.pick, ["sharpe", "minvar", "lam"], "sharpe"),
+        lam: Util.numParam(p.lam, 50, 0, 100), K: Util.numParam(p.K, 3, 1, 15) | 0, ql: Util.numParam(p.ql, 10, 0, 40) });
+    }
+  }
+
   function view(el, arg) {
     return render(el, arg);
   }
 
   async function render(el, arg) {
+    labsReady = false;
+    applyLabLink(arg, pageParams());
     const [doc, market] = await Promise.all([load("quantum.json").catch(() => null), load("market.json").catch(() => null)]);
     const ctx = { q: doc && doc.options && Array.isArray(doc.options.items) ? doc : null, market };
     SECTIONS.forEach((s, i) => { s.n = i + 1; });
@@ -1241,6 +1268,7 @@
         $(`#q-${s.id}`, el).insertAdjacentHTML("beforeend", `<div class="empty">This section couldn't load (${esc(e.message)}).</div>`);
       }
     }
+    labsReady = true;
     if (arg) go(arg, false);
   }
 
@@ -1248,7 +1276,7 @@
     const target = document.getElementById(`q-${id}`);
     if (!target) return;
     target.scrollIntoView({ behavior: remember ? "smooth" : "auto", block: "start" });
-    if (remember) history.replaceState(null, "", `#/quantum/${id}`);  // a deep link that doesn't re-render
+    if (remember) setPageParams("quantum", {}, id);  // a deep link that doesn't re-render
   }
 
   root.QUANTUM = { view };

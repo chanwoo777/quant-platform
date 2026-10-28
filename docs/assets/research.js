@@ -123,6 +123,12 @@ async function viewCompare(view, arg) {
   const meta = await load("meta.json");
   const fromUrl = arg ? arg.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean) : null;
   CMP.syms = (fromUrl && fromUrl.length ? fromUrl : CMP.syms || store.get("compare", CMP_DEFAULT)).slice(0, 5);
+  const p = pageParams();
+  CMP.years = Util.numParam(p.years, CMP.years, 1, 3) | 0;
+  CMP.model = Util.oneOf(p.model, Object.keys(Q.MODELS), CMP.model);
+  CORR.win = Util.oneOf(p.cw, Object.keys(CORR_WINDOWS), CORR.win);
+  CORR.order = Util.oneOf(p.co, ["cluster", "alpha"], CORR.order);
+  const toUrl = () => setPageParams("compare", { years: CMP.years, model: CMP.model, cw: CORR.win, co: CORR.order }, CMP.syms.join(","));
   view.innerHTML = `
     <h1>Compare</h1>
     <p class="soft">Put 2 to 5 stocks, ETFs, coins or indices side by side: returns, risk, factor exposures and fundamentals. Prices load in your browser;
@@ -145,7 +151,7 @@ async function viewCompare(view, arg) {
     const my = ++run;
     CMP.syms = B.syms.slice();
     store.set("compare", CMP.syms);
-    history.replaceState(null, "", `#/compare/${CMP.syms.map(encodeURIComponent).join(",")}`);
+    toUrl();
     chipsOn();
     const out = $("#cmp-out", view);
     if (CMP.syms.length < 2) { out.innerHTML = '<div class="empty">Add at least two tickers.</div>'; return; }
@@ -209,7 +215,9 @@ async function viewCompare(view, arg) {
         ${SIGNAL_NOTE}</p>
       ${winNote.length ? `<p class="caption">${winNote.join(" · ")}</p>` : ""}`;
     drawCompareChart(items);
-    if (typeof window.drawCorrelationPanel === "function") window.drawCorrelationPanel($("#cmp-corr", view), CMP.syms);
+    const corr = $("#cmp-corr", view);
+    corr.onState = toUrl;
+    if (typeof window.drawCorrelationPanel === "function") window.drawCorrelationPanel(corr, CMP.syms);
   };
   bindBasket(view, "cmp", B, { min: 2, max: 5, minBars: 60, onChange: () => draw().catch(fail) });
   const fail = (e) => { console.error(e); $("#cmp-out", view).innerHTML = `<div class="empty">${esc(e.message)}</div>`; };
@@ -268,6 +276,7 @@ async function drawCorrelationPanel(el, syms) {
     <div class="corr-body"><div class="loading">Loading prices…</div></div>`;
   el.querySelectorAll("[data-corr] .chip").forEach((b) => b.addEventListener("click", () => {
     CORR[b.parentElement.dataset.corr] = b.dataset.v;
+    if (el.onState) el.onState();
     drawCorrelationPanel(el, syms);
   }));
   const body = $(".corr-body", el);

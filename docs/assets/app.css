@@ -537,3 +537,8 @@ button.dl:hover { color: var(--accent); border-color: var(--accent); }
 .wl-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px 2px 2px; border: 1px solid var(--border); border-radius: 999px; font-size: 0.84rem; }
 .wl-chip a { text-decoration: none; }
 .pc-title .star, th .star { font-size: 1rem; }
+
+/* --- toast (copy link and other short confirmations) ---------------------------------------- */
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); opacity: 0; pointer-events: none; z-index: 60;
+  background: var(--text); color: var(--bg); padding: 9px 16px; border-radius: 8px; font-size: 0.88rem; transition: opacity .2s, transform .2s; max-width: calc(100vw - 32px); }
+.toast.show { opacity: 1; transform: translate(-50%, 0); }

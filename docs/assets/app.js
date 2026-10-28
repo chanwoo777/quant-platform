@@ -554,9 +554,29 @@ const FH = {
 const G = { classes: new Set(["s", "e", "c"]), signals: new Set(), market: "", sector: "", q: "", min: 0, cap: "",
   unusual: false, sort: "sc", dir: -1, page: 0, tab: "screener" };
 const PAGE = 50;
+const G_TABS = ["screener", "sectors", "movers", "watch"];
+const gDefaults = () => ({ classes: new Set(["s", "e", "c"]), signals: new Set(), market: "", sector: "", q: "", min: 0, cap: "", unusual: false,
+  sort: "sc", dir: -1, page: 0, tab: "screener" });
+function globalFromUrl(p) {
+  if (!Object.keys(p).length) return;  // a plain #/global keeps this session's filters
+  Object.assign(G, gDefaults());
+  if (p.cls !== undefined) G.classes = new Set(Util.listParam(p.cls).filter((c) => ["s", "e", "c"].includes(c)));
+  if (p.sig) G.signals = new Set(Util.listParam(p.sig).filter((s) => ["BUY", "HOLD", "AVOID"].includes(s)));
+  Object.assign(G, { market: p.mkt || "", sector: p.sec || "", q: p.q || "", min: Util.numParam(p.min, 0, 0, 100), cap: Util.oneOf(p.cap, ["10", "100"], ""),
+    unusual: p.unu === "1", sort: Util.oneOf(p.sort, SCREEN_COLS.map((c) => c.sort).filter(Boolean), "sc"), dir: p.dir === "1" ? 1 : -1,
+    page: Math.floor(Util.numParam(p.page, 1, 1, 1e4)) - 1, tab: Util.oneOf(p.tab, G_TABS, "screener") });
+  GS.sector = p.hm || null;
+}
+function globalToUrl() {
+  const cls = ["s", "e", "c"].filter((c) => G.classes.has(c));
+  setPageParams("global", { tab: G.tab === "screener" ? "" : G.tab, cls: cls.length === 3 ? "" : cls.join(",") || "none", sig: [...G.signals].join(","),
+    mkt: G.market, sec: G.sector, q: G.q, min: G.min || "", cap: G.cap, unu: G.unusual ? 1 : "", sort: G.sort === "sc" ? "" : G.sort, dir: G.dir === 1 ? 1 : "",
+    page: G.page ? G.page + 1 : "", hm: G.tab === "sectors" ? GS.sector : "" });
+}
 
 async function viewGlobal(view) {
   const [g, rows, meta] = [await load("global.json"), await screenerRows(), await load("meta.json")];
+  globalFromUrl(pageParams());
   G.asOf = { scored: g.scored_at, prices: meta.prices_as_of };
   await watchlist();
   const markets = [...new Set(rows.map((r) => r.m))].sort();
@@ -704,6 +724,7 @@ function drawSectorMap(body, rows) {
 
 function drawGlobal() {
   const view = $("#view");
+  globalToUrl();
   const rows = filtered();
   const buy = rows.filter((r) => r.sig === "BUY").length, avoid = rows.filter((r) => r.sig === "AVOID").length;
   $("#g-kpis", view).innerHTML = kpi("Matching", rows.length.toLocaleString()) +
@@ -826,6 +847,7 @@ function priceChart(el, px, span, { height = 360, bollinger = false, rsiPanel = 
 
 // --- indicator charts (Stock pages): any mix of TradingView-style overlays and oscillator panes ---
 const S_IND = new Set(store.get("stockIndicators", ["sma", "volume", "rsi"]));
+let shareIndicators = () => {};  // the page on screen sets this to rewrite its link when indicators change
 const PANE_VOLUME = { id: "volume", name: "Volume", kind: "pane" };
 const colorOf = (key) => { const c = pal(); return { s0: c.series[0], s1: c.series[1], s2: c.series[2], s3: c.series[3], s4: c.series[4], s5: c.series[5], s6: c.series[6], s7: c.series[7] }[key] || c[key] || key; };
 function withAlpha(hex, a) {
@@ -844,6 +866,7 @@ function bindIndicatorChips(root, redraw) {
     const id = b.dataset.v;
     S_IND.has(id) ? S_IND.delete(id) : S_IND.add(id);
     store.set("stockIndicators", [...S_IND]);
+    shareIndicators();
     b.classList.toggle("on", S_IND.has(id));
     redraw();
   }));
@@ -905,6 +928,12 @@ function indicatorChart(el, d, span, { candles = false, height = 560, extra = nu
 const M = { span: new Set(["1Y"]), scope: new Set(["All"]) };
 
 async function viewMarkets(view) {
+  const p = pageParams();
+  if (p.span) setOne(M.span, Util.oneOf(p.span, ["6M", "1Y", "2Y", "10Y"], "1Y"));
+  if (p.news) setOne(M.scope, Util.oneOf(p.news, ["All", "Watchlist", "Market-wide"], "All"));
+  indicatorsFromUrl(p);
+  const toUrl = () => setPageParams("markets", { span: [...M.span][0], news: [...M.scope][0] === "All" ? "" : [...M.scope][0], ind: indicatorsParam() });
+  shareIndicators = toUrl;
   const [m, spx] = await Promise.all([load("market.json"), priceHistory("^GSPC").catch((e) => ({ error: e.message }))]);
   const reg = m.regime;
   const stanceClass = { "Risk-On": "good", Neutral: "warn", "Risk-Off": "bad" }[reg.stance] || "";
@@ -944,6 +973,7 @@ async function viewMarkets(view) {
     <h2>Breaking news${fresh("news")}</h2><div class="controls" style="margin-top:0">${chips("scope", [["All", "All"], ["Watchlist", "Watchlist"], ["Market-wide", "Market-wide"]], M.scope, false)}</div><div id="m-news"></div>`;
 
   const drawSpx = async () => {
+    toUrl();
     const span = [...M.span][0], el = $("#m-spx");
     let h = spx;
     if (span === "10Y") try { h = await priceHistory("^GSPC", { weekly: true }); } catch (e) { h = { error: e.message }; }
@@ -959,6 +989,7 @@ async function viewMarkets(view) {
     indicatorChart(el, d, span, { height: 400, extra: () => legend, shapes });
   };
   const drawNews = () => {
+    toUrl();
     const scope = [...M.scope][0];
     const news = m.news.filter((n) => scope === "All" || (scope === "Watchlist" ? n.ticker : !n.ticker)).slice(0, 40);
     $("#m-news").innerHTML = table([
@@ -1043,13 +1074,20 @@ async function viewStock(view, arg) {
   await watchlist();
   const sym = arg || store.get("ticker", meta.deep[0].ticker);
   store.set("ticker", sym);
+  indicatorsFromUrl(pageParams());
   if (meta.deep.some((t) => t.ticker === sym)) return viewStockDeep(view, sym);
   const row = await rowFor(sym);
   if (!row) return viewUnknown(view, sym, "stock");
   return viewStockUniverse(view, sym, row);
 }
 
+const LAYER_KEYS = { News: "news", "Unusual moves": "moves" };
 async function viewStockDeep(view, ticker) {
+  const p = pageParams();
+  if (p.span) setOne(S.span, Util.oneOf(p.span, ["3M", "6M", "1Y", "All"], "6M"));
+  if (p.layers !== undefined) { S.layers.clear(); Object.entries(LAYER_KEYS).forEach(([k, v]) => { if (Util.listParam(p.layers).includes(v)) S.layers.add(k); }); }
+  const toUrl = () => setPageParams("stock", { span: [...S.span][0], layers: [...S.layers].map((k) => LAYER_KEYS[k]).join(",") || "none", ind: indicatorsParam() }, ticker);
+  shareIndicators = toUrl;
   const [d, h] = await Promise.all([load(`deep/${ticker.replace("^", "_")}.json`), priceHistory(ticker).catch((e) => ({ error: e.message }))]);
   Object.assign(d, h.error ? { d: [], o: [], h: [], l: [], c: [], v: null } : { d: h.dates, o: h.open, h: h.high, l: h.low, c: h.close, v: h.volume, src: h.source });
   const n = d.c.length, snap = d.snapshot;
@@ -1094,7 +1132,7 @@ async function viewStockDeep(view, ticker) {
       ], d.news, { tall: true, empty: "No on-topic headlines for this ticker yet." })}</div>
     </div>`;
   bindAssetHeader(view, ticker, "stock");
-  const draw = () => { if (!h.error) drawStockChart(d); };
+  const draw = () => { toUrl(); if (!h.error) drawStockChart(d); };
   bindChips(view, "span", S.span, false, draw);
   bindChips(view, "layers", S.layers, true, draw);
   bindIndicatorChips(view, draw);
@@ -1132,6 +1170,10 @@ function drawStockChart(d) {
 
 const U = { span: new Set(["1Y"]), bollinger: new Set() };
 async function viewStockUniverse(view, sym, row) {
+  const p = pageParams();
+  if (p.span) setOne(U.span, Util.oneOf(p.span, ["3M", "6M", "1Y", "All"], "1Y"));
+  const toUrl = () => setPageParams("stock", { span: [...U.span][0], ind: indicatorsParam() }, sym);
+  shareIndicators = toUrl;
   const [sd, px] = await Promise.all([symbolData(sym), priceHistory(sym).catch((e) => ({ error: e.message }))]);
   const info = (sd && sd.info) || {}, err = px.error;
   const vals = err ? [] : px.close;
@@ -1172,7 +1214,7 @@ async function viewStockUniverse(view, sym, row) {
       <p class="caption">${await isDeep(sym) ? "" : "News markers and explained unusual moves are kept for the deep-tier names; add this one to the deep tier from the local dashboard to get them."}</p></div>
     </div>`;
   bindAssetHeader(view, sym, "stock");
-  const draw = () => { if (!err) indicatorChart($("#u-chart"), ohlcv(px), [...U.span][0], { candles: true, height: 460, rangebreaks: row.a !== "c" }); };
+  const draw = () => { toUrl(); if (!err) indicatorChart($("#u-chart"), ohlcv(px), [...U.span][0], { candles: true, height: 460, rangebreaks: row.a !== "c" }); };
   bindChips(view, "uspan", U.span, false, draw);
   bindIndicatorChips(view, draw);
   draw();
@@ -1217,6 +1259,9 @@ async function viewFinancials(view, arg) {
   await watchlist();
   const sym = arg || store.get("ticker", meta.deep[0].ticker);
   store.set("ticker", sym);
+  const p = pageParams();
+  if (p.model) setOne(F.model, Util.oneOf(p.model, ["FF3", "Carhart", "FF5"], "FF3"));
+  setPageParams("financials", { model: [...F.model][0] }, sym);
   const row = await rowFor(sym);
   const deep = meta.deep.some((t) => t.ticker === sym);
   if (!row && !deep) return viewUnknown(view, sym, "financials");
@@ -1251,7 +1296,7 @@ async function viewFinancials(view, arg) {
     <div id="ff"><div class="loading">Running the regression…</div></div>
     <details${deep ? " open" : ""}><summary>Watchlist research: factor exposures, composite scores and strategy backtests</summary><div id="wl-research"></div></details>`;
   bindAssetHeader(view, sym, "financials");
-  bindChips(view, "model", F.model, false, () => viewFinancials(view, sym));
+  bindChips(view, "model", F.model, false, () => { NOW.params = { model: [...F.model][0] }; viewFinancials(view, sym); });
 
   peersHtml(sym, r).then((h) => { const el = $("#peers"); if (el) el.innerHTML = h; });
   // Financial statements: SEC filings for the deep tier, Finnhub's reported statements otherwise.
@@ -1490,14 +1535,36 @@ const ROUTES = { global: viewGlobal, markets: viewMarkets, stock: viewStock, fin
   quantum: (view, arg) => (window.QUANTUM ? window.QUANTUM.view(view, arg) : (view.innerHTML = '<div class="empty">The Quantum page failed to load.</div>')),
   live: (view, arg) => (window.LIVE ? window.LIVE.view(view, arg) : (view.innerHTML = '<div class="empty">Live charts failed to load.</div>')) };
 const MOVED = { bot: "#/global" };  // retired routes: old links land somewhere useful
+// --- page state in the URL (util.js parseHash / buildHash): a copied link reproduces the view --------
+const NOW = { route: "global", params: {} };
+/** The "?key=value" state of the link that opened this page. */
+const pageParams = () => NOW.params;
+/** Write a view's state into the address bar (no reload, no history entry). Ignored when the visitor has
+ * already moved to another route, so a slow page can't overwrite the next page's link. */
+function setPageParams(route, params, arg) {
+  if ((Util.parseHash(location.hash).route || "global") !== route && !(route === "global" && !location.hash.replace(/^#\/?/, ""))) return;
+  NOW.params = Object.fromEntries(Object.entries(params).map(([k, v]) => [k, Array.isArray(v) ? v.join(",") : v === undefined || v === null ? "" : String(v)]).filter(([, v]) => v !== ""));
+  const h = Util.buildHash(route, arg, params);
+  if (h !== location.hash) history.replaceState(null, "", h);
+}
+/** Indicator chips from a link (?ind=sma,rsi; "none" = all off); a link never changes the visitor's saved choice. */
+function indicatorsFromUrl(p) {
+  if (p.ind === undefined) return;
+  const known = new Set(["volume", ...Q.INDICATORS.map((i) => i.id)]);
+  S_IND.clear();
+  Util.listParam(p.ind).filter((id) => known.has(id)).forEach((id) => S_IND.add(id));
+}
+const indicatorsParam = () => [...S_IND].join(",") || "none";
+function setOne(set, value) { set.clear(); set.add(value); }
 let cleanup = null;
 window.onRouteCleanup = (fn) => { cleanup = fn; };
 
 async function render() {
-  const [, name = "global", ...rest] = location.hash.replace(/^#/, "").split("/");
+  const parsed = Util.parseHash(location.hash), name = parsed.route || "global", arg = parsed.arg;
   if (MOVED[name]) { location.replace(MOVED[name]); return; }
-  const arg = rest.length ? decodeURIComponent(rest.join("/")) : undefined;
   const route = ROUTES[name] ? name : "global";
+  Object.assign(NOW, { route, params: parsed.params });
+  shareIndicators = () => {};
   if (cleanup) { try { cleanup(); } catch (e) { console.error(e); } cleanup = null; }
   closeDrawer();
   await dataStatus();
@@ -1515,6 +1582,25 @@ async function render() {
       : `<p class="soft">This page couldn't load its data (${esc(e.message)}).</p>`}
       <p class="soft">The site is refreshed once a day; if this persists, the latest export may not have been published.</p>`;
   }
+}
+
+/** Copy the address (the view's state included) to the clipboard, with a fallback for older browsers. */
+async function copyLink() {
+  const url = location.href;
+  let done = false;
+  try { await navigator.clipboard.writeText(url); done = true; } catch (e) {
+    const ta = Object.assign(document.createElement("textarea"), { value: url });
+    document.body.appendChild(ta); ta.select();
+    try { done = document.execCommand("copy"); } catch (e2) { done = false; }
+    ta.remove();
+  }
+  toast(done ? "Link copied: it opens this exact view." : `Copy this link: ${url}`);
+}
+function toast(text) {
+  let t = $("#toast");
+  if (!t) { t = Object.assign(document.createElement("div"), { id: "toast", className: "toast" }); t.setAttribute("role", "status"); document.body.appendChild(t); }
+  t.textContent = text; t.classList.add("show");
+  clearTimeout(t.timer); t.timer = setTimeout(() => t.classList.remove("show"), 3200);
 }
 
 function settingsDialog() {
@@ -1552,6 +1638,7 @@ async function shell() {
   $("#hsearch").innerHTML = searchBox("Search ticker or company");
   bindSearch($("#hsearch"), (sym) => { location.hash = `#/stock/${encodeURIComponent(sym)}`; });
   settingsDialog();
+  $("#share").addEventListener("click", copyLink);
   $("#theme").addEventListener("click", () => {
     const next = isDark() ? "light" : "dark";
     document.documentElement.setAttribute("data-theme", next);

@@ -274,7 +274,11 @@
     store.set("liveSymbol", r.sym);
     const ivKey = `pc:interval:${r.feed}`;
     let feed = r.feed, iv = store.get(ivKey, r.feed === "binance" ? "15m" : "5m");
+    const p = pageParams();  // a shared link's interval and chart type win over this browser's saved ones
+    if (FEED_INTERVALS[feed].includes(p.iv)) iv = p.iv;
+    if (CHART_TYPES.includes(p.type)) state.type = p.type;
     if (!FEED_INTERVALS[feed].includes(iv)) iv = FEED_INTERVALS[feed][0];
+    setPageParams("live", { iv, type: state.type }, r.sym);
     const picks = (list) => list.map((s) => `<a class="chip${s === r.sym ? " on" : ""}" href="#/live/${encodeURIComponent(s)}">${esc(s.replace(/USDT$/, ""))}</a>`).join("");
     el.innerHTML = `
       <div class="pc" id="pc">
@@ -337,8 +341,9 @@
     current = pc;
     window.onRouteCleanup(() => { if (current) { current.destroy(); current = null; } });
     $("#pc-int").innerHTML = FEED_INTERVALS[feed].map((i) => `<button type="button" class="chip${i === iv ? " on" : ""}" data-v="${i}">${LABEL[i] || i}</button>`).join("");
-    el.querySelectorAll("#pc-int .chip").forEach((b) => b.addEventListener("click", () => { store.set(ivKey, b.dataset.v); view(el, r.sym); }));
-    pc.onInterval = (next) => { if (FEED_INTERVALS[feed].includes(next)) { store.set(ivKey, next); view(el, r.sym); } };
+    const switchTo = (next) => { store.set(ivKey, next); NOW.params = { iv: next, type: state.type }; view(el, r.sym); };
+    el.querySelectorAll("#pc-int .chip").forEach((b) => b.addEventListener("click", () => switchTo(b.dataset.v)));
+    pc.onInterval = (next) => { if (FEED_INTERVALS[feed].includes(next)) switchTo(next); };
     $("#pc-foot").innerHTML = footNote(r, feed);
     renderAlerts($("#pc-alerts", el), r.sym);
   }
@@ -692,7 +697,9 @@
     // --- toolbar, dialogs and shortcuts ------------------------------------------------------------
     let logOn = false, pctOn = false;
     const setScale = () => chart.priceScale("right").applyOptions({ mode: logOn ? 1 : pctOn ? 2 : 0 });
-    $("#pc-type", el).addEventListener("change", (e) => { state.type = e.target.value; store.set("pc:type", state.type); view(el.closest("#view") || el, r.sym); });
+    $("#pc-type", el).addEventListener("change", (e) => {
+      state.type = e.target.value; store.set("pc:type", state.type); NOW.params = { iv, type: state.type }; view(el.closest("#view") || el, r.sym);
+    });
     $("#pc-log", el).addEventListener("click", (e) => { logOn = !logOn; pctOn = false; setScale(); e.target.classList.toggle("on", logOn); $("#pc-pct", el).classList.remove("on"); });
     $("#pc-pct", el).addEventListener("click", (e) => { pctOn = !pctOn; logOn = false; setScale(); e.target.classList.toggle("on", pctOn); $("#pc-log", el).classList.remove("on"); });
     const screenshot = () => {
