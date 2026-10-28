@@ -20,8 +20,6 @@
   ];
 
   async function view(el) {
-    const rows = await Promise.all(PEERS.map((s) => rowFor(s).catch(() => null)));
-    const peers = rows.filter(Boolean);
     el.innerHTML = `
       <div class="st-hero">
         <h1>Start here</h1>
@@ -33,8 +31,7 @@
           <span class="st-icon" aria-hidden="true">${x.icon}</span><span class="st-n">${i + 1}</span>
           <h2 data-nofresh><a href="${esc(x.href)}">${esc(x.title)}</a></h2>
           <p class="soft">${esc(x.what)}</p>
-          ${x.id === "peers" && peers.length ? `<div class="st-mini">${peers.map((r) => `<span><b>${esc(r.s)}</b> <span class="${tone(r.ytd)}">${pct(r.ytd, 0)}</span></span>`).join("")}
-            <span class="muted">year to date${fresh("scores")}</span></div>` : ""}
+          ${x.id === "peers" ? '<div class="st-mini" id="st-mini"></div>' : ""}
           <a class="btn primary st-go" href="${esc(x.href)}">${esc(x.cta)} →</a>
         </div>`).join("")}
       </div>
@@ -50,6 +47,16 @@
         <a href="https://github.com/chanwoo777/quant-platform/issues/new/choose" target="_blank" rel="noopener">Suggest a feature or report a bug on GitHub</a>: there are forms for bugs, data errors and ideas.</p>
       <p class="caption">This page opens first on your first visit; after that the site starts on Global. It's always under <b>Start</b> in the menu.
         ${SIGNAL_NOTE}</p>`;
+    const box = el.querySelector("#st-mini");
+    if (box) setTimeout(() => fillPeers(box), 0);
+  }
+
+  /** The peers' year-to-date moves, once the screener has loaded (the page doesn't wait for it). */
+  async function fillPeers(box) {
+    const peers = (await Promise.all(PEERS.map((s) => rowFor(s).catch(() => null)))).filter(Boolean);
+    if (!box.isConnected || !peers.length) return;
+    box.innerHTML = `${peers.map((r) => `<span><b>${esc(r.s)}</b> <span class="${tone(r.ytd)}">${pct(r.ytd, 0)}</span></span>`).join("")}
+      <span class="muted">year to date${fresh("scores")}</span>`;
   }
 
   root.START = { view, EXAMPLES };

@@ -9,15 +9,41 @@
 
 // --- data -----------------------------------------------------------------------------------------
 const cache = new Map();
+const fetchJson = (url, path, opts) => fetch(url, opts).then((r) => {
+  if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
+  return r.json();
+});
+/** A data file, once per page load. meta.json is always revalidated; every other file is fetched as
+ * data/<file>?v=<the export's time>, so a new nightly export is never mixed with yesterday's cached files. */
 function load(path) {
   if (!cache.has(path)) {
-    cache.set(path, fetch("data/" + path).then((r) => {
-      if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
-      return r.json();
-    }).catch((e) => { cache.delete(path); e.dataPath = path; throw e; }));  // dataPath: the page says which file is missing
+    const req = path === "meta.json" ? fetchJson("data/meta.json", path, { cache: "no-cache" })
+      : dataVersion().then((v) => fetchJson(`data/${path}${v ? `?v=${v}` : ""}`, path));
+    cache.set(path, req.catch((e) => { cache.delete(path); e.dataPath = path; throw e; }));  // dataPath: the page says which file is missing
   }
   return cache.get(path);
 }
+const dataVersion = () => load("meta.json").then((m) => String(m.generated_at || "").replace(/\D/g, "").slice(0, 12)).catch(() => "");
+
+// --- code loaded when a page needs it ---------------------------------------------------------------
+// index.html loads only the core (i18n, util, quant, app); each route's script and Plotly come on demand.
+const ASSET_V = (document.querySelector('meta[name="asset-version"]') || {}).content || "";
+const PLOTLY_URL = "https://cdn.jsdelivr.net/npm/plotly.js-finance-dist-min@2.35.2/plotly-finance.min.js";
+const MODULES = { live: "live.js", quantum: "quantum.js", research: "research.js", methodology: "methodology.js", trust: "trust.js", start: "start.js" };
+const scripts = new Map();
+function needScript(src, label) {
+  if (!scripts.has(src)) {
+    scripts.set(src, new Promise((done, fail) => {
+      const s = Object.assign(document.createElement("script"), { src, async: true });
+      s.onload = done;
+      s.onerror = () => { scripts.delete(src); s.remove(); fail(new Error(`${label} couldn't load; check your connection`)); };
+      document.head.appendChild(s);
+    }));
+  }
+  return scripts.get(src);
+}
+const need = (...names) => Promise.all(names.map((n) => needScript(`assets/${MODULES[n]}${ASSET_V ? `?v=${ASSET_V}` : ""}`, MODULES[n])));
+const needPlotly = () => (window.Plotly ? Promise.resolve() : needScript(PLOTLY_URL, "The chart library (cdn.jsdelivr.net)"));
 const store = {
   get(k, fallback = null) { try { const v = localStorage.getItem(k); return v === null ? fallback : JSON.parse(v); } catch (e) { return fallback; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* private mode: keep in memory only */ } },
@@ -50,8 +76,8 @@ const SIGNAL = { BUY: "▲ BUY", HOLD: "● HOLD", AVOID: "▼ AVOID", "N/A": "�
 const SIGNAL_NOTE = "BUY / HOLD / AVOID are mechanical labels from ranking past data against peers: not recommendations, and not predictions of returns.";
 const CLASS_NAME = { s: "Stock", e: "ETF", c: "Crypto", i: "Index" };
 const signed = (x, d = 2) => `<span class="${tone(x)}">${pct(x, d)}</span>`;
-/** A small "?" link to a metric's section on the Methodology page (nothing until that page is loaded). */
-const mq = (id) => (window.METHOD ? `<a class="mq" href="#/methodology/${id}" title="How this is calculated" aria-label="How this is calculated">?</a>` : "");
+/** A small "?" link to a metric's section on the Methodology page. */
+const mq = (id) => `<a class="mq" href="#/methodology/${id}" title="How this is calculated" aria-label="How this is calculated">?</a>`;
 
 function kpi(label, value, sub = "", help = "", q = "") {
   return `<div class="card kpi"><div class="label"${help ? ` title="${esc(help)}"` : ""}>${esc(label)}${help ? " ⓘ" : ""}${q ? mq(q) : ""}</div>
@@ -347,7 +373,12 @@ function yaxis(extra = {}) {
 const dateAxis = (extra = {}) => Object.assign({ type: "date", showgrid: false, linecolor: pal().axis, tickfont: { color: pal().muted } }, extra);
 function plot(el, traces, lay) {
   if (!el) return;
-  if (!window.Plotly) { el.innerHTML = '<div class="empty">Charts are loading… (needs cdn.jsdelivr.net)</div>'; return; }
+  if (!window.Plotly) {  // the library loads with the first chart, not with every page
+    if (!el.classList.contains("js-plotly-plot")) el.innerHTML = '<div class="loading">Loading the chart…</div>';
+    needPlotly().then(() => { if (el.isConnected) plot(el, traces, lay); })
+      .catch((e) => { el.innerHTML = `<div class="empty">${esc(e.message)}</div>`; });
+    return;
+  }
   if (!el.classList.contains("js-plotly-plot")) el.innerHTML = "";  // drop any "Loading…" placeholder
   [traces, lay] = I18N.plotly(traces, lay);  // trace names and axis titles in the visitor's language
   Plotly.react(el, traces, lay, { displaylogo: false, responsive: true, modeBarButtonsToRemove: ["lasso2d", "select2d"] });
@@ -384,6 +415,19 @@ async function screenerRows() {
   }
   return screener;
 }
+/** The sparkline and the signal's reason for every screener row (global-extra.json), loaded after the table
+ * first draws; pages that show them redraw on the "screenerextra" event. */
+let extraLoad = null;
+function screenerExtra() {
+  if (!extraLoad) {
+    extraLoad = screenerRows().then(() => load("global-extra.json")).then((x) => {
+      const at = new Map(x.s.map((s, i) => [s, i]));
+      for (const r of screener) { const i = at.get(r.s); if (i !== undefined) { r.why = x.why[i]; r.sp = x.sp[i]; } }
+      window.dispatchEvent(new Event("screenerextra"));
+    }).catch((e) => { extraLoad = null; console.warn(e); });
+  }
+  return extraLoad;
+}
 /** Screener row, or an index row shaped like one, or null. */
 async function rowFor(sym) {
   await screenerRows();
@@ -410,7 +454,7 @@ async function isDeep(sym) { return (await load("meta.json")).deep.some((t) => t
  * the visitor's browser from CNBC or Binance (live.js), since the site doesn't republish price history.
  * {weekly: true} gives ten years of weekly bars. Throws with a readable message when no source has the symbol. */
 async function priceHistory(sym, opts) {
-  if (!window.LIVE) throw new Error("Price history couldn't load (live.js is missing)");
+  await need("live");
   const h = await window.LIVE.dailyHistory(sym, opts);
   return Object.assign({ values: h.close }, h);
 }
@@ -638,12 +682,11 @@ function globalToUrl() {
 }
 
 async function viewGlobal(view) {
-  const [g, rows, meta] = [await load("global.json"), await screenerRows(), await load("meta.json")];
+  const [meta, briefs] = await Promise.all([load("meta.json"), load("briefs.json").catch((e) => ({ error: e }))]);
+  const g = meta.global || await load("global.json");  // an export from before meta.global: the full file has the header too
   globalFromUrl(pageParams());
   G.asOf = { scored: g.scored_at, prices: meta.prices_as_of };
   await watchlist();
-  const markets = [...new Set(rows.map((r) => r.m))].sort();
-  const sectors = [...new Set(rows.filter((r) => r.sec).map((r) => r.sec))].sort();
   const regimes = g.regimes.map((r) => {
     const color = { Bull: "good", Bear: "bad", Sideways: "warn" }[r.trend] || "";
     return `<div class="card regime" title="${esc(`${r.regime} · ${r.index} ${num(r.level, 0)} · ${pct(r.drawdown_52w, 0)} from its 52-week high · as of ${r.as_of}`)}">
@@ -651,8 +694,7 @@ async function viewGlobal(view) {
       <div class="line"><span class="badge ${color}">${esc(r.trend)}</span><span class="badge">${esc(r.volatility)}</span></div>
       <div class="line"><span class="${tone(r.ret_1m)}">${pct(r.ret_1m)}</span> 1M · ${esc(r.stance)}</div></div>`;
   }).join("");
-  const counts = { s: 0, e: 0, c: 0 };
-  rows.forEach((r) => counts[r.a]++);
+  const counts = g.counts || { s: 0, e: 0, c: 0 };
 
   view.innerHTML = `
     <h1>Global Overview</h1>
@@ -660,9 +702,20 @@ async function viewGlobal(view) {
       ${counts.c.toLocaleString()} coins · scored ${esc(g.scored_at.slice(0, 16).replace("T", " "))} UTC. Click a row for its chart and the reasons behind its signal.
       ${SIGNAL_NOTE}</p>
     <div id="g-brief"></div>
-    <div id="g-watch" data-watch-panel="stock"></div>
+    <div id="g-watch" class="reserve-watch" data-watch-panel="stock"></div>
     <h2>Market regimes ${mq("regimes-global")}${fresh("scores", "yahoo-prices")}</h2>
     <div class="grid g6">${regimes}</div>
+    <div id="g-rest" class="reserve-screener"><div class="loading">Loading the screener: every stock, ETF and coin…</div></div>`;
+  if (briefs.error) $("#g-brief", view).innerHTML = `<div class="card brief"><h2>Daily brief${fresh({ provider: "Nightly brief", error: briefs.error.message })}</h2><p class="soft">Not published tonight.</p></div>`;
+  else drawBrief($("#g-brief", view), briefs);
+  watchPanel($("#g-watch", view));
+  const rows = await screenerRows();
+  const rest = $("#g-rest", view);
+  if (!rest) return;  // the visitor moved on while the screener loaded
+  const markets = [...new Set(rows.map((r) => r.m))].sort();
+  const sectors = [...new Set(rows.filter((r) => r.sec).map((r) => r.sec))].sort();
+  rest.classList.remove("reserve-screener");
+  rest.innerHTML = `
     <div class="controls">
       <div class="control"><span class="label">Asset class</span>${chips("cls", [["s", "Stocks"], ["e", "ETFs"], ["c", "Crypto"]], G.classes)}</div>
       <div class="control"><span class="label">Signal</span>${chips("sig", [["BUY", "BUY"], ["HOLD", "HOLD"], ["AVOID", "AVOID"]], G.signals)}</div>
@@ -691,14 +744,12 @@ async function viewGlobal(view) {
   $("#g-unusual", view).addEventListener("change", (e) => { G.unusual = e.target.checked; refresh(); });
   view.querySelectorAll("#g-tabs button").forEach((b) => b.addEventListener("click", () => { G.tab = b.dataset.tab; refresh(); }));
   const onWatch = () => { if (G.tab === "watch" && $("#g-body")) drawGlobal(); };
+  const onExtra = () => { if ($("#g-body") && G.tab !== "sectors") drawGlobal(); };
   window.addEventListener("watchchange", onWatch);
-  window.onRouteCleanup(() => window.removeEventListener("watchchange", onWatch));
-  watchPanel($("#g-watch", view));
-  load("briefs.json").then((b) => drawBrief($("#g-brief", view), b)).catch((e) => {
-    const el = $("#g-brief", view);
-    if (el) el.innerHTML = `<div class="card brief"><h2>Daily brief${fresh({ provider: "Nightly brief", error: e.message })}</h2><p class="soft">Not published tonight.</p></div>`;
-  });
+  window.addEventListener("screenerextra", onExtra);
+  window.onRouteCleanup(() => { window.removeEventListener("watchchange", onWatch); window.removeEventListener("screenerextra", onExtra); });
   drawGlobal();
+  screenerExtra();
 }
 
 /** Tonight's rule-based brief (quant/web/brief.py), with the last 30 a click away. */
@@ -865,6 +916,7 @@ function closeDrawer() {
   $("#drawer").classList.remove("open"); $("#drawer-back").classList.remove("open"); $("#drawer").setAttribute("aria-hidden", "true");
 }
 async function openDetail(r, span = "1Y") {
+  if (r.why === undefined && r.a !== "i") await screenerExtra();
   const drawer = $("#drawer"), back = $("#drawer-back");
   const yahoo = `https://finance.yahoo.com/quote/${encodeURIComponent(r.s)}`;
   const pill = (label, v) => `<div class="card kpi"><div class="label">${label}${mq(label === "Score" ? "composite" : label.startsWith("RSI") ? "rsi" : "pillars")}</div>
@@ -1099,6 +1151,7 @@ async function viewMarkets(view) {
   bindIndicatorChips(view, drawSpx);
   bindChips(view, "scope", M.scope, false, drawNews);
   await drawWatchlist();
+  screenerExtra().then(() => drawWatchlist());
   drawSpx(); drawNews();
 }
 
@@ -1257,6 +1310,7 @@ function drawStockChart(d) {
 }
 
 const U = { span: new Set(["1Y"]), bollinger: new Set() };
+const whyNote = (row) => (row.why ? `<div class="note"><b>Why ${SIGNAL[row.sig] || ""}:</b> <span>${esc(row.why)}</span> <span class="muted">${SIGNAL_NOTE}</span></div>` : "");
 async function viewStockUniverse(view, sym, row) {
   const p = pageParams();
   if (p.span) setOne(U.span, Util.oneOf(p.span, ["3M", "6M", "1Y", "All"], "1Y"));
@@ -1286,7 +1340,7 @@ async function viewStockUniverse(view, sym, row) {
     <div class="chart-title">${esc(sym)} · daily${err ? "" : ` · ${esc(px.source)}, loaded in your browser`}${fresh(pxSrc(px))}</div>
     <div class="chart" id="u-chart" style="min-height:460px">${err ? `<div class="empty">${esc(err)}</div>` : ""}</div>
     ${dqNote(row.dq)}
-    ${row.why ? `<div class="note"><b>Why ${SIGNAL[row.sig] || ""}:</b> <span>${esc(row.why)}</span> <span class="muted">${SIGNAL_NOTE}</span></div>` : ""}
+    <div id="why-note">${whyNote(row)}</div>
     <div class="grid g2">
       <div><h2>Returns and risk ${mq("returns")}${fresh("scores", "yahoo-prices")}</h2>${table([{ h: "Measure", f: (x) => esc(x[0]) + (x[2] ? mq(x[2]) : "") }, { h: "Value", r: 1, f: (x) => x[1] }], [
         ["1 day", signed(row.r1d, 2)], ["1 week", signed(row.r1w, 2)], ["1 month", signed(row.r1m, 1)], ["3 months", signed(row.r3m, 1)],
@@ -1302,6 +1356,7 @@ async function viewStockUniverse(view, sym, row) {
       <p class="caption">${await isDeep(sym) ? "" : "News markers and explained unusual moves are kept for the deep-tier names; add this one to the deep tier from the local dashboard to get them."}</p></div>
     </div>`;
   bindAssetHeader(view, sym, "stock");
+  if (row.why === undefined) screenerExtra().then(() => { const n = $("#why-note", view); if (n) n.innerHTML = whyNote(row); });
   const draw = () => { toUrl(); if (!err) indicatorChart($("#u-chart"), ohlcv(px), [...U.span][0], { candles: true, height: 460, rangebreaks: row.a !== "c" }); };
   bindChips(view, "uspan", U.span, false, draw);
   bindIndicatorChips(view, draw);
@@ -1615,14 +1670,14 @@ function watchlistResearchHtml(research, model) {
 // Router and shell
 // ====================================================================================================
 const ROUTES = { global: viewGlobal, markets: viewMarkets, stock: viewStock, financials: viewFinancials,
-  compare: (view, arg) => viewCompare(view, arg),
-  start: (view, arg) => (window.START ? window.START.view(view, arg) : (view.innerHTML = '<div class="empty">The Start page failed to load.</div>')),
-  methodology: (view, arg) => (window.METHOD ? window.METHOD.view(view, arg) : (view.innerHTML = '<div class="empty">The Methodology page failed to load.</div>')),
-  status: (view, arg) => (window.TRUST ? window.TRUST.status(view, arg) : (view.innerHTML = '<div class="empty">The Data status page failed to load.</div>')),
-  changelog: (view, arg) => (window.TRUST ? window.TRUST.changelog(view, arg) : (view.innerHTML = '<div class="empty">The Changelog page failed to load.</div>')),
-  "track-record": (view, arg) => (window.TRUST ? window.TRUST.trackRecord(view, arg) : (view.innerHTML = '<div class="empty">The Track record page failed to load.</div>')),
-  quantum: (view, arg) => (window.QUANTUM ? window.QUANTUM.view(view, arg) : (view.innerHTML = '<div class="empty">The Quantum page failed to load.</div>')),
-  live: (view, arg) => (window.LIVE ? window.LIVE.view(view, arg) : (view.innerHTML = '<div class="empty">Live charts failed to load.</div>')) };
+  compare: async (view, arg) => { await need("research"); return viewCompare(view, arg); },
+  start: async (view, arg) => { await need("start"); return window.START.view(view, arg); },
+  methodology: async (view, arg) => { await need("methodology"); return window.METHOD.view(view, arg); },
+  status: async (view, arg) => { await need("trust"); return window.TRUST.status(view, arg); },
+  changelog: async (view, arg) => { await need("trust"); return window.TRUST.changelog(view, arg); },
+  "track-record": async (view, arg) => { await need("trust"); return window.TRUST.trackRecord(view, arg); },
+  quantum: async (view, arg) => { await need("research", "quantum"); return window.QUANTUM.view(view, arg); },  // the portfolio lab uses research.js's correlation panel
+  live: async (view, arg) => { await need("live"); return window.LIVE.view(view, arg); } };
 const MOVED = { bot: "#/global" };  // retired routes: old links land somewhere useful
 // --- page state in the URL (util.js parseHash / buildHash): a copied link reproduces the view --------
 const NOW = { route: "global", params: {} };
@@ -1738,6 +1793,8 @@ async function shell() {
   });
   window.addEventListener("hashchange", render);
   watchPanels();
+  // Price alerts are checked on every page while the tab is open; their code comes with live.js.
+  if ((store.get("alerts", []) || []).some((a) => a && a.state === "armed")) need("live").catch(() => {});
   render();
 }
 // Deferred scripts (quant.js, app.js, live.js) all run before DOMContentLoaded, so every route exists by then.

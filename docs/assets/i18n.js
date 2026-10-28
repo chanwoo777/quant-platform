@@ -215,6 +215,17 @@
   root.tr = tText;
   if (typeof module !== "undefined" && module.exports) module.exports = root.I18N;  // tests/test_i18n.py
   if (typeof document === "undefined") return;
-  // Deferred scripts run before DOMContentLoaded, so waiting for it means the dictionary files have loaded too.
-  if (document.readyState === "complete") start(); else document.addEventListener("DOMContentLoaded", start);
+  // The dictionary loads only for a visitor reading in Korean (English needs none). Until it arrives the page
+  // stays hidden, so nobody sees English flash and then jump to Korean; after 4 s it shows regardless.
+  const self = document.currentScript && document.currentScript.src;
+  const html = document.documentElement;
+  const dictReady = lang === "en" || (dict[lang] && Object.keys(dict[lang]).length) ? Promise.resolve() : new Promise((done) => {
+    html.classList.add("i18n-wait");
+    const s = Object.assign(document.createElement("script"), { src: (self || "assets/i18n.js").replace(/i18n\.js/, `i18n.${lang}.js`), async: true });
+    s.onload = s.onerror = () => done();
+    document.head.appendChild(s);
+    setTimeout(done, 4000);
+  });
+  const domReady = new Promise((done) => (document.readyState === "complete" ? done() : document.addEventListener("DOMContentLoaded", () => done())));
+  root.I18N.ready = Promise.all([dictReady, domReady]).then(() => { start(); html.classList.remove("i18n-wait"); });
 })(typeof window !== "undefined" ? window : globalThis);

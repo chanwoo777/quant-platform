@@ -48,7 +48,8 @@ def test_text_outside_the_page_goes_through_tr():
 def test_every_page_loads_the_translator_and_has_the_toggle():
     for page in ("index.html", "about.html", "privacy.html"):
         html = (DOCS / page).read_text(encoding="utf-8")
-        assert 'src="assets/i18n.js"' in html and 'src="assets/i18n.ko.js"' in html and 'id="lang"' in html, page
+        # i18n.js loads i18n.ko.js itself, only for a visitor reading in Korean.
+        assert 'src="assets/i18n.js"' in html and 'i18n.ko.js' not in html and 'id="lang"' in html, page
 
 
 @pytest.mark.skipif(NODE is None, reason="needs Node.js")

@@ -59,17 +59,29 @@ def test_export_global_writes_screener_and_price_buckets(tmp_path, monkeypatch):
     g = json.loads((tmp_path / "global.json").read_text(encoding="utf-8"))
     rows = [dict(zip(g["cols"], r)) for r in g["rows"]]
     assert stats["symbols"] == 2 and rows[0]["s"] == "AAA" and rows[0]["a"] == "s" and rows[0]["sc"] == 71.2
-    assert rows[0]["u"] == 1 and rows[0]["cap"] == 2.5 and rows[0]["sp"] == [0, 50, 99] and rows[1]["sp"] is None
+    extra = json.loads((tmp_path / "global-extra.json").read_text(encoding="utf-8"))
+    assert rows[0]["u"] == 1 and rows[0]["cap"] == 2.5 and "sp" not in rows[0] and "why" not in rows[0]
+    # The sparkline and the reason load later, from global-extra.json, in the same row order.
+    assert extra["s"] == ["AAA", "BTC-USD"] and extra["sp"] == [[0, 50, 99], None]
     # Analyst ratings are licensed: no label column, and the reason names the calculated pillar instead.
     assert "lab" not in g["cols"] and rows[0]["an"] == 91
-    assert rows[0]["why"] == "Buy candidate: analysts 91/100; trend 80/100."
-    assert g["regimes"][0]["market"] == "US"
+    assert extra["why"][0] == "Buy candidate: analysts 91/100; trend 80/100."
+    assert g["regimes"][0]["market"] == "US" and g["counts"] == {"s": 1, "e": 0, "c": 1} and stats["head"]["counts"]["c"] == 1
     bucket = json.loads((tmp_path / "sym" / f"{export.bucket('AAA')}.json").read_text(encoding="utf-8"))
     # No price history is published (pages load it in the browser); every fundamental is NaN here, and
     # NaNs are left out.
     assert bucket["AAA"] == {"i": {}}
     symbols = json.loads((tmp_path / "symbols.json").read_text(encoding="utf-8"))
     assert symbols == [["AAA", "Aaa Corp", "s", "US"], ["BTC-USD", "Bitcoin", "c", "Crypto"]]
+
+
+def test_stamp_assets_versions_scripts_and_styles(tmp_path):
+    (tmp_path / "index.html").write_text('<html><head><link href="assets/app.css"><script src="assets/app.js" defer></script>'
+                                         '<script src="https://cdn.example/x.js"></script></head></html>', encoding="utf-8")
+    export.stamp_assets(tmp_path, "202610281200")
+    html = (tmp_path / "index.html").read_text(encoding="utf-8")
+    assert 'href="assets/app.css?v=202610281200"' in html and 'src="assets/app.js?v=202610281200"' in html
+    assert 'src="https://cdn.example/x.js"' in html and '<meta name="asset-version" content="202610281200">' in html
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="needs git")

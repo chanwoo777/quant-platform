@@ -10,7 +10,9 @@ numbers (scores, percentiles, returns, volatility, betas), and each page loads p
 visitor's browser instead (docs/assets/live.js, dailyHistory). Files written to data/site/data/:
 
   meta.json       freshness dates and counts
-  global.json     regimes + the screener (every stock, ETF and coin, columnar)
+  global.json     the screener (every stock, ETF and coin, columnar), without the two heavy columns
+  global-extra.json  those columns, the 6-month sparkline and the signal's reason, loaded after the
+                  table first draws (they were over half of the compressed screener)
   indices.json    the market-regime benchmark indices with returns and trend
   symbols.json    [symbol, name, class, market] for search and autocomplete
   sym/<xx>.json   per symbol: fundamentals and risk statistics, in 256 buckets keyed by
@@ -160,6 +162,8 @@ def series(values, digits: int = 5) -> list:
 
 # --- global universe (broad tier) ----------------------------------------------------------------
 
+# The screener's columns; EXTRA_COLS go to global-extra.json instead, in the same row order.
+EXTRA_COLS = ("why", "sp")
 SCREENER_COLS = [
     "s", "n", "a", "m", "sec", "sig", "sc", "t", "mo", "v", "q", "r", "an", "co", "r1d", "r1w", "r1m", "r3m", "ytd",
     "m121", "fpe", "tpe", "pb", "dy", "roe", "cap", "u", "z", "px", "cur", "rsi", "d200", "also", "why", "sp", "dq",
@@ -214,11 +218,12 @@ def export_global(out: Path, flags: dict[str, list[str]] | None = None) -> dict:
             rnd(r.dist_200), None if pd.isna(r.also_listed) else r.also_listed,
             public_reason(r.rationale, r.analysts), _spark(r.sparkline), ",".join((flags or {}).get(r.symbol, [])) or None,
         ])
-    size = write(out / "global.json", {
-        "scored_at": pd.Timestamp(scores.scored_at.max()).isoformat(),
-        "regimes": regimes.to_dict("records"),
-        "cols": SCREENER_COLS, "rows": rows,
-    })
+    keep = [i for i, c in enumerate(SCREENER_COLS) if c not in EXTRA_COLS]
+    head = {"scored_at": pd.Timestamp(scores.scored_at.max()).isoformat(), "regimes": regimes.to_dict("records"),
+            "counts": {k: int((scores.asset_class == v).sum()) for k, v in (("s", "stock"), ("e", "etf"), ("c", "crypto"))}}
+    size = write(out / "global.json", {**head, "cols": [SCREENER_COLS[i] for i in keep], "rows": [[r[i] for i in keep] for r in rows]})
+    size += write(out / "global-extra.json", {"s": [r[0] for r in rows],
+                                             **{c: [r[SCREENER_COLS.index(c)] for r in rows] for c in EXTRA_COLS}})
 
     # Indices (benchmarks of the market regimes) join the search and the watchlist.
     close, volume = load_prices("close"), load_prices("volume")
@@ -257,7 +262,7 @@ def export_global(out: Path, flags: dict[str, list[str]] | None = None) -> dict:
     for old in ("px", "sym"):
         shutil.rmtree(out / old, ignore_errors=True)
     sym_size = sum(write(out / "sym" / f"{b}.json", content) for b, content in buckets.items())
-    return {"global": size, "sym": sym_size, "symbols": len(rows), "indices": len(indices)}
+    return {"global": size, "sym": sym_size, "symbols": len(rows), "indices": len(indices), "head": head}
 
 
 def fundamentals_dates() -> dict[str, str]:
@@ -571,6 +576,20 @@ def export_brief(out: Path, data_dir: Path, c) -> dict:
 
 # --- orchestration ----------------------------------------------------------------------------------
 
+def stamp_assets(site_dir: Path, version: str | None = None) -> str:
+    """Cache-bust the site's own scripts and styles: every assets/*.js and *.css reference in the pages gets
+    ?v=<export time>, and index.html carries the version so code loaded later (route scripts) uses it too.
+    Data files are versioned in the browser by meta.json's generated_at (docs/assets/app.js, load)."""
+    version = version or dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d%H%M")
+    for page in site_dir.glob("*.html"):
+        text = page.read_text(encoding="utf-8")
+        text = re.sub(r'(["\'])(assets/[\w.\-]+\.(?:js|css))\1', lambda m: f"{m.group(1)}{m.group(2)}?v={version}{m.group(1)}", text)
+        if page.name == "index.html":
+            text = text.replace("<head>", f'<head>\n<meta name="asset-version" content="{version}">', 1)
+        page.write_text(text, encoding="utf-8")
+    return version
+
+
 def build(site_dir: Path | None = None, quantum: bool = True, track_log: bool = True) -> dict:
     """Copy the site code from docs/ and write fresh data next to it. Returns sizes and timings.
     quantum=False skips the simulations and republishes the last results; track_log=False publishes the
@@ -587,6 +606,7 @@ def build(site_dir: Path | None = None, quantum: bool = True, track_log: bool = 
         if item.name != ".git":
             shutil.rmtree(item) if item.is_dir() else item.unlink()
     shutil.copytree(SITE_SRC, site_dir, dirs_exist_ok=True)
+    stamp_assets(site_dir)
     out = site_dir / "data"
     out.mkdir(parents=True, exist_ok=True)
     stats, steps, started = {}, {}, time.perf_counter()
@@ -625,6 +645,8 @@ def build(site_dir: Path | None = None, quantum: bool = True, track_log: bool = 
             "prices_as_of": f"{ctx.sessions[-1]:%Y-%m-%d}" if ctx is not None else None, "factors_as_of": f_end,
             "latest_headline_et": f"{news.published_et.max():%Y-%m-%d %H:%M}" if len(news) else None,
             "deep": deep, "buckets": BUCKETS,
+            # The top of the Global page (regimes, counts, scoring time) draws from this small file first.
+            "global": (stats.get("global") or {}).get("head"),
         })
     step("meta", meta)
 

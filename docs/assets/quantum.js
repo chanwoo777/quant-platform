@@ -1219,8 +1219,8 @@
     portfolio: ["quantum", PRICES_HERE], nightly: ["quantum"] };
 
   // --- lab state in the link: #/quantum/options?sym=AAPL&days=90, #/quantum/risk?syms=..., #/quantum/portfolio?syms=...
-  let labsReady = false;  // the labs save their state while they first draw; only changes after that rewrite the link
-  function shareLab(section, params) { if (labsReady) setPageParams("quantum", params, section); }
+  const labsReady = new Set();  // a lab saves its state while it first draws; only changes after that rewrite the link
+  function shareLab(section, params) { if (labsReady.has(section)) setPageParams("quantum", params, section); }
   /** A link's lab settings win over this browser's saved ones (each value checked before use). */
   function applyLabLink(section, p) {
     if (!Object.keys(p || {}).length) return;
@@ -1244,7 +1244,7 @@
   }
 
   async function render(el, arg) {
-    labsReady = false;
+    labsReady.clear();
     applyLabLink(arg, pageParams());
     const [doc, market] = await Promise.all([load("quantum.json").catch(() => null), load("market.json").catch(() => null)]);
     const ctx = { q: doc && doc.options && Array.isArray(doc.options.items) ? doc : null, market };
@@ -1261,14 +1261,34 @@
     timers.splice(0).forEach((stop) => stop());
     window.onRouteCleanup(() => timers.splice(0).forEach((stop) => stop()));
     el.querySelectorAll("[data-go]").forEach((b) => b.addEventListener("click", () => go(b.dataset.go, true)));
-    for (const s of SECTIONS) {
-      if (!s.init) continue;
-      try { await s.init($(`#q-${s.id}`, el), ctx); } catch (e) {
+    // Each lab and simulation starts when it scrolls near the screen, not all at once: the Monte Carlo
+    // convergence alone draws millions of random numbers, which would freeze a phone on arrival.
+    const init = async (s) => {
+      if (s.started || !el.isConnected) return;
+      s.started = true;
+      const sec = $(`#q-${s.id}`, el);
+      try { await s.init(sec, ctx); } catch (e) {
         console.error(e);
-        $(`#q-${s.id}`, el).insertAdjacentHTML("beforeend", `<div class="empty">This section couldn't load (${esc(e.message)}).</div>`);
+        sec.insertAdjacentHTML("beforeend", `<div class="empty">This section couldn't load (${esc(e.message)}). <button type="button" class="btn q-small" data-retry-sec>Try again</button></div>`);
+        const again = $("[data-retry-sec]", sec);
+        if (again) again.addEventListener("click", () => { again.parentElement.remove(); s.started = false; init(s); });
       }
-    }
-    labsReady = true;
+      labsReady.add(s.id);
+    };
+    SECTIONS.forEach((s) => { s.started = false; });
+    const lazy = SECTIONS.filter((s) => s.init);
+    const first = lazy.find((s) => s.id === arg);
+    if (first) await init(first);
+    if ("IntersectionObserver" in window) {
+      const io = new IntersectionObserver((entries) => entries.forEach((e) => {
+        if (!e.isIntersecting) return;
+        io.unobserve(e.target);
+        const s = lazy.find((x) => `q-${x.id}` === e.target.id);
+        if (s) init(s);
+      }), { rootMargin: "600px 0px" });
+      lazy.forEach((s) => io.observe($(`#q-${s.id}`, el)));
+      timers.push(() => io.disconnect());
+    } else for (const s of lazy) await init(s);
     if (arg) go(arg, false);
   }
 
