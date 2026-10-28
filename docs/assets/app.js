@@ -556,7 +556,7 @@ const G = { classes: new Set(["s", "e", "c"]), signals: new Set(), market: "", s
 const PAGE = 50;
 const G_TABS = ["screener", "sectors", "movers", "watch"];
 const gDefaults = () => ({ classes: new Set(["s", "e", "c"]), signals: new Set(), market: "", sector: "", q: "", min: 0, cap: "", unusual: false,
-  sort: "sc", dir: -1, page: 0, tab: "screener" });
+  sort: "sc", dir: -1, page: 0, tab: "screener", brief: "" });
 function globalFromUrl(p) {
   if (!Object.keys(p).length) return;  // a plain #/global keeps this session's filters
   Object.assign(G, gDefaults());
@@ -564,14 +564,14 @@ function globalFromUrl(p) {
   if (p.sig) G.signals = new Set(Util.listParam(p.sig).filter((s) => ["BUY", "HOLD", "AVOID"].includes(s)));
   Object.assign(G, { market: p.mkt || "", sector: p.sec || "", q: p.q || "", min: Util.numParam(p.min, 0, 0, 100), cap: Util.oneOf(p.cap, ["10", "100"], ""),
     unusual: p.unu === "1", sort: Util.oneOf(p.sort, SCREEN_COLS.map((c) => c.sort).filter(Boolean), "sc"), dir: p.dir === "1" ? 1 : -1,
-    page: Math.floor(Util.numParam(p.page, 1, 1, 1e4)) - 1, tab: Util.oneOf(p.tab, G_TABS, "screener") });
+    page: Math.floor(Util.numParam(p.page, 1, 1, 1e4)) - 1, tab: Util.oneOf(p.tab, G_TABS, "screener"), brief: /^\d{4}-\d{2}-\d{2}$/.test(p.brief || "") ? p.brief : "" });
   GS.sector = p.hm || null;
 }
 function globalToUrl() {
   const cls = ["s", "e", "c"].filter((c) => G.classes.has(c));
   setPageParams("global", { tab: G.tab === "screener" ? "" : G.tab, cls: cls.length === 3 ? "" : cls.join(",") || "none", sig: [...G.signals].join(","),
     mkt: G.market, sec: G.sector, q: G.q, min: G.min || "", cap: G.cap, unu: G.unusual ? 1 : "", sort: G.sort === "sc" ? "" : G.sort, dir: G.dir === 1 ? 1 : "",
-    page: G.page ? G.page + 1 : "", hm: G.tab === "sectors" ? GS.sector : "" });
+    page: G.page ? G.page + 1 : "", hm: G.tab === "sectors" ? GS.sector : "", brief: G.brief });
 }
 
 async function viewGlobal(view) {
@@ -596,6 +596,7 @@ async function viewGlobal(view) {
     <p class="caption">${counts.s.toLocaleString()} stocks ≥ $1B in 21 markets · ${counts.e.toLocaleString()} liquid US-listed ETFs ·
       ${counts.c.toLocaleString()} coins · scored ${esc(g.scored_at.slice(0, 16).replace("T", " "))} UTC. Click a row for its chart and the reasons behind its signal.
       ${SIGNAL_NOTE}</p>
+    <div id="g-brief"></div>
     <div id="g-watch" data-watch-panel="stock"></div>
     <h2>Market regimes ${mq("regimes-global")}${fresh("scores", "yahoo-prices")}</h2>
     <div class="grid g6">${regimes}</div>
@@ -630,7 +631,28 @@ async function viewGlobal(view) {
   window.addEventListener("watchchange", onWatch);
   window.onRouteCleanup(() => window.removeEventListener("watchchange", onWatch));
   watchPanel($("#g-watch", view));
+  load("briefs.json").then((b) => drawBrief($("#g-brief", view), b)).catch((e) => {
+    const el = $("#g-brief", view);
+    if (el) el.innerHTML = `<div class="card brief"><h2>Daily brief${fresh({ provider: "Nightly brief", error: e.message })}</h2><p class="soft">Not published tonight.</p></div>`;
+  });
   drawGlobal();
+}
+
+/** Tonight's rule-based brief (quant/web/brief.py), with the last 30 a click away. */
+function drawBrief(el, doc) {
+  if (!el || !doc || !(doc.briefs || []).length) return;
+  const pick = doc.briefs.find((b) => b.date === G.brief) || doc.briefs[0];
+  const latest = pick === doc.briefs[0];
+  el.innerHTML = `<div class="card brief">
+    <div class="brief-head"><h2>Daily brief · ${esc(pick.date)}${fresh({ provider: "Nightly brief", label: "Daily brief", asOf: latest ? pick.date : doc.briefs[0].date })}</h2>
+      <label class="brief-pick">Archive <select id="brief-date">${doc.briefs.map((b) => `<option value="${esc(b.date)}"${b === pick ? " selected" : ""}>${esc(b.date)}${b === doc.briefs[0] ? " (latest)" : ""}</option>`).join("")}</select></label></div>
+    ${latest ? "" : `<p class="note">An archived brief, written on the night of ${esc(pick.date)}. <a href="#" id="brief-latest">Back to the latest</a></p>`}
+    <ul class="brief-list">${pick.items.map((it) => `<li data-kind="${esc(it.kind)}">${esc(it.en)}</li>`).join("")}</ul>
+    <p class="caption">Written by rules from the nightly data, not by AI: the largest moves among stocks worth $10B or more, the best and worst sector (cap-weighted),
+      factor ETFs against SPY, the VIX and Treasury yields. Prices as of the close of ${esc(pick.date)}. ${SIGNAL_NOTE}</p></div>`;
+  $("#brief-date", el).addEventListener("change", (e) => { G.brief = e.target.value === doc.briefs[0].date ? "" : e.target.value; globalToUrl(); drawBrief(el, doc); });
+  const back = $("#brief-latest", el);
+  if (back) back.addEventListener("click", (e) => { e.preventDefault(); G.brief = ""; globalToUrl(); drawBrief(el, doc); });
 }
 
 function filtered() {

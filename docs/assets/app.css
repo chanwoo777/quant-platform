@@ -557,3 +557,11 @@ button.dl:hover { color: var(--accent); border-color: var(--accent); }
 .st-mini { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 0.84rem; }
 .st-link { display: flex; flex-direction: column; gap: 4px; text-decoration: none; color: inherit; }
 .st-link:hover { border-color: var(--accent); }
+
+/* --- daily brief ------------------------------------------------------------------------------- */
+.brief { margin: 14px 0; }
+.brief-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; }
+.brief-head h2 { margin: 0; font-size: 1.1rem; }
+.brief-pick { margin-left: auto; font-size: 0.82rem; color: var(--text-soft); }
+.brief-list { margin: 10px 0 4px; padding-left: 20px; }
+.brief-list li { margin: 4px 0; }

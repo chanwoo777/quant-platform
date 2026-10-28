@@ -25,6 +25,7 @@ visitor's browser instead (docs/assets/live.js, dailyHistory). Files written to 
                   a timeout): the last good result, kept when a run fails
   track.json      the signal track record: forward returns of the append-only signal log (quant/web/track.py),
                   with track/signals_<date>.csv for the latest days
+  briefs.json     the rule-based daily brief, the latest 30 (quant/web/brief.py)
   changelog.json  feat: and fix: commits from the git history, methodology changes marked (quant/web/changelog.py)
   status.json     per source: last successful run, data date, rows, missing tickers, stale series,
                   outliers and the quality checks (quant/web/status.py, quant/web/quality.py)
@@ -551,6 +552,23 @@ def export_track(out: Path, data_dir: Path, append: bool = True) -> dict:
     return {"track": write(out / "track.json", doc), "days": doc["days_logged"], "tonight": tonight, "doc": doc}
 
 
+# --- daily brief ----------------------------------------------------------------------------------------
+
+def export_brief(out: Path, data_dir: Path, c) -> dict:
+    """Tonight's rule-based brief (quant.web.brief), archived, and the latest 30 as briefs.json."""
+    from quant.universe import prices
+    from quant.universe.scoring import load_scores
+    from quant.web import brief
+
+    scores, close = load_scores(), prices.load("close")
+    if scores.empty or close.empty:
+        raise FileNotFoundError(2, "No such file", "data/universe/scores.parquet or close.parquet")
+    tonight = brief.build(scores, close, c.macro_frame(), f"{close.index.max():%Y-%m-%d}")
+    briefs = brief.archive(data_dir, tonight)
+    return {"briefs": write(out / "briefs.json", {"latest": briefs[0]["date"], "briefs": briefs}), "items": len(tonight["items"]),
+            "skipped": tonight["skipped"]}
+
+
 # --- orchestration ----------------------------------------------------------------------------------
 
 def build(site_dir: Path | None = None, quantum: bool = True, track_log: bool = True) -> dict:
@@ -595,6 +613,7 @@ def build(site_dir: Path | None = None, quantum: bool = True, track_log: bool = 
     step("research", lambda: export_research(out, c))
     step("quantum", lambda: export_quantum(out, run=quantum))
     track_stats = step("track", lambda: export_track(out, data_dir, append=track_log))
+    step("brief", lambda: export_brief(out, data_dir, c))
     step("changelog", lambda: write(out / "changelog.json", changelog.build(ROOT, data_dir / "changelog.json")))
 
     def meta():
