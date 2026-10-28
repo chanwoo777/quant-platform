@@ -308,6 +308,7 @@
           </div>
         </div>
         <p class="caption" id="pc-foot"></p>
+        <div class="card pc-alerts" id="pc-alerts" data-sym="${esc(r.sym)}"></div>
       </div>`;
     bindSearch($("#pc-search", el), (s) => { location.hash = `#/live/${encodeURIComponent(s)}`; });
 
@@ -319,6 +320,7 @@
       const msg = e.throttled ? "CNBC is throttling requests right now; try again in a minute." : e.message;
       $("#pc-chart").innerHTML = `<div class="empty">${esc(msg)}${r.row ? `<br><a href="#/stock/${encodeURIComponent(r.sym)}">The stock page</a> still has its scores and returns.` : ""}</div>`;
       setStatus("err", msg);
+      renderAlerts($("#pc-alerts", el), r.sym);
       return;
     }
     const pc = proChart(el, r, iv, bars);
@@ -328,6 +330,7 @@
     el.querySelectorAll("#pc-int .chip").forEach((b) => b.addEventListener("click", () => { store.set(ivKey, b.dataset.v); view(el, r.sym); }));
     pc.onInterval = (next) => { if (FEED_INTERVALS[feed].includes(next)) { store.set(ivKey, next); view(el, r.sym); } };
     $("#pc-foot").innerHTML = footNote(r, feed);
+    renderAlerts($("#pc-alerts", el), r.sym);
   }
   function footNote(r, feed) {
     const src = feed === "binance" ? "Binance public market data over WebSocket (no key)."
@@ -840,5 +843,140 @@
     return pc;
   }
 
-  window.LIVE = { view, dailyHistory };
+
+  // ==============================================================================================
+  // Price alerts: checked in this tab only, from the same sources the Live page polls
+  // ==============================================================================================
+  const ALERT_KEY = "alerts", ALERT_EVERY = 15000;
+  const ALERT_KINDS = { above: "Price at or above", below: "Price at or below", up: "Up from previous close by at least (%)", down: "Down from previous close by at least (%)" };
+  const A = { timer: null, quotes: {}, checked: null, error: "", panel: null };
+  const alertList = () => { const l = store.get(ALERT_KEY, []); return Array.isArray(l) ? l : []; };
+  const saveAlerts = (l) => store.set(ALERT_KEY, l);  // store wraps localStorage in try/catch
+
+  function describe(a) {
+    const v = Number(a.value);
+    return a.kind === "above" ? `at or above ${v}` : a.kind === "below" ? `at or below ${v}` : `${a.kind === "up" ? "up" : "down"} ${v}% or more from the previous close`;
+  }
+  function toast(text) {
+    let box = document.getElementById("toasts");
+    if (!box) { box = document.createElement("div"); box.id = "toasts"; box.setAttribute("role", "status"); document.body.appendChild(box); }
+    const t = document.createElement("div");
+    t.className = "toast";
+    t.innerHTML = `<span>${esc(text)}</span><button type="button" aria-label="Dismiss">✕</button>`;
+    t.querySelector("button").addEventListener("click", () => t.remove());
+    box.appendChild(t);
+    setTimeout(() => t.remove(), 20000);
+  }
+  function notify(a, q) {
+    const text = `${a.sym} is ${describe(a)}: ${q.price} (${q.source}).`;
+    try {
+      if ("Notification" in window && Notification.permission === "granted") { new Notification(`Price alert: ${a.sym}`, { body: text, tag: a.id }); return; }
+    } catch (e) { /* some mobile browsers only notify from a service worker: fall back to the toast */ }
+    toast(text);
+  }
+  /** Latest quotes {sym: {price, prev, source, at}} for the symbols of armed alerts. */
+  async function fetchQuotes(syms) {
+    const out = {}, rs = await Promise.all(syms.map((s) => resolve(s)));
+    const coins = rs.filter((r) => r.feed === "binance"), stocks = rs.filter((r) => r.feed === "cnbc");
+    for (const r of coins) {  // Binance's trading-day ticker: last price and the 00:00 UTC open
+      try {
+        const t = await getJSON(`${BINANCE_REST}/ticker/tradingDay?symbol=${r.pair}`);
+        out[r.sym] = { price: +t.lastPrice, prev: +t.openPrice, source: "Binance, change since 00:00 UTC", at: new Date().toISOString() };
+      } catch (e) { out[r.sym] = { error: `Binance has no ${r.pair} market` }; }
+    }
+    if (stocks.length) {  // one CNBC quote request for every stock, ETF and index
+      const list = (((await getJSON(CNBC_QUOTE + encodeURIComponent(stocks.map((r) => r.cnbc).join("|")))).FormattedQuoteResult || {}).FormattedQuote || []);
+      const num = (x) => parseFloat(String(x ?? "").replace(/,/g, ""));
+      for (const r of stocks) {
+        const q = list.find((x) => x.symbol === r.cnbc) || {};
+        if (q.code === 0 && Number.isFinite(num(q.last))) {
+          out[r.sym] = { price: num(q.last), prev: num(q.previous_day_closing), source: "CNBC quote", at: new Date().toISOString() };
+          continue;
+        }
+        try {  // no quote for this market (e.g. Korea): the last bar of CNBC's 1-day chart, without a previous close
+          const bars = cnbcBars(await getJSON(`${CNBC_CHART}1D.json?symbol=${encodeURIComponent(r.cnbc)}`), true);
+          out[r.sym] = bars.length ? { price: bars[bars.length - 1].close, prev: NaN, source: "CNBC 1-day chart", at: new Date().toISOString() } : { error: noData(r) };
+        } catch (e) { out[r.sym] = { error: e.throttled ? "CNBC is throttling requests" : e.message }; }
+      }
+    }
+    return out;
+  }
+  async function checkAlerts() {
+    const list = alertList(), armed = list.filter((a) => a.state === "armed");
+    if (!armed.length) { stopAlerts(); renderAlerts(); return; }
+    try {
+      Object.assign(A.quotes, await fetchQuotes([...new Set(armed.map((a) => a.sym))]));
+      A.error = "";
+    } catch (e) { A.error = e.throttled ? "CNBC is throttling requests; retrying" : e.message; }
+    A.checked = new Date();
+    let changed = false;
+    for (const a of armed) {
+      const q = A.quotes[a.sym];
+      if (!q || q.error) { a.note = q ? q.error : ""; continue; }
+      const hit = Q.alertHit(a, q);
+      a.note = hit === null ? "can't be checked: no previous close from this source" : "";
+      if (hit) { Object.assign(a, { state: "triggered", firedAt: new Date().toISOString(), firedPrice: q.price, note: "" }); notify(a, q); changed = true; }
+    }
+    const current = alertList();  // merge: the visitor may have edited the list while quotes loaded
+    for (const a of armed) { const k = current.findIndex((x) => x.id === a.id); if (k >= 0 && current[k].state === "armed") current[k] = a; }
+    saveAlerts(current);
+    renderAlerts();
+    if (changed && !current.some((a) => a.state === "armed")) stopAlerts();
+  }
+  function startAlerts() {
+    if (A.timer || !alertList().some((a) => a.state === "armed")) return;
+    A.timer = setInterval(checkAlerts, ALERT_EVERY);
+    checkAlerts();
+  }
+  function stopAlerts() { clearInterval(A.timer); A.timer = null; }
+
+  /** The alert list and form, drawn into `el` (the Live page's panel). */
+  function renderAlerts(el = A.panel, sym = el && el.dataset.sym) {
+    if (!el || !el.isConnected) return;
+    A.panel = el;
+    if (sym) el.dataset.sym = sym;
+    const list = alertList(), when = (iso) => new Date(iso).toLocaleString();
+    el.innerHTML = `
+      <h3>Price alerts ${typeof mq === "function" ? mq("alerts") : ""}</h3>
+      <p class="caption">Alerts work only while this tab is open. No data leaves your browser: alerts are saved in it, and checking them only asks
+        CNBC or Binance for the symbols' prices, as the Live chart does. Checked every ${ALERT_EVERY / 1000} s${A.checked ? `; last check ${esc(A.checked.toLocaleTimeString())}` : ""}${A.error ? ` (${esc(A.error)})` : ""}.</p>
+      <div class="pc-alert-form">
+        <label>Symbol<input type="text" id="al-sym" value="${esc(el.dataset.sym || "")}" spellcheck="false" autocomplete="off"></label>
+        <label>Condition<select id="al-kind">${Object.entries(ALERT_KINDS).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("")}</select></label>
+        <label>Value<input type="number" id="al-value" step="any" min="0"></label>
+        <button type="button" class="btn primary" id="al-add">Add alert</button>
+      </div>
+      <p class="caption" id="al-msg"></p>
+      ${list.length ? `<div class="table-wrap"><table><thead><tr><th>Symbol</th><th>Alert when</th><th>Status</th><th class="r">Last price</th><th></th></tr></thead><tbody>
+        ${list.map((a) => { const q = A.quotes[a.sym]; return `<tr><td><a href="#/live/${encodeURIComponent(a.sym)}"><b>${esc(a.sym)}</b></a></td><td>${esc(describe(a))}</td>
+          <td>${a.state === "triggered" ? `<span class="badge good">Triggered</span> ${esc(when(a.firedAt))} at ${esc(String(a.firedPrice))}` : `<span class="badge info">Armed</span>${a.note ? ` <span class="muted">${esc(a.note)}</span>` : ""}`}</td>
+          <td class="r">${q && !q.error ? `${esc(String(q.price))} <span class="muted">${esc(q.source)}</span>` : "–"}</td>
+          <td class="r">${a.state === "triggered" ? `<button type="button" class="btn q-small" data-rearm="${esc(a.id)}">Re-arm</button>` : ""}
+            <button type="button" class="btn q-small" data-del="${esc(a.id)}">Delete</button></td></tr>`; }).join("")}</tbody></table></div>` : '<p class="caption">No alerts yet.</p>'}`;
+    const msg = (t) => { $("#al-msg", el).textContent = t; };
+    $("#al-add", el).addEventListener("click", async () => {
+      const s = $("#al-sym", el).value.trim().toUpperCase(), kind = $("#al-kind", el).value, value = Number($("#al-value", el).value);
+      if (!s) { msg("Enter a symbol."); return; }
+      if (!(value > 0)) { msg("Enter a positive value."); return; }
+      const r = await resolve(s);
+      if (!r.row && r.feed !== "binance") { msg(`${s} isn't in the universe.`); return; }
+      const first = !alertList().length;
+      saveAlerts([...alertList(), { id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, sym: r.sym, kind, value, state: "armed", created: new Date().toISOString() }]);
+      if (first && "Notification" in window && Notification.permission === "default") {
+        try { await Notification.requestPermission(); } catch (e) { /* older Safari: callback form only; the toast still works */ }
+      }
+      if (A.timer) checkAlerts(); else startAlerts();  // check the new alert straight away
+      renderAlerts();
+    });
+    el.querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", () => { saveAlerts(alertList().filter((a) => a.id !== b.dataset.del)); renderAlerts(); }));
+    el.querySelectorAll("[data-rearm]").forEach((b) => b.addEventListener("click", () => {
+      saveAlerts(alertList().map((a) => (a.id === b.dataset.rearm ? Object.assign(a, { state: "armed", firedAt: null, firedPrice: null, note: "" }) : a)));
+      if (A.timer) checkAlerts(); else startAlerts();
+      renderAlerts();
+    }));
+  }
+  // Alerts keep running on every page of the site while the tab is open.
+  if (document.readyState === "loading") window.addEventListener("DOMContentLoaded", startAlerts); else startAlerts();
+
+  window.LIVE = { view, dailyHistory, checkAlerts };
 })();

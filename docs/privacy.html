@@ -68,6 +68,8 @@
       <tr><td><code>liveSymbol</code>, <code>pc:type</code>, <code>pc:studies</code>, <code>pc:interval:…</code>, <code>pc:legendFolded</code>, <code>pc:draw:…</code></td>
         <td>The live chart's symbol, chart type, indicators, intervals, legend and your drawings per symbol</td><td>Live</td></tr>
       <tr><td><code>q:opt</code>, <code>q:risk</code>, <code>q:pf</code>, <code>q:circuit</code></td><td>Your inputs in the option, risk, portfolio and circuit labs</td><td>Quantum</td></tr>
+      <tr><td><code>compare</code></td><td>The tickers you last compared</td><td>Compare</td></tr>
+      <tr><td><code>alerts</code></td><td>Your price alerts: symbol, condition, value, and when each one triggered</td><td>Live (checked on every page while the tab is open)</td></tr>
     </tbody>
   </table></div>
   <div class="row"><button class="btn" id="clear" type="button">Clear everything this site saved</button><span class="caption" id="clear-msg" role="status"></span></div>
@@ -89,7 +91,7 @@
       <tr><td>Binance public market data (data-api.binance.vision, data-stream.binance.vision)</td><td>Any chart or lab that shows a coin's price history</td>
         <td>The symbol and interval you view. <a href="https://www.binance.com/en/privacy" target="_blank" rel="noopener">Binance privacy</a></td></tr>
       <tr><td>CNBC quotes and charts (quote.cnbc.com, ts-api.cnbc.com)</td><td>Any chart or lab that shows a stock's, ETF's or index's price history,
-        and the Live page</td>
+        the Live page and price alerts (every 15 s while you have an armed alert)</td>
         <td>The symbols you view. <a href="https://www.versantprivacy.com/privacy" target="_blank" rel="noopener">CNBC (Versant) privacy</a></td></tr>
       <tr><td>Finnhub (finnhub.io, ws.finnhub.io)</td><td>Only if you saved a key</td>
         <td>Your key and the symbols you request. <a href="https://finnhub.io/privacy-policy" target="_blank" rel="noopener">Finnhub privacy policy</a></td></tr>
@@ -161,7 +163,7 @@
     });
     // Remove only this site's keys: other github.io project sites of the same account share this storage.
     var KEYS = ["theme", "watchlist", "saved", "ticker", "stockIndicators", "finnhubKey", "liveSymbol", "pc:type", "pc:studies", "pc:legendFolded",
-      "q:opt", "q:risk", "q:pf", "q:circuit"];
+      "q:opt", "q:risk", "q:pf", "q:circuit", "compare", "alerts"];
     var PREFIXES = ["pc:interval:", "pc:draw:"];
     document.getElementById("clear").addEventListener("click", function () {
       var n = 0;

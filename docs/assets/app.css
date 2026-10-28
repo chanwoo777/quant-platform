@@ -468,3 +468,13 @@ table.corr tbody th { background: var(--bg-soft); position: sticky; left: 0; }
 .sm-legend { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 0.78rem; color: var(--text-faint); }
 .sm-scale { width: 180px; height: 10px; border-radius: 5px; background: linear-gradient(90deg, rgba(227,73,72,0.9), rgba(227,73,72,0.15), rgba(42,120,214,0.15), rgba(42,120,214,0.9)); }
 .sm-na { padding: 0 8px; border-radius: 4px; background: var(--bg-soft); }
+/* price alerts (Live) and toasts */
+.pc-alerts { margin-top: 16px; }
+.pc-alert-form { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end; margin-top: 8px; }
+.pc-alert-form label { display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; color: var(--text-soft); }
+.pc-alert-form input[type="text"] { width: 130px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; min-height: 34px; }
+.pc-alerts td { white-space: normal; }
+#toasts { position: fixed; right: 16px; bottom: 16px; z-index: 60; display: grid; gap: 8px; max-width: min(380px, calc(100vw - 32px)); }
+.toast { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: 10px; background: var(--surface); color: var(--text);
+  border: 1px solid var(--accent); box-shadow: var(--shadow); font-size: 0.9rem; }
+.toast button { margin-left: auto; background: none; border: none; color: var(--text-faint); cursor: pointer; }

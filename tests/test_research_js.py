@@ -136,3 +136,13 @@ def test_sector_moves_handle_missing_fields(tmp_path):
     assert js["Tech"]["change"] == pytest.approx((3 * 0.02 - 1 * 0.02) / 4) and js["Tech"]["missing"] == 1 and js["Tech"]["cap"] == 6
     assert js["Energy"]["change"] == pytest.approx(0.02) and js["Energy"]["cap"] is None  # equal-weighted, cap n/a
     assert js["Unknown"]["change"] is None and js["Unknown"]["n"] == 1  # shown as n/a, never guessed
+
+
+def test_alert_conditions(tmp_path):
+    cases = [({"kind": "above", "value": 100}, {"price": 100}, True), ({"kind": "above", "value": 100}, {"price": 99.9}, False),
+             ({"kind": "below", "value": 50}, {"price": 49}, True), ({"kind": "up", "value": 2}, {"price": 102, "prev": 100}, True),
+             ({"kind": "up", "value": 2}, {"price": 101.9, "prev": 100}, False), ({"kind": "down", "value": 3}, {"price": 97, "prev": 100}, True),
+             ({"kind": "down", "value": 3}, {"price": 98, "prev": 100}, False), ({"kind": "up", "value": 2}, {"price": 105}, None),
+             ({"kind": "above", "value": 1}, {"price": None}, None)]
+    js = run_js(tmp_path, "return data.map(([a, q]) => Q.alertHit(a, q));", [[a, q] for a, q, _ in cases])
+    assert js == [want for *_, want in cases]

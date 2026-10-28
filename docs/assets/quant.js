@@ -876,9 +876,22 @@
     })).sort((a, b) => (isNum(b.cap) ? b.cap : 0) - (isNum(a.cap) ? a.cap : 0));
   }
 
+  // --- price alerts (Live page) --------------------------------------------------------------
+  /** Whether an alert's condition holds for a quote {price, prev}. Kinds: "above" / "below" a price,
+   * "up" / "down" by at least `value` percent from the previous close. null: can't be checked. */
+  function alertHit(alert, quote) {
+    const p = quote && quote.price, prev = quote && quote.prev, v = Number(alert.value);
+    if (!isNum(p) || !isNum(v)) return null;
+    if (alert.kind === "above") return p >= v;
+    if (alert.kind === "below") return p <= v;
+    if (!isNum(prev) || prev <= 0) return null;
+    const move = (p / prev - 1) * 100;
+    return alert.kind === "up" ? move >= v : alert.kind === "down" ? move <= -v : null;
+  }
+
   const Q = { TD, isNum, mean, std, variance, covariance, invert, ols, returns, sma, rollingStd, rsi, bollinger, align,
     weekKey, weeklyFactors, riskStats, maxDrawdown, valueAt, shiftIso, returnSince, correlationMatrix, clusterOrder, pairStats,
-    squarify, groupMoves,
+    squarify, groupMoves, alertHit,
     ema, rma, highest, lowest, trueRange, atr, macd, stoch, stochastic, stochRsi, dmi, supertrend, psar, ichimoku, vwap, obv,
     INDICATORS, indicatorFits, wma, hma, vwma, maOf, source, keltner, donchian, willr, cci, roc, mfi, rangeByTime, pivots, anchoredVwap,
     STUDIES, studyFits, PLAYBOOKS,
