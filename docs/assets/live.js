@@ -294,6 +294,7 @@
           <button class="btn" id="pc-log" type="button" title="Log scale (Alt+L)">Log</button>
           <button class="btn" id="pc-pct" type="button" title="Percentage scale">%</button>
           <button class="btn" id="pc-shot" type="button" title="Screenshot (Alt+S)">📷</button>
+          <button class="btn" id="pc-csv" type="button" title="Download the bars on this chart as CSV, with source and as-of date">⤓ CSV</button>
           <button class="btn" id="pc-full" type="button" title="Full screen (Shift+F)">⛶</button>
           <button class="btn" id="pc-keys" type="button" title="Keyboard shortcuts">⌨</button>
         </div>
@@ -325,6 +326,9 @@
       return;
     }
     const pc = proChart(el, r, iv, bars);
+    csvExtra.set($("#pc-chart", el), () => ({ cols: ["time_utc", "open", "high", "low", "close", "volume"],
+      rows: pc.bars().map((b) => [new Date(b.t * 1000).toISOString(), b.open, b.high, b.low, b.close, b.volume]) }));
+    $("#pc-csv", el).addEventListener("click", () => downloadPanel($("#pc-chart", el)));
     const lastBar = bars.length ? new Date(bars[bars.length - 1].t * 1000).toISOString().slice(0, 10) : null;
     $("#pc-fresh").innerHTML = fresh({ provider: feed === "binance" ? "Binance" : "CNBC", label: "Live chart: latest bar", asOf: lastBar,
       calendar: feed === "binance", expect: isIntraday(iv) ? 1 : 5 });
@@ -836,6 +840,7 @@
 
     const pc = {
       onInterval: null,
+      bars: () => bars,
       destroy() {
         if (pc.destroyed) return;
         pc.destroyed = true;

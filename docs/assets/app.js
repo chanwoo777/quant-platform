@@ -160,9 +160,71 @@ function decorate(root) {
     h.lastElementChild.dataset.default = "1";
   });
 }
+// --- CSV downloads: every table and chart, with its source and as-of date in the file's header -------
+const DISCLAIMER = "Research and education only, not investment advice. Data may be delayed or wrong. Past performance does not predict future results.";
+const csvExtra = new WeakMap();  // element -> () => {cols, rows}, for panels that aren't a <table> or a Plotly chart
+function csvFor(el, fn) { if (el) { csvExtra.set(el, fn); el.dataset.csv = "1"; } }
+const csvQuote = (v) => { const s = v === null || v === undefined || (typeof v === "number" && !Number.isFinite(v)) ? "" : String(v); return /[",\n#]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+function cellText(c) {
+  const x = c.cloneNode(true);
+  x.querySelectorAll(".mq, .fresh, button, .cmp-src, summary").forEach((n) => n.remove());
+  x.querySelectorAll("div, br, li").forEach((n) => n.before(" "));  // keep nested lines apart
+  return x.textContent.replace(/\s+/g, " ").trim();
+}
+/** The last element matching `sel` before `el` in the page (its panel's heading or badge). */
+function before(el, sel) {
+  let found = null;
+  for (const n of document.querySelectorAll(sel)) { if (n !== el && n.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING && !n.contains(el)) found = n; }
+  return found;
+}
+function panelData(el) {
+  if (csvExtra.has(el)) return csvExtra.get(el)();
+  const tbl = el.querySelector("table");
+  if (tbl) {
+    const rows = [...tbl.rows].map((tr) => [...tr.cells].map(cellText));
+    return { cols: rows[0] || [], rows: rows.slice(1).filter((r) => r.some(Boolean)) };
+  }
+  const rows = [];
+  for (const t of el.data || []) {
+    const name = t.name || t.type || "series";
+    if (t.type === "candlestick") (t.x || []).forEach((x, i) => rows.push([name, x, t.open[i], t.high[i], t.low[i], t.close[i]]));
+    else if (t.type === "heatmap") (t.z || []).forEach((zr, i) => zr.forEach((z, j) => rows.push([name, `${(t.x || [])[j] ?? j} / ${(t.y || [])[i] ?? i}`, z])));
+    else { const n = Math.max((t.x || []).length, (t.y || []).length); for (let i = 0; i < n; i++) rows.push([name, t.x ? t.x[i] : i, t.y ? t.y[i] : ""]); }
+  }
+  const candles = (el.data || []).some((t) => t.type === "candlestick");
+  return { cols: candles ? ["series", "x", "open/y", "high", "low", "close"] : ["series", "x", "y"], rows };
+}
+function downloadPanel(el) {
+  const { cols, rows } = panelData(el);
+  const head = before(el, "#view h1, #view h2, #view h3, #view .chart-title, #drawer h2, #drawer .chart-title, #view .panel-meta");
+  const badge = el.closest("[data-fresh-src]") || before(el, ".fresh");
+  const title = head ? cellText(head) : document.title;
+  const asOf = badge ? badge.dataset.asof || "" : "";
+  const lines = [`# Free Quant Platform: ${title}`, `# Source: ${badge ? badge.dataset.src : "see the page"}`, `# As of: ${asOf || "n/a"}`,
+    `# Downloaded: ${new Date().toISOString()} from ${location.href}`, `# ${DISCLAIMER}`,
+    cols.map(csvQuote).join(","), ...rows.map((r) => r.map(csvQuote).join(","))];
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([lines.join("\n") + "\n"], { type: "text/csv;charset=utf-8" }));
+  a.download = `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "data"}${asOf ? "_" + asOf : ""}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+/** A "CSV" button above every table, chart and registered panel that has data. */
+function addDownloads(root) {
+  root.querySelectorAll(".table-wrap, .chart.js-plotly-plot, [data-csv]").forEach((el) => {
+    if (el.parentElement.closest(".table-wrap, [data-csv]")) return;
+    const prev = el.previousElementSibling;
+    if (prev && prev.classList.contains("dl-row")) return;
+    el.insertAdjacentHTML("beforebegin", '<div class="dl-row"><button type="button" class="dl" title="Download this panel as CSV, with its source and as-of date">⤓ CSV</button></div>');
+  });
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest && e.target.closest("button.dl");
+  if (b) downloadPanel(b.parentElement.nextElementSibling);
+});
 function watchPanels() {
   let timer = null;
-  const run = () => { timer = null; decorate($("#view")); decorate($("#drawer")); };
+  const run = () => { timer = null; for (const r of [$("#view"), $("#drawer")]) { decorate(r); addDownloads(r); } };
   const obs = new MutationObserver((records) => {
     if (records.every((r) => r.target.closest && r.target.closest(".js-plotly-plot, .pc-stage"))) return;  // chart internals
     if (!timer) timer = setTimeout(run, 60);
@@ -226,6 +288,7 @@ function plot(el, traces, lay) {
   if (!window.Plotly) { el.innerHTML = '<div class="empty">Charts are loading… (needs cdn.jsdelivr.net)</div>'; return; }
   if (!el.classList.contains("js-plotly-plot")) el.innerHTML = "";  // drop any "Loading…" placeholder
   Plotly.react(el, traces, lay, { displaylogo: false, responsive: true, modeBarButtonsToRemove: ["lasso2d", "select2d"] });
+  if (el.parentElement) addDownloads(el.parentElement);  // the CSV button (chart redraws don't reach the panel observer)
 }
 function missingWeekdays(dates) {
   // Plotly rangebreaks for holidays: weekdays between the first and last bar with no bar.
@@ -569,6 +632,7 @@ function drawSectorMap(body, rows) {
     crumb = `<button type="button" class="btn q-small" id="sm-back">← All sectors</button> <b>${esc(GS.sector)}</b> · ${members.length.toLocaleString()} stocks${members.length > shown.length ? `, the largest ${shown.length} shown` : ""}. Click a stock for its details.`;
   }
   const rects = Q.squarify(tiles.map((t) => t.size), 0, 0, W, H);
+  setTimeout(() => csvFor($(".sm-map", body), () => ({ cols: ["tile", "detail", "size", "change_1d"], rows: tiles.map((t) => [t.label, t.sub, t.size, t.change]) })));
   const cell = (r) => {
     const t = tiles[r.i], col = moveColor(t.change, scale), area = r.w * r.h;
     const big = area > 9000 && r.w > 70, mid = area > 2500 && r.w > 44;
@@ -634,6 +698,11 @@ function drawGlobal() {
     G.sort = k; G.page = 0; drawGlobal();
   }));
   bindStars(body, () => { if (G.tab === "watch") drawGlobal(); });
+  csvFor($(".table-wrap", body), () => ({  // every matching row, not just this page of 50
+    cols: ["symbol", "name", "class", "market", "sector", "signal", "score", "trend", "momentum", "value", "quality", "risk", "analysts",
+      "ret_1d", "ret_1m", "ret_ytd", "mom_12_1", "fwd_pe", "mkt_cap_usd_bn", "unusual", "data_checks", "why"],
+    rows: list.map((r) => [r.s, r.n, CLASS_NAME[r.a] || r.a, r.m, r.sec, r.sig, r.sc, r.t, r.mo, r.v, r.q, r.r, r.an, r.r1d, r.r1m, r.ytd, r.m121, r.fpe, r.cap,
+      r.u ? 1 : 0, r.dq || "", r.why]) }));
   body.querySelectorAll("tr.clickable").forEach((tr) => tr.addEventListener("click", () => openDetail(pageRows[Number(tr.dataset.i)])));
   const prev = $("#g-prev", body), next = $("#g-next", body);
   if (prev) prev.addEventListener("click", () => { G.page--; drawGlobal(); body.scrollIntoView({ block: "start" }); });
@@ -825,7 +894,7 @@ async function viewMarkets(view) {
     <div class="chart" id="m-spx">${spx.error ? `<div class="empty">${esc(spx.error)}</div>` : ""}</div>
     <p class="caption">Prices load in your browser from CNBC: daily bars for two years, weekly bars for ten (indicator lengths then count weeks).</p>
     <h2>Economic indicators (FRED) ${mq("fred-tiles")}${fresh("fred")}</h2>
-    <div class="grid g5">${tiles}</div>
+    <div class="grid g5" id="m-fred">${tiles}</div>
     <h2>Breaking news${fresh("news")}</h2><div class="controls" style="margin-top:0">${chips("scope", [["All", "All"], ["Watchlist", "Watchlist"], ["Market-wide", "Market-wide"]], M.scope, false)}</div><div id="m-news"></div>`;
 
   const drawSpx = async () => {
@@ -862,6 +931,8 @@ async function viewMarkets(view) {
   $("#w-reset", view).addEventListener("click", async () => {
     store.del("watchlist"); store.del("saved"); watchCache = null; await watchlist(); drawWatchlist();
   });
+  csvFor($("#m-fred", view), () => ({ cols: ["series", "label", "value", "unit", "date", "change_vs_1m"],
+    rows: m.fred.map((t) => [t.id, t.label, t.value, t.unit, t.date, t.delta]) }));
   bindChips(view, "span", M.span, false, drawSpx);
   bindIndicatorChips(view, drawSpx);
   bindChips(view, "scope", M.scope, false, drawNews);

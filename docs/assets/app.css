@@ -512,3 +512,9 @@ a.fresh.amber { background: var(--warn-soft); color: var(--warn); } a.fresh.ambe
 a.fresh.red { background: var(--bad-soft); color: var(--bad); border-color: var(--bad); } a.fresh.red i { background: var(--bad); }
 .panel-meta { margin: 10px 0 2px; font-size: 0.82rem; color: var(--text-soft); }
 @media (max-width: 640px) { a.fresh { white-space: normal; margin-left: 0; margin-top: 2px; } }
+
+/* --- CSV download buttons -------------------------------------------------------------------- */
+.dl-row { display: flex; justify-content: flex-end; margin: 4px 0 -2px; }
+button.dl { font: inherit; font-size: 0.74rem; padding: 1px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface);
+  color: var(--text-soft); cursor: pointer; }
+button.dl:hover { color: var(--accent); border-color: var(--accent); }

@@ -32,6 +32,7 @@
     const steps = Object.entries(doc.export_steps || {});
     const failedSteps = steps.filter(([, v]) => !v.ok);
     const overall = worstState(sources.map((s) => s.state));
+    const sb = fresh({ provider: "Nightly job (status.json)", label: "Data status", asOf: String(doc.generated_at).slice(0, 10) });
     const outliers = sources.flatMap((s) => ((s.outliers || {}).failed || []).map((o) => Object.assign({ src: s.label }, o)));
     view.innerHTML = `
       <h1>Data status</h1>
@@ -43,7 +44,7 @@
         ${kpi("Export steps", `${steps.length - failedSteps.length} of ${steps.length} ok`, failedSteps.length ? `failed: ${esc(failedSteps.map(([k]) => k).join(", "))}` : "none failed")}
         ${kpi("Generated", when(doc.generated_at).slice(0, 10), when(doc.generated_at).slice(11))}
       </div>
-      <h2>Sources</h2>
+      <h2>Sources${sb}</h2>
       ${table([
         { h: "Source", cls: "wrap-text", f: (s) => `<b>${esc(s.label)}</b><div class="muted">${esc(s.provider)}</div>` },
         { h: "State", f: (s) => pill(s.state) },
@@ -56,7 +57,7 @@
         { h: "Check failures", r: 1, f: (s) => (s.checks ? failedChecks(s).toLocaleString() + (brokenChecks(s).length ? ` · ${brokenChecks(s).length} check errored` : "") : "–") },
         { h: "Notes", cls: "wrap-text", f: (s) => [s.error ? `<span class="neg">${esc(s.error)}</span>` : "", esc(s.note || ""), s.file ? `<span class="muted">${esc(s.file)}</span>` : ""].filter(Boolean).join("<br>") },
       ], sources)}
-      <h2>Quality checks</h2>
+      <h2>Quality checks${sb}</h2>
       <p class="caption">Fail-soft checks on each price table (quant/web/quality.py). A failing series is never dropped silently: its symbol carries a ⚠ in the
         screener and a note on its pages. A check that errors is listed here and the others still run.</p>
       ${table([
@@ -64,19 +65,19 @@
         { h: "Result", f: (r) => (r.error ? pill("red", "check errored") : r.count ? pill("amber", `${r.count.toLocaleString()} failed`) : pill("green", "passed")) },
         { h: "Examples", cls: "wrap-text", f: (r) => (r.error ? esc(r.error) : examples(r.failed, item)) },
       ], sources.flatMap((s) => Object.entries(s.checks || {}).map(([check, c]) => Object.assign({ src: s.label, check }, c))))}
-      <h2>Outliers flagged for review</h2>
+      <h2>Outliers flagged for review${sb}</h2>
       <p class="caption">Daily moves in the last ${esc((doc.thresholds || {}).outlier_sessions || 5)} sessions beyond ${esc((doc.thresholds || {}).outlier_sigma || 5)} standard
         deviations of the series' previous year of daily returns. Many are real (earnings, a dividend on a T-bill ETF); they are listed so someone looks, not removed.</p>
       ${table([
         { h: "Source", f: (o) => esc(o.src) }, { h: "Symbol", f: (o) => routeLink("stock", o.symbol) }, { h: "Date", f: (o) => esc(o.date) },
         { h: "Move", r: 1, f: (o) => signed(o.move, 1) }, { h: "Standard deviations", r: 1, f: (o) => num(Math.abs(o.sigma), 1) },
       ], outliers, { tall: true, empty: "No outliers in the last sessions." })}
-      <h2>Export steps</h2>
+      <h2>Export steps${sb}</h2>
       ${table([
         { h: "Step", f: ([k]) => `<code>${esc(k)}</code>` }, { h: "Result", f: ([, v]) => (v.ok ? pill("green", "ok") : pill("red", "failed")) },
         { h: "Seconds", r: 1, f: ([, v]) => num(v.seconds, 1) }, { h: "Error", cls: "wrap-text", f: ([, v]) => esc(v.error || "") },
       ], steps)}
-      <h2>Published files</h2>
+      <h2>Published files${sb}</h2>
       <div id="st-files"><div class="loading">Checking the published files…</div></div>
       <p class="caption">State: green = fresh; amber = older than the source's expected age; red = missing, failed, or more than three times older than expected.
         Ages count weekdays (calendar days for coins). Expected ages differ by source: the Fama-French library is published monthly, one to two months behind.</p>`;
