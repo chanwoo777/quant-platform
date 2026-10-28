@@ -730,7 +730,71 @@
     return out;
   }
 
+  // ------------------------------------------------------------------------------------------
+  // Research tools (Compare page)
+  // ------------------------------------------------------------------------------------------
+  /** Sunday starting the UTC week of an ISO date: the key weekly bars and weekly factors share. */
+  function weekKey(iso) {
+    const d = new Date(iso + "T00:00:00Z");
+    d.setUTCDate(d.getUTCDate() - d.getUTCDay());
+    return d.toISOString().slice(0, 10);
+  }
+  /** Daily factor returns compounded into weeks keyed by weekKey, in factors.json's shape. */
+  function weeklyFactors(factors) {
+    const cols = Object.keys(factors).filter((k) => k !== "d" && Array.isArray(factors[k]));
+    const out = { d: [] };
+    cols.forEach((c) => { out[c] = []; });
+    let key = null, acc = null;
+    const flush = () => { if (key) { out.d.push(key); cols.forEach((c) => out[c].push(acc[c] - 1)); } };
+    factors.d.forEach((d, i) => {
+      const k = weekKey(d);
+      if (k !== key) { flush(); key = k; acc = Object.fromEntries(cols.map((c) => [c, 1])); }
+      cols.forEach((c) => { acc[c] = isNum(factors[c][i]) ? acc[c] * (1 + factors[c][i]) : NaN; });
+    });
+    flush();
+    return out;
+  }
+  /** Annualised risk from periodic simple returns (ppy periods a year). rf: per-period risk-free
+   * rates for the same periods; bench: the benchmark's returns for the same periods. */
+  function riskStats(rets, { rf = null, bench = null, ppy = TD } = {}) {
+    const ex = rets.map((r, i) => r - (rf ? rf[i] : 0));
+    const downside = Math.sqrt(mean(ex.map((x) => Math.min(x, 0) ** 2)));
+    return {
+      n: rets.length, vol: std(rets) * Math.sqrt(ppy),
+      sharpe: (mean(ex) / std(ex)) * Math.sqrt(ppy),
+      sortino: downside > 0 ? (mean(ex) * ppy) / (downside * Math.sqrt(ppy)) : NaN,
+      beta: bench ? covariance(rets, bench) / variance(bench) : NaN,
+    };
+  }
+  function maxDrawdown(values) {
+    let peak = -Infinity, mdd = 0;
+    for (const v of values) { if (v > peak) peak = v; mdd = Math.min(mdd, v / peak - 1); }
+    return mdd;
+  }
+  /** The value on or before an ISO date, or null when the dates start later. */
+  function valueAt(dates, values, iso) {
+    let lo = 0, hi = dates.length - 1, k = -1;
+    while (lo <= hi) { const m = (lo + hi) >> 1; if (dates[m] <= iso) { k = m; lo = m + 1; } else hi = m - 1; }
+    return k >= 0 ? values[k] : null;
+  }
+  function shiftIso(iso, { days = 0, months = 0, years = 0 } = {}) {
+    const d = new Date(iso + "T00:00:00Z");
+    d.setUTCFullYear(d.getUTCFullYear() - years);
+    d.setUTCMonth(d.getUTCMonth() - months);
+    d.setUTCDate(d.getUTCDate() - days);
+    return d.toISOString().slice(0, 10);
+  }
+  /** Return from the last value on or before `from` to the latest value; annualised over
+   * `years` when given. NaN when the history doesn't reach back to `from`. */
+  function returnSince(dates, values, from, years = 0) {
+    if (!dates.length || dates[0] > from) return NaN;
+    const base = valueAt(dates, values, from), last = values[values.length - 1];
+    if (!isNum(base) || base <= 0) return NaN;
+    return years ? (last / base) ** (1 / years) - 1 : last / base - 1;
+  }
+
   const Q = { TD, isNum, mean, std, variance, covariance, invert, ols, returns, sma, rollingStd, rsi, bollinger, align,
+    weekKey, weeklyFactors, riskStats, maxDrawdown, valueAt, shiftIso, returnSince,
     ema, rma, highest, lowest, trueRange, atr, macd, stoch, stochastic, stochRsi, dmi, supertrend, psar, ichimoku, vwap, obv,
     INDICATORS, indicatorFits, wma, hma, vwma, maOf, source, keltner, donchian, willr, cci, roc, mfi, rangeByTime, pivots, anchoredVwap,
     STUDIES, studyFits, PLAYBOOKS,

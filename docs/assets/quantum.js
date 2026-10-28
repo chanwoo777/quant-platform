@@ -785,54 +785,6 @@
   }
   SECTIONS.push({ id: "options", title: "Stock option pricing lab", html: options, init: initOptions });
 
-  // --- shared: a basket of stocks picked from the universe ---------------------------------------------
-  const basketHtml = (p) => `<div class="q-basket"><div class="q-chips" id="${p}-chips"></div><div class="q-add" id="${p}-add">${searchBox("Add a stock")}</div></div>
-    <p class="caption" id="${p}-msg"></p>`;
-  /** Wire a basket editor. B = {syms, w?}; onChange() runs after every edit. */
-  function bindBasket(sec, p, B, { min, max, weights = false, onChange }) {
-    const msg = (t) => { $(`#${p}-msg`, sec).textContent = t; };
-    const draw = () => {
-      $(`#${p}-chips`, sec).innerHTML = B.syms.map((s, i) => `<span class="chip q-chip"><b>${esc(s)}</b>${weights
-        ? `<input type="number" class="q-w" data-i="${i}" value="${+(100 * B.w[i]).toFixed(1)}" min="0" max="100" step="1" aria-label="Weight of ${esc(s)}, percent">%` : ""}
-        <button type="button" data-rm="${i}" aria-label="Remove ${esc(s)}"${B.syms.length <= min ? " disabled" : ""}>✕</button></span>`).join("")
-        + (weights ? `<button type="button" class="btn q-small" id="${p}-eq">Equal weights</button>` : "");
-      sec.querySelectorAll(`#${p}-chips [data-rm]`).forEach((b) => b.addEventListener("click", () => {
-        const i = Number(b.dataset.rm);
-        B.syms.splice(i, 1); if (B.w) B.w.splice(i, 1);
-        if (weights) B.w = B.w.map(() => 1 / B.syms.length);
-        msg(""); draw(); onChange();
-      }));
-      sec.querySelectorAll(`#${p}-chips .q-w`).forEach((inp) => inp.addEventListener("change", () => {
-        B.w[Number(inp.dataset.i)] = Math.max(0, Number(inp.value) || 0) / 100;
-        msg(Math.abs(sum(B.w) - 1) > 1e-6 ? "Weights are scaled to add up to 100%." : ""); onChange();
-      }));
-      const eq = $(`#${p}-eq`, sec);
-      if (eq) eq.addEventListener("click", () => { B.w = B.syms.map(() => 1 / B.syms.length); msg(""); draw(); onChange(); });
-    };
-    bindSearch($(`#${p}-add`, sec), async (sym) => {
-      if (B.syms.includes(sym)) { msg(`${sym} is already in the basket.`); return; }
-      if (B.syms.length >= max) { msg(`At most ${max} stocks.`); return; }
-      let h;
-      try { h = await priceHistory(sym); } catch (e) { msg(e.message); return; }
-      if (h.close.length < 130) { msg(`${sym}: not enough price history.`); return; }
-      B.syms.push(sym);
-      if (weights) B.w = B.syms.map(() => 1 / B.syms.length);
-      msg(""); draw(); onChange();
-    });
-    draw();
-    return draw;
-  }
-  /** Aligned closes of a basket over the last `sessions` returns, loaded in the browser (priceHistory). */
-  async function basketPrices(syms, sessions) {
-    const hist = await Promise.all(syms.map(async (s) => [s, await priceHistory(s).catch((e) => ({ error: e.message }))]));
-    const missing = hist.filter(([, h]) => h.error);
-    if (missing.length) throw new Error(missing.map(([, h]) => h.error).join(" · "));
-    const al = Q.align(hist.map(([, h]) => h));
-    const start = Math.max(0, al.dates.length - sessions - 1);
-    return { dates: al.dates.slice(start), values: al.values.map((v) => v.slice(start)) };
-  }
-  const sameSet = (a, b) => a.length === b.length && a.every((x) => b.includes(x));
-
   // --- 6. Stock risk lab: VaR and CVaR -------------------------------------------------------------------
   function risk(ctx) {
     return `

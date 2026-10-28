@@ -2,7 +2,7 @@
  * Reads the JSON written by `python -m quant.web.export` (data/) and renders the pages with
  * Plotly; quant.js (window.Q) does the in-browser statistics, live.js the WebSocket charts and
  * quantum.js the Quantum page. Hash routes: #/global, #/markets, #/stock/<ticker>,
- * #/financials/<ticker>, #/quantum/<section>, #/live/<symbol> (#/bot, the retired paper bot,
+ * #/financials/<ticker>, #/compare/<A,B,C>, #/quantum/<section>, #/live/<symbol> (#/bot, the retired paper bot,
  * redirects to #/global). Pretty paths (/stock/AAPL) redirect via 404.html.
  */
 "use strict";
@@ -50,6 +50,8 @@ const SIGNAL = { BUY: "▲ BUY", HOLD: "● HOLD", AVOID: "▼ AVOID", "N/A": "�
 const SIGNAL_NOTE = "BUY / HOLD / AVOID are mechanical labels from ranking past data against peers: not recommendations, and not predictions of returns.";
 const CLASS_NAME = { s: "Stock", e: "ETF", c: "Crypto", i: "Index" };
 const signed = (x, d = 2) => `<span class="${tone(x)}">${pct(x, d)}</span>`;
+/** A small "?" link to a metric's section on the Methodology page (nothing until that page is loaded). */
+const mq = (id) => (window.METHOD ? `<a class="mq" href="#/methodology/${id}" title="How this is calculated" aria-label="How this is calculated">?</a>` : "");
 
 function kpi(label, value, sub = "", help = "") {
   return `<div class="card kpi"><div class="label"${help ? ` title="${esc(help)}"` : ""}>${esc(label)}${help ? " ⓘ" : ""}</div>
@@ -214,6 +216,55 @@ async function toggleWatch(sym) {
   setWatchlist(list.includes(sym) ? list.filter((s) => s !== sym) : [...list, sym]);
   return inWatch(sym);
 }
+
+// --- basket picker (Quantum labs, Compare, correlations) ------------------------------------------
+const basketHtml = (p, placeholder = "Add a stock") => `<div class="q-basket"><div class="q-chips" id="${p}-chips"></div><div class="q-add" id="${p}-add">${searchBox(placeholder)}</div></div>
+  <p class="caption" id="${p}-msg"></p>`;
+/** Wire a basket editor. B = {syms, w?}; onChange() runs after every edit. Each added symbol must have
+ * at least `minBars` daily bars in the browser's price history. */
+function bindBasket(sec, p, B, { min, max, weights = false, minBars = 130, onChange }) {
+  const msg = (t) => { $(`#${p}-msg`, sec).textContent = t; };
+  const draw = () => {
+    $(`#${p}-chips`, sec).innerHTML = B.syms.map((s, i) => `<span class="chip q-chip"><b>${esc(s)}</b>${weights
+      ? `<input type="number" class="q-w" data-i="${i}" value="${+(100 * B.w[i]).toFixed(1)}" min="0" max="100" step="1" aria-label="Weight of ${esc(s)}, percent">%` : ""}
+      <button type="button" data-rm="${i}" aria-label="Remove ${esc(s)}"${B.syms.length <= min ? " disabled" : ""}>✕</button></span>`).join("")
+      + (weights ? `<button type="button" class="btn q-small" id="${p}-eq">Equal weights</button>` : "");
+    sec.querySelectorAll(`#${p}-chips [data-rm]`).forEach((b) => b.addEventListener("click", () => {
+      const i = Number(b.dataset.rm);
+      B.syms.splice(i, 1); if (B.w) B.w.splice(i, 1);
+      if (weights) B.w = B.w.map(() => 1 / B.syms.length);
+      msg(""); draw(); onChange();
+    }));
+    sec.querySelectorAll(`#${p}-chips .q-w`).forEach((inp) => inp.addEventListener("change", () => {
+      B.w[Number(inp.dataset.i)] = Math.max(0, Number(inp.value) || 0) / 100;
+      msg(Math.abs(B.w.reduce((t, x) => t + x, 0) - 1) > 1e-6 ? "Weights are scaled to add up to 100%." : ""); onChange();
+    }));
+    const eq = $(`#${p}-eq`, sec);
+    if (eq) eq.addEventListener("click", () => { B.w = B.syms.map(() => 1 / B.syms.length); msg(""); draw(); onChange(); });
+  };
+  bindSearch($(`#${p}-add`, sec), async (sym) => {
+    if (B.syms.includes(sym)) { msg(`${sym} is already in the basket.`); return; }
+    if (B.syms.length >= max) { msg(`At most ${max} at a time.`); return; }
+    let h;
+    try { h = await priceHistory(sym); } catch (e) { msg(e.message); return; }
+    if (h.close.length < minBars) { msg(`${sym}: not enough price history.`); return; }
+    B.syms.push(sym);
+    if (weights) B.w = B.syms.map(() => 1 / B.syms.length);
+    msg(""); draw(); onChange();
+  });
+  draw();
+  return draw;
+}
+/** Aligned closes of a basket over the last `sessions` returns, loaded in the browser (priceHistory). */
+async function basketPrices(syms, sessions) {
+  const hist = await Promise.all(syms.map(async (s) => [s, await priceHistory(s).catch((e) => ({ error: e.message }))]));
+  const missing = hist.filter(([, h]) => h.error);
+  if (missing.length) throw new Error(missing.map(([, h]) => h.error).join(" · "));
+  const al = Q.align(hist.map(([, h]) => h));
+  const start = Math.max(0, al.dates.length - sessions - 1);
+  return { dates: al.dates.slice(start), values: al.values.map((v) => v.slice(start)) };
+}
+const sameSet = (a, b) => a.length === b.length && a.every((x) => b.includes(x));
 
 // --- search with autocomplete ---------------------------------------------------------------------
 function matchSymbols(syms, q) {
@@ -1141,6 +1192,7 @@ function watchlistResearchHtml(research, model) {
 // Router and shell
 // ====================================================================================================
 const ROUTES = { global: viewGlobal, markets: viewMarkets, stock: viewStock, financials: viewFinancials,
+  compare: (view, arg) => viewCompare(view, arg),
   quantum: (view, arg) => (window.QUANTUM ? window.QUANTUM.view(view, arg) : (view.innerHTML = '<div class="empty">The Quantum page failed to load.</div>')),
   live: (view, arg) => (window.LIVE ? window.LIVE.view(view, arg) : (view.innerHTML = '<div class="empty">Live charts failed to load.</div>')) };
 const MOVED = { bot: "#/global" };  // retired routes: old links land somewhere useful

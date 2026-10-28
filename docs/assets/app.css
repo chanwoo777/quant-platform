@@ -434,3 +434,17 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fo
 .key-warn { margin: 12px 0; padding: 10px 12px; border: 1px solid var(--warn); background: var(--warn-soft); border-radius: 8px;
   font-size: 0.86rem; color: var(--text); }
 .modal .toggle { margin-top: 8px; }
+
+/* compare */
+.cmp-table { margin-top: 12px; }
+.cmp-table th, .cmp-table td { min-width: 110px; }
+.cmp-table td:first-child { color: var(--text-soft); white-space: normal; min-width: 190px; }
+.cmp-name { font-weight: 400; font-size: 0.74rem; color: var(--text-faint); white-space: normal; max-width: 160px; margin-left: auto; }
+.cmp-group th { background: var(--bg-soft); color: var(--text); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; position: static; }
+td.cmp-best { background: var(--accent-soft); color: var(--accent); font-weight: 650; }
+td.cmp-worst { background: var(--bad-soft); color: var(--bad); }
+.cmp-src { display: block; font-size: 0.68rem; color: var(--text-faint); font-weight: 400; }
+/* methodology links */
+.mq { display: inline-grid; place-items: center; width: 15px; height: 15px; border-radius: 50%; border: 1px solid var(--border);
+  font-size: 0.66rem; font-weight: 700; color: var(--text-faint); text-decoration: none; vertical-align: 1px; margin-left: 3px; }
+.mq:hover { color: var(--accent); border-color: var(--accent); text-decoration: none; }

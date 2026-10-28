@@ -392,10 +392,13 @@ def export_market(out: Path, c) -> int:
                       "date": f"{s.index[-1]:%Y-%m-%d}", "help": c.macro_label(sid),
                       "spark": series(spark.iloc[::step].to_numpy(), 4)})
 
-    # Risk-free rate for the Quantum page's option pricing (3-month T-bill yield).
+    # Risk-free rate (3-month T-bill yield): the latest value for option pricing, and four years of
+    # daily history for the Compare page's Sharpe and Sortino ratios.
     bill = macro["DGS3MO"].dropna() if "DGS3MO" in macro else pd.Series(dtype=float)
+    recent = bill.loc[bill.index[-1] - pd.DateOffset(years=4):] if len(bill) else bill
     rf = None if bill.empty else {"id": "DGS3MO", "label": c.macro_label("DGS3MO"), "value": bill.iloc[-1],
-                                  "date": f"{bill.index[-1]:%Y-%m-%d}"}
+                                  "date": f"{bill.index[-1]:%Y-%m-%d}",
+                                  "history": {"d": dates(recent.index), "v": series(recent.to_numpy(), 4)}}
 
     scores = c.scores()
     movers = []
