@@ -1,0 +1,27 @@
+# Link checker settings (lychee), used by .github/workflows/links.yml.
+max_retries = 2
+retry_wait_time = 5
+timeout = 30
+accept = ["200..=299", "429"]
+exclude_loopback = true
+exclude_private = true
+
+exclude = [
+  # Sites that refuse automated requests. Each was checked by hand in a browser on 28 October 2026.
+  '^https://www\.mckinsey\.com/',
+  '^https://fred\.stlouisfed\.org/',
+  '^https://www\.sec\.gov/',
+  '^https://www\.binance\.com/',
+  '^https://www\.chiefscientist\.nsw\.gov\.au/',
+  # Endpoints the site's JavaScript calls for data, not pages.
+  '^https://ts-api\.cnbc\.com/',
+  '^https://quote\.cnbc\.com/',
+  '^https://data-api\.binance\.vision/',
+  '^https://finnhub\.io/api/',
+  # The live site's data files change nightly; the SVG namespace isn't a link.
+  '^https://chanwoo777\.github\.io/quant-platform/data/',
+  '^http://www\.w3\.org/2000/svg',
+  # URLs built in JavaScript template strings (${...}) aren't real links.
+  '\$\{',
+  '%7B',
+]

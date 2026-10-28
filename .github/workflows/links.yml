@@ -1,0 +1,34 @@
+# Check the links in the website, the README and the security policy: when they change, and every
+# Monday, because links rot without any change here. Sites that refuse automated checks are listed
+# in .github/lychee.toml.
+name: Links
+
+on:
+  push:
+    branches: [main]
+    paths: ["docs/**", "README.md", "SECURITY.md", ".github/lychee.toml", ".github/workflows/links.yml"]
+  pull_request:
+    paths: ["docs/**", "README.md", "SECURITY.md", ".github/lychee.toml", ".github/workflows/links.yml"]
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  links:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8  # v2.9.0
+        with:
+          args: >-
+            --config .github/lychee.toml --no-progress
+            README.md SECURITY.md docs/index.html docs/about.html docs/privacy.html docs/404.html docs/assets/quantum.js
+          fail: true
+          jobSummary: true
