@@ -636,8 +636,8 @@
   function options() {
     return `
       <p class="soft">Price a European option on any stock in the universe three ways: the Black-Scholes formula, classical Monte Carlo, and quantum
-        amplitude estimation from the nightly simulator. Spot and volatility come from the site's daily prices; the volatility is annualised from daily
-        log returns. Dividends are ignored.</p>
+        amplitude estimation from the nightly simulator. Spot and volatility come from about two years of daily prices that your browser loads from
+        CNBC (Binance for coins); the volatility is annualised from daily log returns. Dividends are ignored.</p>
       <div class="controls">
         <div class="control"><span class="label">Stock</span><div class="q-pick"><b id="op-sym"></b><div id="op-search">${searchBox("Change stock")}</div></div></div>
         <div class="control"><span class="label">Volatility window</span><div class="chips" id="op-win">${WINDOWS.map(([w, l]) => `<button type="button" class="chip" data-v="${w}">${l}</button>`).join("")}</div></div>
@@ -662,10 +662,11 @@
     let data = null, name = "";
     const items = (ctx.q && ctx.q.options.items) || [];
     const loadSym = async (sym) => {
-      const sd = await symbolData(sym);
-      if (!sd || !sd.px || sd.px.values.length < 70) { $("#op-msg", sec).textContent = `${sym}: not enough price history on this site.`; return false; }
+      let h;
+      try { h = await priceHistory(sym); } catch (e) { $("#op-msg", sec).textContent = e.message; return false; }
+      if (h.close.length < 70) { $("#op-msg", sec).textContent = `${sym}: not enough price history.`; return false; }
       const row = await rowFor(sym);
-      O.sym = sym; data = sd.px; name = (row && row.n) || ""; $("#op-msg", sec).textContent = "";
+      O.sym = sym; data = h; name = (row && row.n) || ""; $("#op-msg", sec).textContent = "";
       return true;
     };
     if (!(await loadSym(O.sym)) && !(await loadSym("AAPL"))) throw new Error("no price data");
@@ -680,7 +681,7 @@
       if (!isNum(O.strike) || O.strike <= 0) O.strike = Math.round(S * 100) / 100;
       $("#op-k", sec).value = O.strike.toFixed(2);
       const K = O.strike;
-      $("#op-inputs", sec).innerHTML = kpi("Spot price", money2(S), `last close, ${esc(data.dates[data.dates.length - 1])}`)
+      $("#op-inputs", sec).innerHTML = kpi("Spot price", money2(S), `last close, ${esc(data.dates[data.dates.length - 1])} · ${esc(data.source)}`)
         + kpi("Volatility", pct(vol, 1, false), `annualised, last ${WINDOWS.find((w) => w[0] === O.win)[1]} of daily log returns`)
         + kpi("Risk-free rate", pct(rf.pct / 100, 2, false), `${esc(rf.label)}${rf.series ? ` (FRED ${esc(rf.series)})` : ""}${rf.date ? `, ${esc(rf.date)}` : ""}; continuous ${pct(r, 2, false)}`)
         + kpi("Time to expiry", `${O.days} days`, `T = ${O.days}/365 = ${T.toFixed(3)} years`);
@@ -727,7 +728,8 @@
       const T = item.maturity_days / 365, disc = Math.exp(-item.rate * T);
       const parity = (x) => x - item.spot + item.strike * disc;  // put from the simulated call
       const put = cur.kind === "put", f = put ? parity : (x) => x;
-      const same = Math.abs(cur.K - item.strike) < 0.005 && Math.abs(cur.vol - item.vol) < 5e-4 && Math.abs(cur.S - item.spot) < 0.005
+      // The nightly run uses the platform's own price store and the page uses CNBC's, so allow a little vendor noise.
+      const same = Math.abs(cur.K / item.strike - 1) < 0.002 && Math.abs(cur.vol - item.vol) < 0.002 && Math.abs(cur.S / item.spot - 1) < 0.002
         && Math.abs(cur.r - item.rate) < 5e-5;
       const qae = item.qae, bsNightly = put ? parity(item.bs) : item.bs, nq = ctx.q.options.uncertainty_qubits;
       return `<div class="card q-res">${head}
@@ -810,8 +812,9 @@
     bindSearch($(`#${p}-add`, sec), async (sym) => {
       if (B.syms.includes(sym)) { msg(`${sym} is already in the basket.`); return; }
       if (B.syms.length >= max) { msg(`At most ${max} stocks.`); return; }
-      const sd = await symbolData(sym);
-      if (!sd || !sd.px || sd.px.values.length < 130) { msg(`${sym}: not enough price history on this site.`); return; }
+      let h;
+      try { h = await priceHistory(sym); } catch (e) { msg(e.message); return; }
+      if (h.close.length < 130) { msg(`${sym}: not enough price history.`); return; }
       B.syms.push(sym);
       if (weights) B.w = B.syms.map(() => 1 / B.syms.length);
       msg(""); draw(); onChange();
@@ -819,12 +822,12 @@
     draw();
     return draw;
   }
-  /** Aligned closes of a basket over the last `sessions` returns. */
+  /** Aligned closes of a basket over the last `sessions` returns, loaded in the browser (priceHistory). */
   async function basketPrices(syms, sessions) {
-    const hist = await Promise.all(syms.map(async (s) => [s, await symbolData(s)]));
-    const missing = hist.filter(([, h]) => !h || !h.px).map(([s]) => s);
-    if (missing.length) throw new Error(`no price history for ${missing.join(", ")}`);
-    const al = Q.align(hist.map(([, h]) => h.px));
+    const hist = await Promise.all(syms.map(async (s) => [s, await priceHistory(s).catch((e) => ({ error: e.message }))]));
+    const missing = hist.filter(([, h]) => h.error);
+    if (missing.length) throw new Error(missing.map(([, h]) => h.error).join(" · "));
+    const al = Q.align(hist.map(([, h]) => h));
     const start = Math.max(0, al.dates.length - sessions - 1);
     return { dates: al.dates.slice(start), values: al.values.map((v) => v.slice(start)) };
   }
@@ -923,7 +926,8 @@
   function portfolioSec() {
     return `
       <p class="soft">Two ways to choose a portfolio, each with a classical answer you can trust and the quantum route researchers are exploring.
-        Pick 3 to 15 stocks; expected returns and the covariance matrix are estimated from the site's daily prices and annualised.</p>
+        Pick 3 to 15 stocks; expected returns and the covariance matrix are estimated from about two years of daily prices that your browser loads
+        from CNBC, and annualised.</p>
       ${basketHtml("pf")}
       <div class="controls"><div class="control"><span class="label">History</span><div class="chips" id="pf-look"><button type="button" class="chip" data-v="252">1 year</button>
         <button type="button" class="chip" data-v="500">2 years</button></div></div></div>

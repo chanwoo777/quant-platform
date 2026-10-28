@@ -172,31 +172,23 @@ function fnv1a(text) {
   for (const b of new TextEncoder().encode(text)) { h ^= b; h = Math.imul(h, 0x01000193); }
   return h >>> 0;
 }
-/** {px: {dates, values} (adjusted daily closes), info: fundamentals} from the symbol's bucket. */
+/** {info: fundamentals} from the symbol's bucket. The site publishes no price history: see priceHistory. */
 async function symbolData(sym) {
   const b = (fnv1a(sym) % 256).toString(16).padStart(2, "0");
   const bucketData = await load(`sym/${b}.json`).catch(() => ({}));
   const rec = bucketData[sym];
-  if (!rec) return null;
-  let px = null;
-  if (rec.p) {
-    const [start, gaps, values] = rec.p;
-    const d = new Date(start + "T00:00:00Z"), dates = [d.toISOString().slice(0, 10)];
-    for (const g of gaps) { d.setUTCDate(d.getUTCDate() + g); dates.push(d.toISOString().slice(0, 10)); }
-    px = { dates, values };
-  }
-  return { px, info: rec.i || {} };
+  return rec ? { info: rec.i || {} } : null;
 }
 async function isDeep(sym) { return (await load("meta.json")).deep.some((t) => t.ticker === sym); }
-/** Longest adjusted price history available: 10 years for deep-tier names, ~2 years otherwise. */
-async function priceHistory(sym) {
-  if (await isDeep(sym)) {
-    const d = await load(`deep/${sym.replace("^", "_")}.json`);
-    return { dates: d.d, values: d.ac || d.c, source: "deep" };
-  }
-  const sd = await symbolData(sym);
-  return sd && sd.px ? Object.assign({ source: "universe" }, sd.px) : null;
+/** About two years of daily bars {dates, open, high, low, close, volume, values (= close), source}, loaded in
+ * the visitor's browser from CNBC or Binance (live.js), since the site doesn't republish price history.
+ * {weekly: true} gives ten years of weekly bars. Throws with a readable message when no source has the symbol. */
+async function priceHistory(sym, opts) {
+  if (!window.LIVE) throw new Error("Price history couldn't load (live.js is missing)");
+  const h = await window.LIVE.dailyHistory(sym, opts);
+  return Object.assign({ values: h.close }, h);
 }
+const ohlcv = (h) => ({ time: h.dates, open: h.open, high: h.high, low: h.low, close: h.close, volume: h.volume });
 const isUSListed = (r) => r && (r.m === "US" || r.m === "US ETFs");
 const usTicker = (sym) => /^[A-Z][A-Z0-9-]{0,6}$/.test(sym) && !sym.endsWith("-USD");
 
@@ -464,10 +456,9 @@ async function openDetail(r, span = "1Y") {
   drawer.querySelectorAll("#d-span .chip").forEach((b) => b.addEventListener("click", () => openDetail(r, b.dataset.v)));
   $("#d-watch").onclick = async () => { const on = await toggleWatch(r.s); $("#d-watch").classList.toggle("on", on); $("#d-watch").textContent = on ? "★ In watchlist" : "☆ Add to watchlist"; };
 
-  const sd = await symbolData(r.s);
   const el = $("#d-chart");
-  if (!sd || !sd.px) { el.innerHTML = '<div class="empty">No price history for this symbol.</div>'; return; }
-  priceChart(el, sd.px, span, { height: 340 });
+  try { priceChart(el, await priceHistory(r.s), span, { height: 340 }); }
+  catch (e) { el.innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
 }
 
 /** Line chart of closes with 50/200-day MAs (and optional Bollinger + RSI panel). */
@@ -573,10 +564,10 @@ function indicatorChart(el, d, span, { candles = false, height = 560, extra = nu
 // ====================================================================================================
 // Markets (with the customizable watchlist)
 // ====================================================================================================
-const M = { span: new Set(["3Y"]), scope: new Set(["All"]) };
+const M = { span: new Set(["1Y"]), scope: new Set(["All"]) };
 
 async function viewMarkets(view) {
-  const m = await load("market.json");
+  const [m, spx] = await Promise.all([load("market.json"), priceHistory("^GSPC").catch((e) => ({ error: e.message }))]);
   const reg = m.regime;
   const stanceClass = { "Risk-On": "good", Neutral: "warn", "Risk-Off": "bad" }[reg.stance] || "";
   const tiles = m.fred.map((t) => {
@@ -605,25 +596,29 @@ async function viewMarkets(view) {
       <span class="caption">Saved in this browser. ★ on the Global screener adds names too.</span>
     </div>
     <div id="w-table"></div>
-    <div class="controls"><div class="control"><span class="label">Range</span>${chips("span", [["1Y", "1Y"], ["3Y", "3Y"], ["5Y", "5Y"], ["10Y", "10Y"]], M.span, false)}</div></div>
-    <div class="controls" style="margin-top:0">${indicatorChipsHtml({ time: m.spx.d, close: m.spx.c })}</div>
+    <div class="controls"><div class="control"><span class="label">Range</span>${chips("span", [["6M", "6M"], ["1Y", "1Y"], ["2Y", "2Y"], ["10Y", "10Y (weekly)"]], M.span, false)}</div></div>
+    <div class="controls" style="margin-top:0">${indicatorChipsHtml(spx.error ? { close: [] } : ohlcv(spx))}</div>
     <div class="chart-title">S&amp;P 500 with regime stance</div>
-    <div class="chart" id="m-spx"></div>
+    <div class="chart" id="m-spx">${spx.error ? `<div class="empty">${esc(spx.error)}</div>` : ""}</div>
+    <p class="caption">Prices load in your browser from CNBC: daily bars for two years, weekly bars for ten (indicator lengths then count weeks).</p>
     <h2>Economic indicators (FRED)</h2>
     <div class="grid g5">${tiles}</div>
     <h2>Breaking news</h2><div class="controls" style="margin-top:0">${chips("scope", [["All", "All"], ["Watchlist", "Watchlist"], ["Market-wide", "Market-wide"]], M.scope, false)}</div><div id="m-news"></div>`;
 
-  const drawSpx = () => {
-    const span = [...M.span][0];
-    const start = startFor(m.spx.d[m.spx.d.length - 1], span);
-    const i0 = Math.max(0, m.spx.d.findIndex((d) => d >= start));
-    const c = pal(), x = m.spx.d.slice(i0);
+  const drawSpx = async () => {
+    const span = [...M.span][0], el = $("#m-spx");
+    let h = spx;
+    if (span === "10Y") try { h = await priceHistory("^GSPC", { weekly: true }); } catch (e) { h = { error: e.message }; }
+    if (h.error) { el.innerHTML = `<div class="empty">${esc(h.error)}</div>`; return; }
+    const d = ohlcv(h), start = startFor(d.time[d.time.length - 1], span);
+    const i0 = Math.max(0, d.time.findIndex((t) => t >= start));
+    const c = pal(), x = d.time.slice(i0);
     const shapes = m.stance_runs.filter(([, end]) => end >= x[0]).map(([s, e, stance]) => ({
       type: "rect", xref: "x", yref: "paper", x0: s < x[0] ? x[0] : s, x1: e, y0: 0, y1: 1, line: { width: 0 },
       fillcolor: STANCE[stance], opacity: 0.1, layer: "below" }));
     const legend = Object.entries(STANCE).map(([s, col]) => ({ x: [x[x.length - 1]], y: [null], mode: "markers", name: `${s} (shading)`,
       hoverinfo: "skip", marker: { symbol: "square", size: 10, color: col, opacity: 0.4 } }));
-    indicatorChart($("#m-spx"), { time: m.spx.d, close: m.spx.c }, span, { height: 400, extra: () => legend, shapes });
+    indicatorChart(el, d, span, { height: 400, extra: () => legend, shapes });
   };
   const drawNews = () => {
     const scope = [...M.scope][0];
@@ -715,15 +710,16 @@ async function viewStock(view, arg) {
 }
 
 async function viewStockDeep(view, ticker) {
-  const d = await load(`deep/${ticker.replace("^", "_")}.json`);
+  const [d, h] = await Promise.all([load(`deep/${ticker.replace("^", "_")}.json`), priceHistory(ticker).catch((e) => ({ error: e.message }))]);
+  Object.assign(d, h.error ? { d: [], o: [], h: [], l: [], c: [], v: null } : { d: h.dates, o: h.open, h: h.high, l: h.low, c: h.close, v: h.volume });
   const n = d.c.length, snap = d.snapshot;
-  const chg = d.c[n - 1] / d.c[n - 2] - 1;
+  const chg = n > 1 ? d.c[n - 1] / d.c[n - 2] - 1 : null;
   const spread = snap.sma_200 ? snap.sma_50 / snap.sma_200 - 1 : null;
   const rsi = snap.rsi_14;
   view.innerHTML = `
     ${assetHeader(ticker, d.name, `${esc(d.sic || "")}${d.exchange ? " · " + esc(d.exchange) : ""} · deep tier: candlesticks, news and explained moves`, "stock")}
     <div class="controls">
-      <div class="control"><span class="label">Range</span>${chips("span", ["3M", "6M", "1Y", "3Y", "All"].map((s) => [s, s]), S.span, false)}</div>
+      <div class="control"><span class="label">Range</span>${chips("span", ["3M", "6M", "1Y", "All"].map((s) => [s, s]), S.span, false)}</div>
       <div class="control"><span class="label">Annotations</span>${chips("layers", ["News", "Unusual moves"].map((s) => [s, s]), S.layers)}</div>
     </div>
     <div class="controls" style="margin-top:0">${indicatorChipsHtml(deepSeries(d))}</div>
@@ -735,9 +731,9 @@ async function viewStockDeep(view, ticker) {
       ${kpi("Factor score", d.score ? `${num(d.score.composite, 0)}/100` : "–", d.score ? `rank ${d.score.rank} of ${d.score.of}` : "")}
     </div>
     <div class="chart-title" id="s-title"></div>
-    <div class="chart" id="s-chart" style="min-height:640px"></div>
+    <div class="chart" id="s-chart" style="min-height:640px">${h.error ? `<div class="empty">${esc(h.error)}</div>` : ""}</div>
     <p class="caption">Candles: blue up, red down. ▲ / ▼ / ● news markers = bullish / bearish / neutral FinBERT average of on-topic headlines,
-      placed on the session they first affected. ★ = unusual move; hover for the explanation.</p>
+      placed on the session they first affected. ★ = unusual move; hover for the explanation. ${h.error ? "" : `About two years of daily bars, loaded in your browser from ${esc(h.source)}.`}</p>
     <details><summary>Indicator readings</summary><ul class="reasons">${(snap.readings || []).map((r) => `<li>${esc(r)}</li>`).join("")}</ul></details>
     <div class="grid g2">
       <div><h2>Unusual moves</h2>${table([
@@ -758,7 +754,7 @@ async function viewStockDeep(view, ticker) {
       ], d.news, { tall: true, empty: "No on-topic headlines for this ticker yet." })}</div>
     </div>`;
   bindAssetHeader(view, ticker, "stock");
-  const draw = () => drawStockChart(d);
+  const draw = () => { if (!h.error) drawStockChart(d); };
   bindChips(view, "span", S.span, false, draw);
   bindChips(view, "layers", S.layers, true, draw);
   bindIndicatorChips(view, draw);
@@ -796,9 +792,9 @@ function drawStockChart(d) {
 
 const U = { span: new Set(["1Y"]), bollinger: new Set() };
 async function viewStockUniverse(view, sym, row) {
-  const sd = await symbolData(sym);
-  const info = (sd && sd.info) || {}, px = sd && sd.px;
-  const vals = px ? px.values : [];
+  const [sd, px] = await Promise.all([symbolData(sym), priceHistory(sym).catch((e) => ({ error: e.message }))]);
+  const info = (sd && sd.info) || {}, err = px.error;
+  const vals = err ? [] : px.close;
   const n = vals.length;
   const ma50 = Q.sma(vals, 50), ma200 = Q.sma(vals, 200), rsi = Q.rsi(vals, 14);
   const last = n ? vals[n - 1] : null, chg = n > 1 ? vals[n - 1] / vals[n - 2] - 1 : null;
@@ -809,16 +805,16 @@ async function viewStockUniverse(view, sym, row) {
     <div class="controls">
       <div class="control"><span class="label">Range</span>${chips("uspan", ["3M", "6M", "1Y", "All"].map((s) => [s, s]), U.span, false)}</div>
     </div>
-    <div class="controls" style="margin-top:0">${indicatorChipsHtml(px ? { time: px.dates, close: px.values } : { close: [] })}</div>
+    <div class="controls" style="margin-top:0">${indicatorChipsHtml(err ? { close: [] } : ohlcv(px))}</div>
     <div class="grid g5">
-      ${kpi("Last close", num(last, last >= 1000 ? 0 : 2), `${signed(chg, 2)}${px ? " · " + esc(px.dates[n - 1]) : ""}`)}
+      ${kpi("Last close", num(last ?? row.px, (last ?? row.px) >= 1000 ? 0 : 2), `${signed(chg ?? row.r1d, 2)}${err ? "" : " · " + esc(px.dates[n - 1])}`)}
       ${kpi("50 vs 200-day MA", pct(spread), spread == null ? "" : spread > 0 ? '<span class="pos">golden-cross alignment</span>' : '<span class="neg">death-cross alignment</span>')}
       ${kpi("RSI (14)", num(rsi[n - 1], 0), ok(rsi[n - 1]) ? (rsi[n - 1] >= 70 ? "overbought" : rsi[n - 1] <= 30 ? "oversold" : "neutral") : "")}
       ${kpi("Momentum 12-1", pct(row.m121, 0), "", "Return from 12 months to 1 month ago")}
       ${kpi("Composite score", ok(row.sc) ? `${num(row.sc, 0)}/100` : "–", `<span class="sig-${esc(row.sig)}">${SIGNAL[row.sig] || "–"}</span>`)}
     </div>
-    <div class="chart-title">${esc(sym)} · daily close</div>
-    <div class="chart" id="u-chart" style="min-height:460px">${px ? "" : '<div class="empty">No price history for this symbol.</div>'}</div>
+    <div class="chart-title">${esc(sym)} · daily${err ? "" : ` · ${esc(px.source)}, loaded in your browser`}</div>
+    <div class="chart" id="u-chart" style="min-height:460px">${err ? `<div class="empty">${esc(err)}</div>` : ""}</div>
     ${row.why ? `<div class="note"><b>Why ${SIGNAL[row.sig] || ""}:</b> ${esc(row.why)}</div>` : ""}
     <div class="grid g2">
       <div><h2>Returns and risk</h2>${table([{ h: "Measure", f: (x) => esc(x[0]) }, { h: "Value", r: 1, f: (x) => x[1] }], [
@@ -831,10 +827,10 @@ async function viewStockUniverse(view, sym, row) {
         ["Composite", row.sc], ["Trend", row.t], ["Momentum", row.mo], ["Risk (low is better)", row.r], ["Value", row.v], ["Quality", row.q],
         ["Analysts", row.an], ...(row.a === "e" ? [["Cost", row.co]] : []),
       ])}
-      <p class="caption">${await isDeep(sym) ? "" : "Candlesticks, news and explained unusual moves are kept for the deep-tier names; add this one to the deep tier from the local dashboard to get them."}</p></div>
+      <p class="caption">${await isDeep(sym) ? "" : "News markers and explained unusual moves are kept for the deep-tier names; add this one to the deep tier from the local dashboard to get them."}</p></div>
     </div>`;
   bindAssetHeader(view, sym, "stock");
-  const draw = () => { if (px) indicatorChart($("#u-chart"), { time: px.dates, close: px.values }, [...U.span][0], { height: 460 }); };
+  const draw = () => { if (!err) indicatorChart($("#u-chart"), ohlcv(px), [...U.span][0], { candles: true, height: 460, rangebreaks: row.a !== "c" }); };
   bindChips(view, "uspan", U.span, false, draw);
   bindIndicatorChips(view, draw);
   draw();
@@ -1053,8 +1049,9 @@ async function drawFactorModel(sym, r, model) {
   const el = $("#ff");
   if (!el) return;
   if (r.a === "c" || r.a === "i") { el.innerHTML = '<div class="empty">Factor models describe stock returns; they are not estimated for coins and indices.</div>'; return; }
-  const [hist, factors] = [await priceHistory(sym), factorData || (factorData = await load("factors.json"))];
-  if (!hist) { el.innerHTML = '<div class="empty">No price history for this symbol.</div>'; return; }
+  let hist;
+  try { hist = await priceHistory(sym); } catch (e) { el.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  const factors = factorData || (factorData = await load("factors.json"));
   const stock = { dates: hist.dates, returns: Q.returns(hist.values) };
   const e = Q.factorRegression(stock, factors, model);
   const roll = Q.rollingExposures(stock, factors, model, { window: Math.min(Q.TD, Math.floor(e.n_obs / 2)) });
@@ -1062,8 +1059,9 @@ async function drawFactorModel(sym, r, model) {
   const nonUS = r.m && !["US", "US ETFs"].includes(r.m);
   el.innerHTML = `
     <p class="caption">Daily excess returns on the ${esc(model)} factors from Kenneth French's library, ${esc(e.start)} to ${esc(e.end)} (${e.n_obs} days;
-      the library lags 1-2 months${hist.source === "universe" ? "; about two years of history for names outside the deep tier" : ""}). Newey-West (5-lag) t-statistics, computed in your browser with
-      the same method as the Python models. |t| ≥ 2 is significant.</p>
+      the library lags 1-2 months). About two years of daily prices, loaded in your browser from ${esc(hist.source)}; they may not be adjusted for
+      dividends, which lowers alpha by about the dividend yield. Newey-West (5-lag) t-statistics, computed in your browser with the same method as
+      the Python models. |t| ≥ 2 is significant.</p>
     ${nonUS ? '<div class="note">These are US factors. For a non-US stock the loadings mix in currency and local-market effects, and markets that close before New York opens show muted same-day betas, so read them as approximate.</div>' : ""}
     <div class="grid g6">${kpi("Alpha / year", pct(e.alpha_annual), `t = ${num(e.alpha_t, 1)}${Math.abs(e.alpha_t) >= 2 ? " · significant" : ""}`, "Return not explained by the factors")}
       ${cols.map((f) => kpi(FACTOR[f], num(e.betas[f], 2), `t = ${num(e.t_stats[f], 1)}${Math.abs(e.t_stats[f]) >= 2 ? " · significant" : ""}`)).join("")}

@@ -6,7 +6,8 @@
  *   stocks   CNBC's chart and quote endpoints (US, Korea, Europe, India, Taiwan, Australia,
  *            Canada, major indices): history, then a poll every 15 s; backs off if throttled
  *   US ticks Finnhub trade WebSocket when the visitor has saved a free key (⚙)
- *   fallback the platform's nightly daily bars when a live source has no data
+ * The site publishes no price history of its own, so dailyHistory() below also serves every other
+ * page that charts a symbol or computes from its past prices (window.LIVE.dailyHistory).
  * Studies, investor playbooks and the indicator maths live in quant.js (tested against Python).
  */
 (function () {
@@ -22,7 +23,6 @@
   const FEED_INTERVALS = {
     binance: ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d", "1w", "1M"],
     cnbc: ["1m", "5m", "15m", "30m", "1h", "1d", "1w", "1M"],
-    daily: ["1d"],
   };
   const CNBC_RANGE = { "1m": "1D", "5m": "5D", "15m": "5D", "30m": "5D", "1h": "5D", "1d": "6M", "1w": "5Y", "1M": "ALL" };
   const CNBC_SUFFIX = { KS: "KR", KQ: "KR", L: "GB", DE: "DE", NS: "IN", BO: "IN", TW: "TW", TWO: "TW", AX: "AU", TO: "CA", V: "CA",
@@ -130,21 +130,11 @@
         if (!res.ok) throw new Error(`Binance HTTP ${res.status}`);
         return (await res.json()).map((k) => ({ t: Math.floor(k[0] / 1000), open: +k[1], high: +k[2], low: +k[3], close: +k[4], volume: +k[5] }));
       }
-      if (r.feed === "cnbc") {
-        const json = await getJSON(`${CNBC_CHART}${CNBC_RANGE[iv]}.json?symbol=${encodeURIComponent(r.cnbc)}`);
-        let bars = cnbcBars(json, isIntraday(iv));
-        if (["15m", "30m", "1h"].includes(iv)) bars = aggregate(bars, SEC[iv]);
-        if (!bars.length) throw new Error(`No ${LABEL[iv] || iv} data from CNBC for ${r.cnbc}`);
-        return bars;
-      }
-      // Nightly daily bars from the platform's export.
-      if (r.deep) {
-        const d = await load(`deep/${r.sym.replace("^", "_")}.json`);
-        return d.d.map((x, i) => ({ t: Date.parse(x + "T00:00:00Z") / 1000, open: d.o[i], high: d.h[i], low: d.l[i], close: d.c[i], volume: d.v[i] }));
-      }
-      const sd = await symbolData(r.sym);
-      if (!sd || !sd.px) throw new Error(`No data for ${r.sym}`);
-      return sd.px.dates.map((x, i) => ({ t: Date.parse(x + "T00:00:00Z") / 1000, open: sd.px.values[i], high: sd.px.values[i], low: sd.px.values[i], close: sd.px.values[i], volume: 0, closeOnly: true }));
+      const json = await getJSON(`${CNBC_CHART}${CNBC_RANGE[iv]}.json?symbol=${encodeURIComponent(r.cnbc)}`);
+      let bars = cnbcBars(json, isIntraday(iv));
+      if (["15m", "30m", "1h"].includes(iv)) bars = aggregate(bars, SEC[iv]);
+      if (!bars.length) throw new Error(noData(r));
+      return bars;
     },
     /** Live updates; onBar(bar) for a new or updated last bar. Returns stop(). */
     subscribe(r, iv, onBar, status) {
@@ -153,10 +143,46 @@
         if (r.us && FH.key() && isIntraday(iv)) return finnhubSocket(r, iv, onBar, status);
         return cnbcPoll(r, iv, onBar, status);
       }
-      status("wait", "Daily bars from the nightly export");
       return () => {};
     },
   };
+  const noData = (r) => `CNBC has no price data for ${r.sym}${/-(JP|HK)$/.test(r.cnbc || "") ? ": it doesn't cover Tokyo or Hong Kong listings" : ""}`;
+
+  // --- price history for the rest of the site ------------------------------------------------------
+  // The site doesn't republish anyone's price history: pages that chart a symbol or compute from its
+  // past prices load it here, from the visitor's browser. Daily bars cover about two years (CNBC's
+  // 1Y range returns two; Binance up to 1,000 days), weekly bars ten.
+  const histCache = new Map(), waiting = [];
+  let inFlight = 0;
+  async function limited(fn) {  // CNBC throttles bursts, so at most four requests at a time
+    if (inFlight >= 4) await new Promise((go) => waiting.push(go));
+    inFlight++;
+    try { return await fn(); } finally { inFlight--; if (waiting.length) waiting.shift()(); }
+  }
+  async function cnbcJSON(url) {
+    try { return await getJSON(url); } catch (e) {
+      if (!e.throttled) throw e;
+      await new Promise((go) => setTimeout(go, 2000));  // one retry after a pause
+      try { return await getJSON(url); } catch (e2) { throw new Error(e2.throttled ? "CNBC is throttling requests; try again in a minute" : e2.message); }
+    }
+  }
+  /** {sym, source, weekly, dates, open, high, low, close, volume|null} for a universe symbol. */
+  function dailyHistory(sym, { weekly = false } = {}) {
+    const key = `${sym}|${weekly ? "w" : "d"}`;
+    if (!histCache.has(key)) {
+      histCache.set(key, (async () => {
+        const r = await resolve(sym);
+        const bars = r.feed === "binance"  // an unknown pair fails without CORS headers, so name the likely cause
+          ? await limited(() => FEEDS.history(r, weekly ? "1w" : "1d")).catch(() => { throw new Error(`Binance has no ${r.pair} market, so there's no price history for ${sym}`); })
+          : cnbcBars(await limited(() => cnbcJSON(`${CNBC_CHART}${weekly ? "5Y" : "1Y"}.json?symbol=${encodeURIComponent(r.cnbc)}`)), false);
+        if (bars.length < 2) throw new Error(r.feed === "cnbc" ? noData(r) : `Binance has no price data for ${sym}`);
+        const col = (k) => bars.map((b) => b[k]);
+        return { sym, source: r.feed === "binance" ? "Binance" : "CNBC", weekly, dates: bars.map((b) => new Date(b.t * 1000).toISOString().slice(0, 10)),
+          open: col("open"), high: col("high"), low: col("low"), close: col("close"), volume: bars.some((b) => b.volume) ? col("volume") : null };
+      })().catch((e) => { histCache.delete(key); throw e; }));
+    }
+    return histCache.get(key);
+  }
 
   function binanceSocket(r, iv, onBar, status) {
     let ws = null, stopped = false, tries = 0, timer = null;
@@ -288,17 +314,11 @@
     let bars = [];
     try {
       await loadScript(LWC_URL, "LightweightCharts");
-      try { bars = await FEEDS.history(r, iv); }
-      catch (e) {
-        if (r.feed !== "cnbc") throw e;
-        // CNBC has no data (or is throttling): fall back to the nightly daily bars.
-        r.liveError = e.throttled ? "CNBC is throttling requests right now" : e.message;
-        feed = r.feed = "daily"; iv = "1d";
-        bars = await FEEDS.history(r, iv);
-      }
+      bars = await FEEDS.history(r, iv);
     } catch (e) {
-      $("#pc-chart").innerHTML = `<div class="empty">${esc(e.message)}</div>`;
-      setStatus("err", e.message);
+      const msg = e.throttled ? "CNBC is throttling requests right now; try again in a minute." : e.message;
+      $("#pc-chart").innerHTML = `<div class="empty">${esc(msg)}${r.row ? `<br><a href="#/stock/${encodeURIComponent(r.sym)}">The stock page</a> still has its scores and returns.` : ""}</div>`;
+      setStatus("err", msg);
       return;
     }
     const pc = proChart(el, r, iv, bars);
@@ -311,8 +331,7 @@
   }
   function footNote(r, feed) {
     const src = feed === "binance" ? "Binance public market data over WebSocket (no key)."
-      : feed === "cnbc" ? `CNBC's quote and chart service (unofficial, no key), polled every 15 s${r.us && FH.key() ? "; Finnhub trade ticks with your key on intraday intervals" : r.us ? "; add a free Finnhub key (⚙) for tick-by-tick updates" : ""}. Bars include pre- and post-market sessions where available.`
-      : `The platform's nightly daily bars${r.liveError ? ` (live source unavailable: ${esc(r.liveError)})` : ""}.`;
+      : `CNBC's quote and chart service (unofficial, no key), polled every 15 s${r.us && FH.key() ? "; Finnhub trade ticks with your key on intraday intervals" : r.us ? "; add a free Finnhub key (⚙) for tick-by-tick updates" : ""}. Bars include pre- and post-market sessions where available.`;
     return `${src} Indicators are computed in your browser with TradingView's formulas and stay as you set them. Drawings are saved per symbol in this browser.
       Charting by <a href="https://www.tradingview.com/lightweight-charts/" target="_blank" rel="noopener">TradingView Lightweight Charts</a>. Research only, not investment advice.`;
   }
@@ -381,8 +400,7 @@
         const m = new Map(b.map((x) => [x.t, x.close]));
         bench = { map: m, name: ref.sym };
       } catch (e) {
-        try { const s = await load("market.json"); bench = { map: new Map(s.spx.d.map((x, i) => [Date.parse(x + "T00:00:00Z") / 1000, s.spx.c[i]])), name: "^GSPC" }; }
-        catch (err) { bench = { map: new Map(), name: "benchmark" }; }
+        bench = { map: new Map(), name: "benchmark" };
       }
       rebuildStudies();
     }
@@ -476,7 +494,7 @@
       const prev = bars[i - 1], chg = prev ? b.close / prev.close - 1 : null, ref = b.close;
       const tops = paneTops(), blocks = {};
       const add = (pane, html) => { (blocks[pane] = blocks[pane] || []).push(html); };
-      add(0, `<div class="pc-leg-main"><button class="pc-fold" data-act="fold" title="${legendFolded ? "Show" : "Hide"} indicator values">${legendFolded ? "▸" : "▾"}</button><b>${esc(r.sym)}</b> · ${LABEL[iv] || iv} · ${esc(r.feed === "binance" ? "Binance" : r.feed === "cnbc" ? "CNBC" : "daily")}
+      add(0, `<div class="pc-leg-main"><button class="pc-fold" data-act="fold" title="${legendFolded ? "Show" : "Hide"} indicator values">${legendFolded ? "▸" : "▾"}</button><b>${esc(r.sym)}</b> · ${LABEL[iv] || iv} · ${esc(r.feed === "binance" ? "Binance" : "CNBC")}
         <span>O <b>${fmtNum(b.open, ref)}</b> H <b>${fmtNum(b.high, ref)}</b> L <b>${fmtNum(b.low, ref)}</b> C <b>${fmtNum(b.close, ref)}</b>
         ${chg === null ? "" : `<b class="${chg >= 0 ? "pos" : "neg"}">${chg >= 0 ? "+" : ""}${(chg * 100).toFixed(2)}%</b>`}${b.volume ? ` Vol <b>${Math.round(b.volume).toLocaleString()}</b>` : ""}</span></div>`);
       for (const cmp of computed) {
@@ -657,7 +675,6 @@
     if (bars.length > 300) ts().setVisibleLogicalRange({ from: bars.length - 300, to: bars.length + 5 });
     setStatus("wait", "Connecting…");
     stopFeed = FEEDS.subscribe(r, iv, onBar, setStatus);
-    if (r.feed === "daily") setStatus("wait", r.liveError ? "Live source unavailable: daily bars" : "Daily bars, updated nightly");
 
     // --- toolbar, dialogs and shortcuts ------------------------------------------------------------
     let logOn = false, pctOn = false;
@@ -823,5 +840,5 @@
     return pc;
   }
 
-  window.LIVE = { view };
+  window.LIVE = { view, dailyHistory };
 })();

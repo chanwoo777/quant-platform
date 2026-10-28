@@ -4,20 +4,22 @@
     python -m quant.web.publish           # export, then push data/site to the gh-pages branch
 
 The data comes from the same functions the Streamlit pages call (dashboard/common.py),
-so the website and the local dashboard show the same numbers. Files written to
-data/site/data/:
+so the website and the local dashboard show the same numbers. No price history is published:
+Yahoo's terms allow personal use only, so the site publishes calculated numbers (scores, returns,
+volatility, betas) and each page loads price history in the visitor's browser instead
+(docs/assets/live.js, dailyHistory). Files written to data/site/data/:
 
   meta.json       freshness dates and counts
   global.json     regimes + the screener (every stock, ETF and coin, columnar)
   indices.json    the market-regime benchmark indices with returns and trend
   symbols.json    [symbol, name, class, market] for search and autocomplete
-  sym/<xx>.json   per symbol: ~2 years of adjusted daily closes + fundamentals, in 256
-                  buckets keyed by FNV-1a(symbol), so any ticker's page loads one small file
+  sym/<xx>.json   per symbol: fundamentals and risk statistics, in 256 buckets keyed by
+                  FNV-1a(symbol), so any ticker's page loads one small file
   factors.json    daily Fama-French factors (FF3, momentum, FF5) for in-browser regressions
-  market.json     regime, S&P 500 with stance history, FRED tiles, the 3-month T-bill rate,
+  market.json     regime and its stance history, FRED tiles, the 3-month T-bill rate,
                   watchlist movers, news
-  deep/<T>.json   per deep-tier ticker: OHLCV + adjusted close + indicators, news markers,
-                  unusual moves, headlines, SEC financials, rolling factor betas
+  deep/<T>.json   per deep-tier ticker: latest indicator readings, news markers, unusual
+                  moves, headlines, SEC financials, rolling factor betas
   research.json   factor exposures (FF3, Carhart, FF5), composite scores, strategy backtests
   quantum.json    the nightly quantum simulations (quant/web/quantum.py, run in a subprocess with
                   a timeout): the last good result, kept when a run fails
@@ -44,7 +46,6 @@ log = logging.getLogger("quant.web")
 
 ROOT = Path(__file__).resolve().parents[2]
 SITE_SRC = ROOT / "docs"
-PX_ROWS = 600  # daily closes per symbol (the store keeps ~800 calendar days, about 550 sessions)
 BUCKETS = 256
 FACTOR_YEARS = 5
 INDEX_NAMES = {"^GSPC": "S&P 500", "^GSPTSE": "S&P/TSX Composite", "^STOXX": "STOXX Europe 600",
@@ -210,17 +211,11 @@ def export_global(out: Path) -> dict:
     size += write(out / "indices.json", indices)
     size += write(out / "symbols.json", [r[:4] for r in rows] + [[i["s"], i["n"], "i", i["m"]] for i in indices])
 
-    # Per-symbol prices + fundamentals, bucketed so any ticker's page loads ~1/256 of the data.
+    # Per-symbol fundamentals and statistics (no prices), bucketed so a page loads ~1/256 of them.
     info = scores.drop_duplicates("symbol").set_index("symbol")
     buckets: dict[str, dict] = {}
     for sym in list(scores.symbol) + [i["s"] for i in indices]:
         entry: dict = {}
-        if sym in close:
-            s = close[sym].dropna().tail(PX_ROWS)
-            if len(s) >= 2:
-                days = pd.DatetimeIndex(s.index)
-                gaps = np.diff(days.values).astype("timedelta64[D]").astype(int).tolist()
-                entry["p"] = [f"{days[0]:%Y-%m-%d}", gaps, series(s.to_numpy(), 6)]
         if sym in info.index:
             row = info.loc[sym]
             fields = {k: clean(row[col]) for k, col in INFO_FIELDS.items() if col in row.index}
@@ -326,9 +321,6 @@ def export_deep(out: Path, c) -> dict:
         news = news_all[news_all.ticker == t].copy()
         moves = c.anomalies(t, "1d", days=3 * 365 + 30)
         row = scores.loc[t] if t in scores.index else None
-        cols = {"o": "open", "h": "high", "l": "low", "c": "close", "ac": "adj_close", "v": "volume", "ma50": "sma_50",
-                "ma200": "sma_200", "rsi": "rsi_14", "bbu": "bb_upper", "bbl": "bb_lower"}
-        bars = {k: series(daily[col].to_numpy(), 6 if k != "rsi" else 3) for k, col in cols.items() if col in daily}
         rolling = {}
         for model in qm.MODELS:
             try:  # rolling_exposures already steps monthly; keep every point
@@ -342,7 +334,6 @@ def export_deep(out: Path, c) -> dict:
             "snapshot": {k: snap.get(k) for k in ("date", "close", "sma_50", "sma_200", "rsi_14", "readings")},
             "score": None if row is None else {"composite": row["composite"], "rank": row["rank"],
                                                "of": len(scores), "momentum_12_1": row["momentum_12_1"]},
-            "d": dates(daily.index), **bars,
             "markers": _news_markers(daily, news),
             "moves": [{"d": f"{pd.Timestamp(m['timestamp']):%Y-%m-%d}", "ret": sig(m["return_pct"], 4),
                        "z": sig(m["zscore"], 3), "driver": m["driver"], "why": m["explanation"],
@@ -364,7 +355,6 @@ def export_deep(out: Path, c) -> dict:
 def export_market(out: Path, c) -> int:
     ctx = c.context()
     reg = c.regime()
-    spx = c.benchmark_bars("^GSPC")
     hist = ctx.regime[["stance"]].dropna()
     runs = (hist.stance != hist.stance.shift()).cumsum()
     stance_runs = [[f"{g.index[0]:%Y-%m-%d}", f"{g.index[-1]:%Y-%m-%d}", g.stance.iloc[0]] for _, g in hist.groupby(runs)]
@@ -408,8 +398,6 @@ def export_market(out: Path, c) -> int:
     return write(out / "market.json", {
         "regime": {k: reg.get(k) for k in ("label", "trend", "volatility", "stance", "risk_score", "reasons", "as_of",
                                              "vix")},
-        "spx": {"d": dates(spx.index), "c": series(spx.close, 6), "ma50": series(spx.sma_50, 6),
-                "ma200": series(spx.sma_200, 6)},
         "stance_runs": stance_runs,
         "fred": tiles,
         "rf": rf,

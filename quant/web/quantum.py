@@ -44,7 +44,7 @@ LABEL = "Simulated on a classical computer - educational, not a trading signal"
 SEED = 42
 SHOTS = 200  # per circuit evaluated by the sampler
 TD = 252
-PX_ROWS = 600  # the same history the website's symbol files carry
+PX_ROWS = 600  # about two years of sessions, like the history the website loads in the browser
 
 OPTION_TICKERS = ["AAPL", "MSFT", "NVDA"]
 MATURITIES = [30, 90, 180]  # calendar days
