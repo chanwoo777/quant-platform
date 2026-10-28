@@ -989,6 +989,52 @@ mechanical labels from ranking past data against peers, and the site says so nex
 to them: they are not recommendations. To take the site down, disable Pages in the
 repository settings or delete the `gh-pages` branch.
 
+## How to verify a number
+
+Every number on the site can be traced to its source, its date and the code that computed it.
+
+1. **Check the freshness badge.** Every panel heading carries a badge that names the panel's sources
+   and the oldest as-of date among them.
+   - *Green:* fresh. *Amber:* older than the source expects (one trading day for prices, about two
+     months for the Fama-French library). *Red:* missing, failed, or more than three times too old.
+   - Ages are counted in your browser, so a site that stops updating turns amber, then red, by itself.
+   - Hover the badge for each source's date and age; click it for the Data status page.
+2. **Read the Data status page** (`#/status`, linked from the footer). The nightly job writes
+   `data/status.json` (`quant/web/status.py`). For each source it lists:
+   - the last successful run and the date the data runs to;
+   - row counts, missing tickers and stale series;
+   - outliers flagged for review: daily moves beyond 5 standard deviations of the previous year;
+   - the fail-soft quality checks (`quant/web/quality.py`): repeated rows, gaps of 3+ sessions,
+     closes at or below zero, zero volume, and 20x one-day jumps (unit changes).
+
+   A failing series is never dropped silently. Its symbol gets a ⚠ in the screener and a note on
+   its pages. A missing file or a failed export step shows red, and the page that needs it says so
+   instead of drawing a partial chart.
+3. **Look up the formula.** The "?" next to a metric opens its Methodology entry (`#/methodology/<id>`).
+   Each entry gives the formula, the inputs and their source, the window, the limitations, and the
+   file and function that compute it.
+4. **Download the data.** Every table and chart has a CSV button. Each file starts with the panel's
+   title, its sources and as-of dates, the download time and page, and the disclaimer. The
+   screener's file holds every matching row, not just the visible page.
+5. **Recompute it.** The code is public ("View the code" in the header and footer). Run
+   `python -m quant.web.export` to rebuild the same JSON from the same sources. The in-browser maths
+   (`docs/assets/quant.js`) is tested against numpy in `tests/test_research_js.py`.
+6. **Check the signals' record.** The Signal track record (`#/track-record`) shows forward returns of
+   the BUY / HOLD / AVOID labels after 5, 20 and 60 trading days, against each market's index, with
+   the hit rate, the number of signal dates and the start date.
+   - *How the log works:* each night's labels are appended to `data/track` (`quant/web/track.py`) as
+     one write-once file per date. A manifest records each file's SHA-256 and the previous line's
+     hash, so an edit to any earlier day breaks the chain.
+   - *No hindsight:* a rerun can't rewrite a logged day, and the log can't be backfilled. It started
+     on 2026-10-27; rows with fewer than 60 signal dates are labelled as too few to judge.
+   - *Downloads:* the latest 20 days' signals can be downloaded, without prices.
+   - *Keep a copy:* the log lives in the publishing PC's `data/` folder, which isn't in git.
+7. **See what changed.** The Changelog (`#/changelog`) is built from commits tagged `feat:` or `fix:`.
+   Commits that change a calculation are marked *methodology* and listed first.
+
+Research and education only, not investment advice. Data may be delayed or wrong. Past performance
+does not predict future results.
+
 ## License, security and privacy
 
 - **License:** the code is MIT-licensed ([LICENSE](LICENSE)). Market data, news and
