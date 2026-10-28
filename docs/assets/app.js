@@ -209,18 +209,74 @@ function downloadPanel(el) {
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
-/** A "CSV" button above every table, chart and registered panel that has data. */
+// --- PNG export: a chart as an image, with the site's address and the data's as-of date on it ----------
+const SITE_URL = "chanwoo777.github.io/quant-platform";
+/** Draw `img` (a chart) on a canvas with a footer strip: the panel's title on the left, the site and the
+ * as-of date on the right, plus a faint watermark of the address in the chart's corner. */
+function watermark(img, { title = "", asOf = "", scale = 2 } = {}) {
+  const c = pal(), strip = 30 * scale, canvas = document.createElement("canvas");
+  canvas.width = img.width; canvas.height = img.height + strip;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = c.surface; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(img, 0, 0);
+  ctx.save();
+  ctx.globalAlpha = 0.14; ctx.fillStyle = c.ink; ctx.font = `600 ${13 * scale}px ${FONT}`; ctx.textAlign = "right"; ctx.textBaseline = "top";
+  ctx.fillText(SITE_URL, img.width - 60 * scale, 8 * scale);  // top right, clear of the axes
+  ctx.restore();
+  ctx.fillStyle = c.grid; ctx.fillRect(0, img.height, canvas.width, scale);
+  ctx.textBaseline = "middle"; ctx.font = `${11 * scale}px ${FONT}`;
+  const right = `${SITE_URL} · ${asOf ? `data as of ${asOf}` : new Date().toISOString().slice(0, 10)}`;
+  const room = canvas.width - ctx.measureText(right).width - 34 * scale;
+  let t = title;
+  while (t && ctx.measureText(t).width > room) t = t.slice(0, -2);
+  ctx.fillStyle = c.ink2; ctx.textAlign = "left";
+  ctx.fillText(t === title ? t : `${t.trimEnd()}…`, 10 * scale, img.height + strip / 2);
+  ctx.fillStyle = c.muted; ctx.textAlign = "right";
+  ctx.fillText(right, canvas.width - 10 * scale, img.height + strip / 2);
+  return canvas;
+}
+function saveCanvas(canvas, name) {
+  canvas.toBlob((blob) => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }, "image/png");
+}
+const fileSlug = (title, asOf) => `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "chart"}${asOf ? "_" + asOf : ""}`;
+/** The panel title and as-of date for a chart (its heading and freshness badge). */
+function panelMeta(el) {
+  const head = before(el, "#view h1, #view h2, #view h3, #view .chart-title, #drawer h2, #drawer .chart-title, #view .panel-meta");
+  const badge = before(el, ".fresh");
+  return { title: head ? cellText(head) : document.title, asOf: badge ? badge.dataset.asof || "" : "" };
+}
+async function downloadPng(el) {
+  if (!window.Plotly || !el.data) return;
+  const { title, asOf } = panelMeta(el);
+  const url = await Plotly.toImage(el, { format: "png", width: Math.max(900, el.clientWidth), height: Math.max(360, el.clientHeight), scale: 2 });
+  const img = await new Promise((done, fail) => {  // onload, not img.decode(), which never settles in some embedded browsers
+    const i = new Image();
+    i.onload = () => done(i); i.onerror = () => fail(new Error("the chart image didn't load"));
+    i.src = url;
+  });
+  saveCanvas(watermark(img, { title, asOf }), `${fileSlug(title, asOf)}.png`);
+}
+/** "CSV" above every table, chart and registered panel that has data, and "PNG" next to it on charts. */
 function addDownloads(root) {
   root.querySelectorAll(".table-wrap, .chart.js-plotly-plot, [data-csv]").forEach((el) => {
     if (el.parentElement.closest(".table-wrap, [data-csv]")) return;
     const prev = el.previousElementSibling;
     if (prev && prev.classList.contains("dl-row")) return;
-    el.insertAdjacentHTML("beforebegin", '<div class="dl-row"><button type="button" class="dl" title="Download this panel as CSV, with its source and as-of date">⤓ CSV</button></div>');
+    const png = el.classList.contains("js-plotly-plot") ? '<button type="button" class="dl" data-png title="Download this chart as a PNG image, marked with the site and the as-of date">⤓ PNG</button>' : "";
+    el.insertAdjacentHTML("beforebegin", `<div class="dl-row">${png}<button type="button" class="dl" title="Download this panel as CSV, with its source and as-of date">⤓ CSV</button></div>`);
   });
 }
 document.addEventListener("click", (e) => {
   const b = e.target.closest && e.target.closest("button.dl");
-  if (b) downloadPanel(b.parentElement.nextElementSibling);
+  if (!b) return;
+  const el = b.parentElement.nextElementSibling;
+  if (b.hasAttribute("data-png")) downloadPng(el).catch((err) => toast(`Couldn't make the image: ${err.message}`));
+  else downloadPanel(el);
 });
 function watchPanels() {
   let timer = null;

@@ -297,7 +297,7 @@
           <button class="btn" id="pc-books" type="button" title="Indicator sets of famous traders and investors">★ Investor playbooks</button>
           <button class="btn" id="pc-log" type="button" title="Log scale (Alt+L)">Log</button>
           <button class="btn" id="pc-pct" type="button" title="Percentage scale">%</button>
-          <button class="btn" id="pc-shot" type="button" title="Screenshot (Alt+S)">📷</button>
+          <button class="btn" id="pc-shot" type="button" title="Save the chart as a PNG, marked with the site and the latest bar's time (Alt+S)">📷</button>
           <button class="btn" id="pc-csv" type="button" title="Download the bars on this chart as CSV, with source and as-of date">⤓ CSV</button>
           <button class="btn" id="pc-full" type="button" title="Full screen (Shift+F)">⛶</button>
           <button class="btn" id="pc-keys" type="button" title="Keyboard shortcuts">⌨</button>
@@ -703,8 +703,9 @@
     $("#pc-log", el).addEventListener("click", (e) => { logOn = !logOn; pctOn = false; setScale(); e.target.classList.toggle("on", logOn); $("#pc-pct", el).classList.remove("on"); });
     $("#pc-pct", el).addEventListener("click", (e) => { pctOn = !pctOn; logOn = false; setScale(); e.target.classList.toggle("on", pctOn); $("#pc-log", el).classList.remove("on"); });
     const screenshot = () => {
-      const canvas = chart.takeScreenshot(true, false), a = document.createElement("a");
-      a.href = canvas.toDataURL("image/png"); a.download = `${r.sym}_${iv}_${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")}.png`; a.click();
+      const shot = chart.takeScreenshot(true, false), last = bars.length ? new Date(bars[bars.length - 1].t * 1000).toISOString() : "";
+      saveCanvas(watermark(shot, { title: `${r.sym} · ${LABEL[iv] || iv} · ${r.feed === "binance" ? "Binance" : "CNBC"}`, asOf: last.slice(0, 16).replace("T", " "), scale: window.devicePixelRatio || 1 }),
+        `${r.sym}_${iv}_${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")}.png`);
     };
     const fullscreen = () => { const node = $("#pc", el); if (document.fullscreenElement) document.exitFullscreen(); else if (node.requestFullscreen) node.requestFullscreen(); };
     $("#pc-shot", el).addEventListener("click", screenshot);
