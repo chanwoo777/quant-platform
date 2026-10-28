@@ -267,6 +267,21 @@
       math(mt("ratio"), mo("="), frac(row(sub(mi("f"), mt("worst")), mo("−"), mi("E"), mo("["), mi("f"), mo("|"), mt("valid"), mo("]")), row(sub(mi("f"), mt("worst")), mo("−"), sub(mi("f"), mt("best"))))),
       "The QUBO of AAPL, MSFT, NVDA, AMZN, GOOGL, META (K = 3, λ = 0.5) from the platform store.", "COBYLA (300 iterations, fixed start), 4,096 shots.",
       SCHEDULE, "Simulated. Compare P(optimum) with 1/C(n, K) and P(valid) with C(n, K)/2ⁿ, what random guessing gives.", "quant/web/quantum.py · job_qaoa"],
+    // ---- Verification ------------------------------------------------------------------------------
+    ["track-record", "Verification", "Signal track record: forward return, excess and hit rate",
+      "Each night's labels are logged before the future is known. A label dated d is entered at the next session's close and held h sessions of that symbol's market; its benchmark is the market's index over the same dates.",
+      math(sub(mi("R"), mi("h")), mo("="), frac(P(row(mi("e"), mo("+"), mi("h"))), P(mi("e"))), mo("−"), mn("1"), mspace(), sub(mi("X"), mi("h")), mo("="), sub(mi("R"), mi("h")), mo("−"), sub(mi("B"), mi("h"))),
+      "The append-only log (data/track: symbol, market, label, score, close) and the price store's closes (Yahoo Finance). e = the first session after d.",
+      "h = 5, 20 and 60 trading sessions. Averages weight each signal date equally; the hit rate counts name-days (BUY and HOLD: X > 0; AVOID: X < 0).",
+      SCHEDULE, "Observations are signal dates, since names logged on one day move together. Below 60 dates the page says the sample is too small. No costs, no dividends beyond those in adjusted closes; the log starts live, so early numbers are few.",
+      "quant/web/track.py · append, forward_returns, summarize"],
+    ["data-quality", "Verification", "Freshness, data checks and outliers",
+      "Every source's age is counted in weekdays (calendar days for coins) from its data date to today. Price tables go through fail-soft checks; failures are flagged, never silently dropped or charted.",
+      math(mt("outlier"), mo(":"), mo("|"), sub(mi("r"), mi("t")), mo("|"), mo("&gt;"), mn("5"), mo("·"), sd(sub(mi("r"), row(mi("t"), mo("−"), mn("250"), mo("…"), mi("t"), mo("−"), mn("1"))))),
+      "status.json from the nightly job: the price store, the database tables and data/quantum.json. r = daily log return.",
+      "Green up to the source's expected age (1 weekday for prices, 45 for the Fama-French library), amber beyond, red past 3x or when missing. Checks: repeated dates, 3+ missing sessions, closes ≤ 0, zero volume on 5 of 20 sessions, 20x one-day jumps; outliers over the last 5 sessions.",
+      SCHEDULE, "Weekday ages ignore exchange holidays, so a long weekend can show amber for a day. Outliers are often real (earnings, a T-bill ETF's distribution); they are listed for review.",
+      "quant/web/quality.py · check_prices; quant/web/status.py · collect"],
   ];
   function mspace() { return '<mspace width="1.2em"/>'; }
   function mover(a, b) { return `<mover>${row(a)}${row(b)}</mover>`; }

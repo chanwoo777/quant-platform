@@ -9,7 +9,7 @@
   const when = (iso) => (iso ? esc(String(iso).replace("T", " ").replace(/\+00:00$/, " UTC").slice(0, 20)) : "–");
   const count = (x) => (x && ok(x.count) ? x.count.toLocaleString() : "–");
   // The files a visitor's pages load; the status page checks each is published.
-  const FILES = ["meta.json", "status.json", "global.json", "indices.json", "symbols.json", "factors.json", "market.json", "research.json", "quantum.json"];
+  const FILES = ["meta.json", "status.json", "global.json", "indices.json", "symbols.json", "factors.json", "market.json", "research.json", "quantum.json", "track.json"];
 
   function examples(list, fmt) {
     if (!list || !list.length) return "";
@@ -95,5 +95,52 @@
   const CHECK_NAME = { duplicates: "Duplicates", gaps: "Gaps (3+ missing sessions)", negative_prices: "Negative or zero prices",
     zero_volume: "Zero volume (5+ of 20 sessions)", unit_changes: "Unit changes (20x one-day jumps)" };
 
-  root.TRUST = { status };
+  // --- Signal track record (#/track-record): track.json, from quant/web/track.py ----------------------
+  const SIG_ORDER = ["BUY", "HOLD", "AVOID"];
+  async function trackRecord(view) {
+    const t = await load("track.json");
+    const min = t.min_observations || 60;
+    const few = Object.values(t.horizons || {}).some((per) => SIG_ORDER.some((s) => (per[s] || {}).observations < min));
+    const tonight = t.tonight || {};
+    view.innerHTML = `
+      <h1>Signal track record</h1>
+      <p class="soft">Every night the job appends that night's BUY / HOLD / AVOID labels to a log that is never rewritten, then measures what each label's names
+        did over the next 5, 20 and 60 trading days against their market's index. The log started on <b>${esc(t.start || "–")}</b>: there is no backfilled
+        history, so nothing here was computed with hindsight. ${SIGNAL_NOTE}</p>
+      ${few ? `<div class="note dq-note"><b>Too few observations to judge.</b> At least one row below has fewer than ${min} signal dates whose horizon has passed.
+        Treat those numbers as a log being built, not as evidence that the labels work or don't.</div>` : ""}
+      <div class="grid g5">
+        ${kpi("Log started", esc(t.start || "–"), "first signal date logged live")}
+        ${kpi("Days logged", (t.days_logged || 0).toLocaleString(), t.last ? `latest ${esc(t.last)}` : "")}
+        ${kpi("Tonight", tonight.logged ? "Logged" : "Not logged", esc(tonight.reason || ""))}
+        ${kpi("Hash chain", t.verify && t.verify.ok ? '<span class="pos">Verified</span>' : '<span class="neg">Problem</span>',
+          t.verify && t.verify.ok ? `${t.verify.entries} files match their SHA-256` : esc((t.verify && t.verify.problems || []).join("; ")))}
+        ${kpi("Benchmarks", "Market index", "S&P 500 for the US, BTC for coins, …")}
+      </div>
+      ${Object.entries(t.horizons || {}).map(([h, per]) => `
+        <h2>After ${esc(h)} trading days${fresh("track")}</h2>
+        ${table([
+          { h: "Signal", f: (s) => `<span class="sig-${esc(s)}">${SIGNAL[s] || esc(s)}</span>` },
+          { h: "Observations (signal dates)", r: 1, f: (s) => `${(per[s].observations || 0).toLocaleString()}${per[s].observations < min ? ` <span class="state amber">fewer than ${min}</span>` : ""}` },
+          { h: "Name-days", r: 1, f: (s) => (per[s].names || 0).toLocaleString() },
+          { h: "Avg return", r: 1, f: (s) => signed(per[s].avg_return, 2) },
+          { h: "Benchmark", r: 1, f: (s) => signed(per[s].avg_benchmark, 2) },
+          { h: "Excess", r: 1, f: (s) => signed(per[s].avg_excess, 2) },
+          { h: "Hit rate", r: 1, f: (s) => (ok(per[s].hit_rate) ? `${num(100 * per[s].hit_rate, 0)}%` : "–") },
+          { h: "Hit means", cls: "wrap-text", f: (s) => esc(per[s].hit_rule || (s === "AVOID" ? "underperformed its benchmark" : "beat its benchmark")) },
+          { h: "Signal dates", f: (s) => (per[s].first ? `${esc(per[s].first)} to ${esc(per[s].last)}` : "none matured yet") },
+        ], SIG_ORDER)}`).join("")}
+      <p class="caption">${esc(t.method || "")} Past performance does not predict future results.</p>
+      <h2>The log, day by day${fresh("track")}</h2>
+      <p class="caption">Each day's file is written once and never changed. Its SHA-256 is recorded with the hash of the previous line, so editing any earlier day
+        breaks the chain. The latest ${(t.published_days || []).length} days' signals (without prices) can be downloaded.</p>
+      ${table([
+        { h: "Signal date", f: (d) => esc(d.date) }, { h: "BUY", r: 1, f: (d) => num(d.buy, 0) }, { h: "HOLD", r: 1, f: (d) => num(d.hold, 0) },
+        { h: "AVOID", r: 1, f: (d) => num(d.avoid, 0) }, { h: "Logged at", f: (d) => esc(String(d.logged_at || "").replace("T", " ").slice(0, 16)) },
+        { h: "SHA-256", f: (d) => `<code title="${esc(d.sha256)}">${esc(String(d.sha256).slice(0, 12))}…</code>` },
+        { h: "Signals", f: (d) => ((t.published_days || []).includes(d.date) ? `<a href="data/track/signals_${esc(d.date)}.csv" download>CSV</a>` : "–") },
+      ], [...(t.days || [])].reverse(), { tall: true, empty: "Nothing logged yet." })}`;
+  }
+
+  root.TRUST = { status, trackRecord };
 })(typeof window !== "undefined" ? window : globalThis);

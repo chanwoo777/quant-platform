@@ -509,12 +509,51 @@ def export_quantum(out: Path, keep: Path | None = None, timeout: int = QUANTUM_T
     return keep.stat().st_size
 
 
+# --- signal track record ------------------------------------------------------------------------------
+
+TRACK_DAYS_PUBLISHED = 20  # the latest days' logged signals offered as CSV downloads
+
+
+def export_track(out: Path, data_dir: Path, append: bool = True) -> dict:
+    """Append tonight's signals to the append-only log (quant.web.track), then publish the forward
+    performance (track.json) and the latest days' logged signals as CSV, without prices."""
+    from quant.universe import prices
+    from quant.universe.scoring import BENCHMARKS, load_scores
+    from quant.web import track
+
+    scores, close = load_scores(), prices.load("close")
+    if close.empty:
+        raise FileNotFoundError(2, "No such file", "data/universe/close.parquet")
+    as_of = f"{close.index.max():%Y-%m-%d}"
+    tonight = {"logged": False, "date": as_of, "reason": "logging was turned off for this run"}
+    if append:
+        if scores.empty:
+            tonight["reason"] = "no scores to log"
+        elif pd.Timestamp(scores.scored_at.max()).date() < close.index.max().date():
+            tonight["reason"] = "the scores are older than the latest prices, so tonight's signals weren't logged"
+        else:
+            tonight = track.append(data_dir, scores, as_of)
+    doc = track.summarize(data_dir, close, BENCHMARKS)
+    doc["tonight"] = tonight
+    folder = out / "track"
+    shutil.rmtree(folder, ignore_errors=True)
+    folder.mkdir(parents=True, exist_ok=True)
+    published = []
+    for day in doc["days"][-TRACK_DAYS_PUBLISHED:]:
+        f = track.log_dir(data_dir) / f"signals_{day['date']}.parquet"
+        if f.exists():  # the log keeps the close for the maths; the published copy leaves Yahoo's prices out
+            pd.read_parquet(f).drop(columns=["close"], errors="ignore").to_csv(folder / f"signals_{day['date']}.csv", index=False)
+            published.append(day["date"])
+    doc["published_days"] = published
+    return {"track": write(out / "track.json", doc), "days": doc["days_logged"], "tonight": tonight, "doc": doc}
+
+
 # --- orchestration ----------------------------------------------------------------------------------
 
-def build(site_dir: Path | None = None, quantum: bool = True) -> dict:
+def build(site_dir: Path | None = None, quantum: bool = True, track_log: bool = True) -> dict:
     """Copy the site code from docs/ and write fresh data next to it. Returns sizes and timings.
-    quantum=False skips the simulations and republishes the last results. Every step is fail-soft
-    (see the module docstring)."""
+    quantum=False skips the simulations and republishes the last results; track_log=False publishes the
+    track record without appending tonight's signals. Every step is fail-soft (see the module docstring)."""
     logging.getLogger("streamlit").setLevel(logging.ERROR)
     from dashboard import common as c
     from quant.config import get_settings
@@ -552,6 +591,7 @@ def build(site_dir: Path | None = None, quantum: bool = True) -> dict:
     step("market", lambda: export_market(out, c))
     step("research", lambda: export_research(out, c))
     step("quantum", lambda: export_quantum(out, run=quantum))
+    track_stats = step("track", lambda: export_track(out, data_dir, append=track_log))
 
     def meta():
         f_start, f_end = c.factor_dates()
@@ -569,6 +609,11 @@ def build(site_dir: Path | None = None, quantum: bool = True) -> dict:
         checks = status.Builder()
         reason = steps["checks"].get("error") or steps["context"].get("error") or "the source checks failed"
         checks.add("checks", "Source checks", "quant.web.status", 1, lambda: {"error": reason})
+    doc = (track_stats or {}).pop("doc", None)
+    checks.add("track", "Signal track-record log", "This site's nightly signals", 1, lambda: {} if doc is None else {
+        "rows": doc["days_logged"], "as_of": doc["last"], "last_success": doc["days"][-1]["logged_at"] if doc["days"] else None,
+        "tonight": doc["tonight"], "error": None if doc["verify"]["ok"] else "; ".join(doc["verify"]["problems"]),
+        "file": "data/track/ (append-only, one write-once file per day)"}, feeds="track")
     stats["status"] = write(out / "status.json", checks.to_dict(steps))
     stats["failed_steps"] = [k for k, v in steps.items() if not v["ok"]]
     stats["seconds"] = round(time.perf_counter() - started)
@@ -579,11 +624,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Export the dashboard data as a static website.")
     parser.add_argument("--out", type=Path, help="site directory (default: data/site)")
     parser.add_argument("--no-quantum", action="store_true", help="skip the quantum simulations; republish the last results")
+    parser.add_argument("--no-track-log", action="store_true", help="publish the track record without appending tonight's signals")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s: %(message)s")
     for noisy in ("yfinance", "urllib3", "peewee", "httpx", "httpx2", "streamlit"):
         logging.getLogger(noisy).setLevel(logging.ERROR)
-    stats = build(args.out, quantum=not args.no_quantum)
+    stats = build(args.out, quantum=not args.no_quantum, track_log=not args.no_track_log)
     summary = {k: v for k, v in stats.items() if k not in ("deep", "checks", "context")}
     print(json.dumps(summary | {"deep_bytes": (stats.get("deep") or {}).get("deep")}, indent=1, default=str))
     if stats["failed_steps"]:
