@@ -63,10 +63,28 @@ def publish(site_dir: Path, repo: Path = ROOT, branch: str = BRANCH) -> str:
     return sha
 
 
+# The deploy gate: these must pass before anything is pushed, so a broken calculation never reaches the
+# live site (the same files run in GitHub Actions on every push).
+CALCULATION_TESTS = ("tests/test_calculations.py", "tests/test_research_js.py", "tests/test_quantum_js.py",
+                     "tests/test_site_js.py", "tests/test_quant_models.py", "tests/test_track.py")
+
+
+def check_calculations(repo: Path = ROOT) -> None:
+    """Run the calculation tests; raise (and publish nothing) if any fails."""
+    flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+    done = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", *CALCULATION_TESTS], cwd=repo,
+                          capture_output=True, text=True, encoding="utf-8", errors="replace", creationflags=flags)
+    summary = (done.stdout.strip().splitlines() or ["no output"])[-1]
+    if done.returncode:
+        raise RuntimeError(f"calculation tests failed, so the site was not published: {summary}\n{done.stdout[-3000:]}")
+    log.info("calculation tests passed: %s", summary)
+
+
 def run(export: bool = True, site_dir: Path | None = None) -> str:
     from quant.config import get_settings
 
     site_dir = site_dir or get_settings().data_dir / "site"
+    check_calculations()
     if export:
         stats = build(site_dir)
         log.info("site exported in %ss", stats["seconds"])
