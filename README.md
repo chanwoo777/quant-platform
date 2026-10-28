@@ -1,5 +1,7 @@
 # Free Quant Platform
 
+[![Tests](https://github.com/chanwoo777/quant-platform/actions/workflows/tests.yml/badge.svg)](https://github.com/chanwoo777/quant-platform/actions/workflows/tests.yml)
+
 An autonomous stock-analysis and **paper-trading** platform built entirely on free,
 public data: no Bloomberg, no paid APIs, no API keys.
 
@@ -870,7 +872,7 @@ educational, not a trading signal".
 
 **How it works:**
 - *Code:* the site's code is versioned on `main` under `docs/`:
-  - `index.html`, `about.html` and `404.html`
+  - `index.html`, `about.html`, `privacy.html` and `404.html`
   - `assets/app.js`: the pages
   - `assets/quant.js`: statistics, factor models and indicators
   - `assets/quantum.js`: the Quantum page and its maths (state-vector simulator,
@@ -907,3 +909,27 @@ educational, not a trading signal".
 The site republishes data from Yahoo Finance, whose terms allow personal use only.
 Publishing it is the owner's decision. To take the site down, disable Pages in the
 repository settings or delete the `gh-pages` branch.
+
+## License, security and privacy
+
+- **License:** the code is MIT-licensed ([LICENSE](LICENSE)). Market data, news and
+  other third-party content keep their own terms; the website's
+  [privacy and data-sources page](https://chanwoo777.github.io/quant-platform/privacy.html)
+  lists each source and credits it.
+- **Security:** report problems privately, as described in [SECURITY.md](SECURITY.md).
+  No keys or secrets belong in the repository; local settings live in `.env`, which git
+  ignores.
+- **Privacy:** the website has no server, accounts, cookies or analytics. Settings stay
+  in the visitor's browser, and the privacy page lets visitors clear them. The page also
+  lists every service the browser contacts.
+- **Tests on every push:** `.github/workflows/tests.yml` runs `python -m pytest` on
+  Python 3.14 with Node.js 24, for every push to `main` and every pull request.
+  - It installs `requirements.txt` without torch and transformers (the tests use the
+    lexicon sentiment scorer, so CI never downloads FinBERT), plus
+    `requirements-quantum.txt`.
+  - The dashboard smoke tests skip there, because there is no local database.
+  - The actions are pinned to commit SHAs, and the job can only read the repository.
+- **Dependabot:** `.github/dependabot.yml` opens weekly pull requests for outdated
+  Python packages (Qiskit grouped on its own) and actions, and the tests check each one.
+  The JavaScript libraries loaded from jsDelivr (Plotly 2.35.2, Lightweight Charts 5.2.1)
+  are pinned in the HTML and JS and updated by hand.

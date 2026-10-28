@@ -1,0 +1,28 @@
+# Dependabot version updates: weekly pull requests for outdated dependencies, each checked by
+# the test workflow. Security alerts and security-fix PRs are switched on separately, in the
+# repository's Settings > Code security.
+version: 2
+updates:
+  # requirements.txt and requirements-quantum.txt. Ranges such as pandas>=2.2 are only raised
+  # when a new release falls outside them; exact pins (the Qiskit packages) get a PR per release.
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+    versioning-strategy: increase-if-necessary
+    open-pull-requests-limit: 5
+    groups:
+      qiskit:
+        patterns: ["qiskit*"]
+      python:
+        patterns: ["*"]
+        exclude-patterns: ["qiskit*"]
+
+  # The actions in .github/workflows, pinned to commit SHAs.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
