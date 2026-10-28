@@ -1,6 +1,6 @@
 # Check the links in the website, the README and the security policy: when they change, and every
 # Monday, because links rot without any change here. Sites that refuse automated checks are listed
-# in .github/lychee.toml.
+# in .github/lychee.toml. 404.html is left out: it only redirects, with a site-root link that exists only on the live site.
 name: Links
 
 on:
@@ -29,6 +29,6 @@ jobs:
         with:
           args: >-
             --config .github/lychee.toml --no-progress
-            README.md SECURITY.md docs/index.html docs/about.html docs/privacy.html docs/404.html docs/assets/quantum.js
+            README.md SECURITY.md docs/index.html docs/about.html docs/privacy.html docs/assets/quantum.js
           fail: true
           jobSummary: true
