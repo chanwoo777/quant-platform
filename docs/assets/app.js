@@ -1223,7 +1223,12 @@ async function viewFinancials(view, arg) {
       ${link(yahooFin, "Yahoo Finance's financials")}${usTicker(sym) ? ` or ${link(`https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${encodeURIComponent(sym)}&type=10-K`, "SEC EDGAR")}` : ""}.</div>`;
   }
   if (usTicker(sym) && FH.key()) finnhubReco(sym).then((h) => { const el = $("#fh-reco"); if (el) el.innerHTML = h; }).catch(() => {});
-  drawFactorModel(sym, r, model).catch((e) => { const el = $("#ff"); if (el) el.innerHTML = `<div class="empty">${esc(e.message)}</div>`; });
+  drawFactorModel(sym, r, model).catch((e) => {
+    const el = $("#ff"), title = $("#ff-title");
+    if (title && !title.querySelector(".fresh")) title.insertAdjacentHTML("beforeend", fresh(e.dataPath ? "french" : { provider: "Factor model", error: e.message }));
+    if (el) el.innerHTML = e.dataPath ? `<div class="unavail"><span class="state red">● missing</span> <code>data/${esc(e.dataPath)}</code> isn't in the published site, so the
+      regression isn't drawn. <a href="#/status">Data status</a></div>` : `<div class="empty">${esc(e.message)}</div>`;
+  });
   $("#wl-research").innerHTML = watchlistResearchHtml(research, model);
 }
 
