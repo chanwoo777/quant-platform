@@ -261,8 +261,20 @@ function bindSearch(root, onPick) {
 }
 
 // --- Finnhub (optional, the visitor's own free key) -----------------------------------------------
+// The key is a credential, so by default it lives in sessionStorage and is gone when the tab closes;
+// "Remember on this device" moves it to localStorage. It is only ever sent to finnhub.io.
+const session = {
+  get(k) { try { return sessionStorage.getItem(k); } catch (e) { return null; } },
+  set(k, v) { try { sessionStorage.setItem(k, v); } catch (e) { /* storage blocked: keep nothing */ } },
+  del(k) { try { sessionStorage.removeItem(k); } catch (e) { /* ignore */ } },
+};
 const FH = {
-  key: () => store.get("finnhubKey", ""),
+  key: () => session.get("finnhubKey") || store.get("finnhubKey", ""),
+  remembered: () => !!store.get("finnhubKey", ""),
+  save(key, remember) {
+    if (remember) { store.set("finnhubKey", key); session.del("finnhubKey"); } else { session.set("finnhubKey", key); store.del("finnhubKey"); }
+  },
+  forget() { store.del("finnhubKey"); session.del("finnhubKey"); },
   async get(path, params = {}) {
     const key = FH.key();
     if (!key) throw new Error("No Finnhub key: add one in ⚙ settings");
@@ -1152,22 +1164,28 @@ async function render() {
 }
 
 function settingsDialog() {
-  const back = $("#settings-back"), input = $("#fh-key"), status = $("#fh-status");
-  const open = () => { input.value = FH.key(); status.textContent = FH.key() ? "A key is saved in this browser." : "No key saved."; back.classList.add("open"); input.focus(); };
+  const back = $("#settings-back"), input = $("#fh-key"), status = $("#fh-status"), remember = $("#fh-remember");
+  const where = () => (FH.remembered() ? "saved on this device until you remove it" : "kept until you close this tab");
+  const open = () => {
+    input.value = FH.key(); remember.checked = FH.remembered();
+    status.textContent = FH.key() ? `A key is ${where()}.` : "No key saved.";
+    back.classList.add("open"); input.focus();
+  };
   const close = () => back.classList.remove("open");
   $("#settings").addEventListener("click", open);
   $("#settings-close").addEventListener("click", close);
   back.addEventListener("click", (e) => { if (e.target === back) close(); });
-  $("#fh-remove").addEventListener("click", () => { store.del("finnhubKey"); input.value = ""; status.textContent = "Key removed from this browser."; });
+  $("#fh-remove").addEventListener("click", () => { FH.forget(); input.value = ""; remember.checked = false; status.textContent = "Key removed from this browser."; });
+  remember.addEventListener("change", () => { if (FH.key()) { FH.save(FH.key(), remember.checked); status.textContent = `The key is ${where()}.`; } });
   $("#fh-save").addEventListener("click", async () => {
     const key = input.value.trim();
     if (!key) { status.textContent = "Paste a key first."; return; }
-    store.set("finnhubKey", key);
+    FH.save(key, remember.checked);
     status.textContent = "Testing…";
     try {
       const q = await FH.get("quote", { symbol: "AAPL" });
-      status.textContent = q && q.c ? `Works: AAPL ${q.c}. Saved in this browser.` : "Saved, but the test quote came back empty.";
-    } catch (e) { status.textContent = `${e.message}. The key is saved; remove it if it's wrong.`; }
+      status.textContent = q && q.c ? `Works: AAPL ${q.c}. The key is ${where()}.` : `The test quote came back empty. The key is ${where()}.`;
+    } catch (e) { status.textContent = `${e.message}. The key is ${where()}; remove it if it's wrong.`; }
   });
 }
 

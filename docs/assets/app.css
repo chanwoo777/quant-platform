@@ -436,3 +436,8 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fo
 .q-path, .q-refs { margin: 0 0 18px; padding-left: 1.2em; color: var(--text-soft); font-size: 0.9rem; }
 .q-path li, .q-refs li { margin: 6px 0; }
 .q-path b { color: var(--text); }
+
+/* settings: the Finnhub key is a credential */
+.key-warn { margin: 12px 0; padding: 10px 12px; border: 1px solid var(--warn); background: var(--warn-soft); border-radius: 8px;
+  font-size: 0.86rem; color: var(--text); }
+.modal .toggle { margin-top: 8px; }

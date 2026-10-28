@@ -55,14 +55,19 @@
 <div class="modal-back" id="settings-back">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
     <h2 id="settings-title">Data sources</h2>
-    <p class="soft">The site works without any key. Prices, fundamentals and analytics come from the platform's nightly export
-      (Yahoo Finance, SEC EDGAR, FRED, CoinGecko, Fama-French). Live crypto charts use Binance's public stream, which needs no key.</p>
+    <p class="soft">The site works without any key. Scores, fundamentals and analytics come from the platform's nightly export
+      (Yahoo Finance, SEC EDGAR, FRED, CoinGecko, Fama-French). Charts load prices in your browser from CNBC and, for coins, Binance;
+      neither needs a key.</p>
     <h3>Finnhub (optional, free)</h3>
     <p class="soft">With a free <a href="https://finnhub.io/register" target="_blank" rel="noopener">Finnhub API key</a> you also get
       real-time US stock prices in <b>Live</b>, live quotes, analyst recommendation trends and reported financial statements in
-      <b>Financials</b>, and a lookup for US tickers outside the universe. The key is stored only in this browser and is sent only to finnhub.io (<a href="privacy.html">privacy</a>).</p>
-    <label for="fh-key" class="soft">API key</label>
+      <b>Financials</b>, and a lookup for US tickers outside the universe.</p>
+    <div class="key-warn" role="note"><b>This is a credential.</b> An API key works like a password for your Finnhub account. Paste only a free
+      Finnhub API key here, never a password or payment details. The site has no server: the key stays in this browser and is sent only to
+      finnhub.io. Unless you tick the box below, it is forgotten when you close this tab. <a href="privacy.html">Privacy</a></div>
+    <label for="fh-key" class="soft">Finnhub API key</label>
     <input id="fh-key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your Finnhub key">
+    <label class="toggle"><input type="checkbox" id="fh-remember"> Remember on this device (not on a shared computer)</label>
     <div class="row">
       <button class="btn primary" id="fh-save" type="button">Save and test</button>
       <button class="btn" id="fh-remove" type="button">Remove key</button>
