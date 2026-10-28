@@ -1,0 +1,29 @@
+name: Feature suggestion
+description: An idea for a page, a chart, a tool or a data set.
+title: "[Idea] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The site only uses free data that can be republished, runs as a static page (no server) and is for research and
+        education, not investment advice. Ideas within those limits are the easiest to build.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What would it help you do?
+      description: The question you were trying to answer, or the class or project you'd use it for.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Your idea
+      description: What you'd see and click. A sketch or an example from another site is welcome.
+    validations:
+      required: true
+  - type: input
+    id: data
+    attributes:
+      label: Data it needs (optional)
+      description: If you know a free source for it, name it.

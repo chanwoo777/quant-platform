@@ -1,0 +1,49 @@
+name: Data error
+description: A number looks wrong, stale or missing.
+title: "[Data] "
+labels: ["data"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing, check the panel's freshness badge and the **Data status** page (#/status): it lists tonight's
+        quality checks, stale series and outliers. The site is research and education only; data may be delayed or wrong.
+  - type: input
+    id: link
+    attributes:
+      label: Link to the page
+      description: Click the 🔗 button in the header and paste the link.
+    validations:
+      required: true
+  - type: input
+    id: ticker
+    attributes:
+      label: Ticker(s)
+      placeholder: 005930.KS, AAPL
+    validations:
+      required: true
+  - type: input
+    id: metric
+    attributes:
+      label: Which number
+      placeholder: Gross margin on Compare, 1D move in the screener, the brief's VIX line…
+    validations:
+      required: true
+  - type: textarea
+    id: shown
+    attributes:
+      label: What the site shows, and what you expected
+      description: Include the as-of date from the panel's badge.
+    validations:
+      required: true
+  - type: input
+    id: source
+    attributes:
+      label: Where the right number comes from (optional)
+      description: A filing, the exchange, the issuer's website… A link helps.
+  - type: checkboxes
+    id: checked
+    attributes:
+      label: Checks
+      options:
+        - label: I looked at the panel's freshness badge and the Data status page.

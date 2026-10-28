@@ -1,0 +1,41 @@
+name: Bug report
+description: Something on the site or in the code doesn't work as it should.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. For a wrong or missing number, use **Data error** instead.
+        Please don't include API keys, passwords or personal data.
+  - type: input
+    id: link
+    attributes:
+      label: Link to the page
+      description: Click the 🔗 button in the header and paste the link; it opens the exact view you were looking at.
+      placeholder: https://chanwoo777.github.io/quant-platform/#/compare/AAPL,MSFT?years=2
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you saw instead.
+    validations:
+      required: true
+  - type: textarea
+    id: console
+    attributes:
+      label: Error messages (optional)
+      description: Anything shown on the page, or in the browser console (F12 → Console).
+      render: text
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and device
+      placeholder: Chrome 140 on Windows 11, Safari on iPhone, KakaoTalk in-app browser…
+  - type: dropdown
+    id: lang
+    attributes:
+      label: Site language
+      options: [English, 한국어]

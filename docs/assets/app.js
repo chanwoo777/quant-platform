@@ -292,6 +292,8 @@ function watchPanels() {
 // Quality flags from the nightly checks (quant/web/quality.py), published per symbol as "dq".
 const DQ_LABEL = { duplicate: "repeated rows", gap: "3+ missing sessions", negative: "a close at or below zero", zero_volume: "zero volume on 5+ of 20 sessions",
   unit_change: "a 20x one-day jump (a unit change?)", stale: "no price for 5+ sessions", outlier: "a move beyond 5 standard deviations (flagged for review)" };
+/** A GitHub issue form, pre-filled (field ids from .github/ISSUE_TEMPLATE). */
+const issueLink = (template, fields = {}) => `https://github.com/chanwoo777/quant-platform/issues/new?${new URLSearchParams({ template, ...fields })}`;
 const dqCodes = (s) => (s ? String(s).split(",").filter(Boolean) : []);
 /** ⚠ next to a symbol whose series failed a check (outliers alone are only for review, so no mark). */
 function dqMark(dq) {
@@ -303,7 +305,8 @@ function dqNote(dq) {
   if (!codes.length) return "";
   const review = codes.length === 1 && codes[0] === "outlier";
   return `<div class="note ${review ? "" : "dq-note"}"><b>${review ? "Flagged for review" : "Data check failed"}:</b> tonight's checks found ${esc(codes.map((c) => DQ_LABEL[c] || c).join("; "))}
-    in this symbol's price series. ${review ? "The move may be real; it is listed for review." : "Scores and returns from it may be wrong."} <a href="#/status">Data status</a></div>`;
+    in this symbol's price series. ${review ? "The move may be real; it is listed for review." : "Scores and returns from it may be wrong."} <a href="#/status">Data status</a> ·
+    <a href="${esc(issueLink("data_error.yml", { link: location.href }))}" target="_blank" rel="noopener">Report a data error</a></div>`;
 }
 
 // --- theme and charts -----------------------------------------------------------------------------
