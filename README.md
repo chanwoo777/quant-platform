@@ -687,7 +687,7 @@ python -m quant.scheduler --run-now --publish-site   # daily cycle, then publish
 |---|---|
 | **Global** | The screener (every stock ≥ $1B, liquid US ETF and top coin) with filters, per-symbol charts and signal reasons. ★ adds a name to your watchlist. |
 | **Markets** | Regime and stance, the S&P 500 stance chart, FRED tiles and news. **Your watchlist**: search to add any stock, ETF, coin or index, ✕ to remove. It is saved in the browser (localStorage). |
-| **Stock** (`#/stock/<ticker>`) | Any of ~11,400 symbols. Deep-tier names get candlesticks with news markers, explained moves and every indicator below. Everything else gets a close-price chart with the close-based indicators, plus returns, risk and peer percentiles. |
+| **Stock** (`#/stock/<ticker>`) | Any of ~11,400 symbols: candlesticks with every indicator below, plus returns, risk and peer percentiles. Deep-tier names add news markers and explained moves. The chart loads about two years of daily bars in the browser (see *Price history* below). |
 | **Financials** (`#/financials/<ticker>`) | A research view for any ticker: fundamentals, analyst consensus, a peer table, financial statements and the factor model. Statements come from SEC filings for the deep tier, or Finnhub's reported statements for US names when a key is set. |
 | **Quantum** (`#/quantum`) | A beginner's guide to quantum algorithms for investors: basics, a qubit lab, option pricing, VaR/CVaR and portfolio labs with classical baselines, a readiness scorecard and the nightly simulator run. Details below. |
 | **Live** (`#/live/<symbol>`) | The **Pro chart**: a TradingView-style chart drawn by the site, with every indicator and setting under your control. Details below. |
@@ -698,7 +698,7 @@ The header search autocompletes over the whole universe. Pretty links such as
 **Factor models in the browser.** `docs/assets/quant.js` reimplements
 `quant_models.factor_regression` and `rolling_exposures`: OLS with Newey-West
 (5-lag) errors, variance shares, return attribution and tilts. So FF3, Carhart and
-FF5 run for any stock, from `factors.json` and the symbol's adjusted closes. The
+FF5 run for any stock, from `factors.json` and the daily prices the browser loads. The
 loadings chart shows 95% confidence intervals. `tests/test_site_js.py` runs the
 JavaScript under Node.js against the Python models, on synthetic data with missing
 values; they agree to about one part in a million. Fixes in this round:
@@ -720,9 +720,8 @@ values; they agree to about one part in a million. Fixes in this round:
 They are drawn on the Stock pages and the Markets S&P 500 chart. Your choices are
 remembered in the browser. `tests/test_site_js.py` checks each one under Node.js
 against Python versions of the Pine definitions, and against the `ta` library where
-it uses the same formulas. Indicators that need highs, lows or volume only appear
-where those exist: the deep tier and the live feeds; the universe store keeps closes
-only.
+it uses the same formulas. Every chart has highs, lows and volume, because prices
+load in the browser as full daily bars (indices have no volume).
 
 **Pro chart** (Live). A TradingView-style chart built on TradingView's open-source
 Lightweight Charts v5, so indicators aren't limited the way an embedded widget is.
@@ -775,8 +774,8 @@ Lightweight Charts v5, so indicators aren't limited the way an embedded widget i
     and the major indices, including pre- and post-market bars. History loads
     first, then the chart polls every 15 s and backs off if CNBC throttles. US
     names get Finnhub tick streaming when the visitor has saved a free key.
-  - *Fallback:* markets CNBC doesn't carry (Japan, Hong Kong) fall back to the
-    nightly daily bars.
+  - *No fallback:* CNBC doesn't carry Tokyo or Hong Kong listings, and the site
+    publishes no price history, so those symbols show a message instead of a chart.
 
   The earlier version embedded TradingView's widget for US stocks; it is no longer
   used.
@@ -858,15 +857,35 @@ educational, not a trading signal".
 - The page says plainly that no practical quantum advantage on a real finance
   problem has been shown as of 2026.
 
+**Price history.** The site publishes no price history, because Yahoo's terms
+allow personal use only. The nightly export publishes calculated numbers instead
+(scores, returns, volatility, drawdowns, betas, signals), plus the latest close,
+fundamentals and analyst consensus. Every chart, the Financials factor model and
+the Quantum labs load past prices in the visitor's browser
+(`window.LIVE.dailyHistory` in `live.js`):
+- *Stocks, ETFs and indices:* about two years of daily bars from CNBC's 1Y range,
+  or ten years of weekly bars from its 5Y range. At most four requests run at once,
+  because CNBC throttles bursts.
+- *Coins:* daily bars from Binance.
+- *Not covered:* Tokyo and Hong Kong listings, and coins without a Binance market,
+  show their scores and returns without a chart.
+- *Adjustment:* CNBC's prices may not be adjusted for dividends, which slightly
+  lowers measured returns and alpha.
+
+The nightly quantum simulations still use the platform's own price store on the
+PC; their inputs and results are published, not the prices.
+
 **Data sources and keys:**
-- *No key needed:* prices, fundamentals and analytics come from the nightly
-  export, and crypto charts stream from Binance's public market data
+- *No key needed:* scores, fundamentals and analytics come from the nightly
+  export. Prices load in the browser from CNBC and Binance's public market data
   (`data-api.binance.vision`, `data-stream.binance.vision`).
 - *Optional Finnhub key:* entered in ⚙ on the site, it adds live US trades in
   Live, plus live quotes, recommendation trends and reported statements in
-  Financials. It also enables lookups for US tickers outside the universe. The key
-  stays in that visitor's browser and is sent only to finnhub.io. Nothing is
-  stored in the repository, because anyone can read a key placed in a public site.
+  Financials. It also enables lookups for US tickers outside the universe. The
+  settings box labels it as a credential. The key stays in that visitor's browser,
+  in session storage (forgotten when the tab closes) unless they tick "Remember on
+  this device", and is sent only to finnhub.io. Nothing is stored in the
+  repository, because anyone can read a key placed in a public site.
 - *Yahoo:* Yahoo Finance has no browser API (no CORS), so symbols outside the
   universe can't be fetched from it live.
 
@@ -887,11 +906,11 @@ educational, not a trading signal".
   (`dashboard/common.py`), so both show the same numbers. It writes JSON to
   `data/site/data/`:
   - `meta`, `global` (the screener), `symbols` (search) and `indices`
-  - `sym/<xx>`: about two years of adjusted closes plus fundamentals per symbol,
-    in 256 FNV-1a buckets
+  - `sym/<xx>`: fundamentals and statistics per symbol (no prices), in 256
+    FNV-1a buckets
   - `factors`, `market`, `deep/<T>`, `research` and `quantum`
 
-  The total is about 60 MB raw; GitHub Pages compresses it.
+  The total is about 11 MB raw; GitHub Pages compresses it.
 - *Publishing:* `quant/web/publish.py` commits `data/site` as a fresh one-commit
   history and force-pushes it to `gh-pages`. Each day's snapshot replaces the last,
   so data never piles up in the repository. Pushing uses your normal git
@@ -902,12 +921,16 @@ educational, not a trading signal".
 **What differs from the local dashboard:**
 - The site is read-only. The watchlist lives in the visitor's browser. Promoting
   a name to the deep tier (news and SEC filings) still happens on the PC.
-- Candlesticks, news markers and explained moves cover the deep tier. Other names
-  get close-price charts, because the universe store keeps only closes and volume.
+- News markers and explained moves cover the deep tier. Charts show about two
+  years of daily bars (ten years weekly on the Markets chart), against the local
+  dashboard's ten years.
 - There are no 15-minute bars.
 
-The site republishes data from Yahoo Finance, whose terms allow personal use only.
-Publishing it is the owner's decision. To take the site down, disable Pages in the
+The site publishes no Yahoo price history. It still publishes the latest close,
+fundamentals and analyst consensus from Yahoo Finance, whose terms allow personal
+use only; publishing those is the owner's decision. BUY / HOLD / AVOID are
+mechanical labels from ranking past data against peers, and the site says so next
+to them: they are not recommendations. To take the site down, disable Pages in the
 repository settings or delete the `gh-pages` branch.
 
 ## License, security and privacy

@@ -55,15 +55,16 @@
   </div>
 
   <h2>What is saved in your browser</h2>
-  <p>The site uses your browser's local storage, which stays on your device until you clear it. It is never sent to this project.
-    Other people using the same browser profile can see it.</p>
+  <p>The site uses your browser's local storage, which stays on your device until you clear it, and session storage, which is emptied when
+    you close the tab. Neither is ever sent to this project. Other people using the same browser profile can see them.</p>
   <div class="table-wrap"><table>
     <thead><tr><th>Stored item</th><th>What it holds</th><th>Used by</th></tr></thead>
     <tbody>
       <tr><td><code>theme</code></td><td>Light or dark mode</td><td>Every page</td></tr>
       <tr><td><code>watchlist</code>, <code>saved</code></td><td>The symbols on your watchlist (<code>saved</code> is from an older version)</td><td>Global, Markets</td></tr>
       <tr><td><code>ticker</code>, <code>stockIndicators</code></td><td>The last stock you opened and the indicators you turned on</td><td>Stock, Financials, Markets</td></tr>
-      <tr><td><code>finnhubKey</code></td><td>Your Finnhub API key, only if you saved one in ⚙ settings</td><td>Live, Financials</td></tr>
+      <tr><td><code>finnhubKey</code></td><td>Your Finnhub API key, only if you saved one in ⚙ settings: in session storage until you close the tab,
+        or in local storage if you ticked "Remember on this device"</td><td>Live, Financials</td></tr>
       <tr><td><code>liveSymbol</code>, <code>pc:type</code>, <code>pc:studies</code>, <code>pc:interval:…</code>, <code>pc:legendFolded</code>, <code>pc:draw:…</code></td>
         <td>The live chart's symbol, chart type, indicators, intervals, legend and your drawings per symbol</td><td>Live</td></tr>
       <tr><td><code>q:opt</code>, <code>q:risk</code>, <code>q:pf</code>, <code>q:circuit</code></td><td>Your inputs in the option, risk, portfolio and circuit labs</td><td>Quantum</td></tr>
@@ -73,8 +74,8 @@
 
   <h3 style="margin-top:22px">Your Finnhub key</h3>
   <p>The optional Finnhub key is a password-like credential for your own free Finnhub account. It is kept only in this browser and sent only to
-    finnhub.io, never to this project or to GitHub. Don't save it on a shared computer. You can remove it in ⚙ settings or with the button above,
-    and revoke it in your Finnhub account at any time.</p>
+    finnhub.io, never to this project or to GitHub. Unless you tick "Remember on this device", it is forgotten when you close the tab; don't tick
+    that box on a shared computer. You can remove it in ⚙ settings or with the button above, and revoke it in your Finnhub account at any time.</p>
 
   <h2>Which services your browser contacts</h2>
   <p>Like any website, each service below receives your IP address and basic browser details when your browser contacts it, under its own privacy policy.</p>
@@ -85,10 +86,11 @@
         <td>The files you load. <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement" target="_blank" rel="noopener">GitHub privacy statement</a></td></tr>
       <tr><td>jsDelivr (cdn.jsdelivr.net)</td><td>Pages with charts: Plotly and TradingView Lightweight Charts load from it</td>
         <td>The library files. <a href="https://www.jsdelivr.com/terms/privacy-policy-jsdelivr-net" target="_blank" rel="noopener">jsDelivr privacy policy</a></td></tr>
-      <tr><td>Binance public market data (data-api.binance.vision, data-stream.binance.vision)</td><td>Live page, crypto symbols</td>
+      <tr><td>Binance public market data (data-api.binance.vision, data-stream.binance.vision)</td><td>Any chart or lab that shows a coin's price history</td>
         <td>The symbol and interval you view. <a href="https://www.binance.com/en/privacy" target="_blank" rel="noopener">Binance privacy</a></td></tr>
-      <tr><td>CNBC quotes and charts (quote.cnbc.com, ts-api.cnbc.com)</td><td>Live page, stocks, ETFs and indices</td>
-        <td>The symbol and range you view. <a href="https://www.versantprivacy.com/privacy" target="_blank" rel="noopener">CNBC (Versant) privacy</a></td></tr>
+      <tr><td>CNBC quotes and charts (quote.cnbc.com, ts-api.cnbc.com)</td><td>Any chart or lab that shows a stock's, ETF's or index's price history,
+        and the Live page</td>
+        <td>The symbols you view. <a href="https://www.versantprivacy.com/privacy" target="_blank" rel="noopener">CNBC (Versant) privacy</a></td></tr>
       <tr><td>Finnhub (finnhub.io, ws.finnhub.io)</td><td>Only if you saved a key</td>
         <td>Your key and the symbols you request. <a href="https://finnhub.io/privacy-policy" target="_blank" rel="noopener">Finnhub privacy policy</a></td></tr>
       <tr><td>Sites you click through to</td><td>Only when you open a link (news, SEC filings, papers)</td><td>Whatever that site collects</td></tr>
@@ -97,13 +99,17 @@
 
   <h2>Where the data comes from</h2>
   <p>A computer belonging to the project's owner collects the data below once a day and publishes it as files on GitHub Pages. Each source keeps
-    its own terms, and the credit belongs to it.</p>
+    its own terms, and the credit belongs to it. <b>No price history is published:</b> every chart and calculation that needs past prices loads them
+    in your browser, from CNBC for stocks, ETFs and indices and from Binance for coins. CNBC has no data for Tokyo and Hong Kong listings, so those
+    show scores and returns without a chart.</p>
   <div class="table-wrap"><table>
     <thead><tr><th>Source</th><th>Used for</th><th>Terms</th></tr></thead>
     <tbody>
-      <tr><td>Yahoo Finance, through the open-source <code>yfinance</code> library</td><td>Daily prices, quotes, company fundamentals and analyst consensus</td>
+      <tr><td>Yahoo Finance, through the open-source <code>yfinance</code> library</td><td>The latest closing price, company fundamentals and analyst
+        consensus. Daily prices are used on the owner's computer to calculate returns, volatility, scores and signals; only those calculated numbers
+        are published, not the price history.</td>
         <td><a href="https://legal.yahoo.com/us/en/yahoo/terms/otos/index.html" target="_blank" rel="noopener">Yahoo terms of service</a>, which allow personal use.
-          Republishing it here is the owner's choice; rights holders can ask for removal (see the end of this page).</td></tr>
+          Publishing these fields is the owner's choice; rights holders can ask for removal (see the end of this page).</td></tr>
       <tr><td>FRED, Federal Reserve Bank of St. Louis</td><td>Interest rates (including the 3-month T-bill yield on the Quantum page), inflation, jobs and credit spreads</td>
         <td><a href="https://fred.stlouisfed.org/legal/" target="_blank" rel="noopener">FRED legal notices</a>; some series carry their own copyright notes</td></tr>
       <tr><td>SEC EDGAR</td><td>Financial statements from 10-K and 10-Q filings</td>
@@ -164,6 +170,7 @@
           var k = localStorage.key(i);
           if (KEYS.indexOf(k) >= 0 || PREFIXES.some(function (p) { return k.indexOf(p) === 0; })) { localStorage.removeItem(k); n++; }
         }
+        if (sessionStorage.getItem("finnhubKey") !== null) { sessionStorage.removeItem("finnhubKey"); n++; }
         document.getElementById("clear-msg").textContent = n ? "Removed " + n + " saved item" + (n > 1 ? "s" : "") + "." : "Nothing was saved.";
       } catch (e) {
         document.getElementById("clear-msg").textContent = "Your browser blocked access to its storage, so there was nothing to clear.";
