@@ -279,7 +279,7 @@
     el.innerHTML = `
       <div class="pc" id="pc">
         <div class="pc-head">
-          <div class="pc-title"><h1>${esc(r.sym)}</h1><span class="soft">${esc(r.name || "")}</span>
+          <div class="pc-title"><h1>${esc(r.sym)}</h1>${starBtn(r.row ? r.row.s : r.sym)}<span class="soft">${esc(r.name || "")}</span>
             <span class="ticker-price" id="pc-price">–</span><span id="pc-change"></span>
             <span class="status wait" id="pc-status"><i></i><span>Loading…</span></span><span id="pc-fresh"></span></div>
           <div class="pc-links">${r.row ? `<a href="#/stock/${encodeURIComponent(r.sym)}">Stock page</a> · <a href="#/financials/${encodeURIComponent(r.sym)}">Research</a> · ` : ""}
@@ -310,8 +310,10 @@
         </div>
         <p class="caption" id="pc-foot"></p>
         <div class="card pc-alerts" id="pc-alerts" data-sym="${esc(r.sym)}"></div>
+        <div id="pc-watch" data-watch-panel="live"></div>
       </div>`;
     bindSearch($("#pc-search", el), (s) => { location.hash = `#/live/${encodeURIComponent(s)}`; });
+    watchPanel($("#pc-watch", el));
 
     let bars = [];
     try {

@@ -526,3 +526,14 @@ button.dl:hover { color: var(--accent); border-color: var(--accent); }
 
 /* --- the site-wide disclaimer (one block, the same words on every page and in every CSV) -------- */
 .disclaimer { padding: 8px 12px; border-left: 3px solid var(--warn); background: var(--warn-soft); color: var(--text); border-radius: 0 6px 6px 0; }
+
+/* --- watchlist panel ------------------------------------------------------------------------- */
+.wl-panel { margin: 14px 0; }
+.wl-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; }
+.wl-head h3 { margin: 0; }
+.wl-actions { margin-left: auto; display: inline-flex; gap: 6px; }
+.wl-actions label { cursor: pointer; }
+.wl-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.wl-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px 2px 2px; border: 1px solid var(--border); border-radius: 999px; font-size: 0.84rem; }
+.wl-chip a { text-decoration: none; }
+.pc-title .star, th .star { font-size: 1rem; }

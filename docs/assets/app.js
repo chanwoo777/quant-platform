@@ -374,7 +374,57 @@ const inWatch = (sym) => (watchCache || []).includes(sym);
 async function toggleWatch(sym) {
   const list = await watchlist();
   setWatchlist(list.includes(sym) ? list.filter((s) => s !== sym) : [...list, sym]);
+  window.dispatchEvent(new CustomEvent("watchchange", { detail: { sym, on: inWatch(sym) } }));
   return inWatch(sym);
+}
+/** ☆ / ★ toggle for any ticker, anywhere: one click handler (below) serves every star on the page. */
+const starBtn = (sym) => `<button type="button" class="star${inWatch(sym) ? " on" : ""}" data-star="${esc(sym)}" aria-pressed="${inWatch(sym)}"
+  title="Add ${esc(sym)} to or remove it from your watchlist (saved in this browser)" aria-label="Watchlist: ${esc(sym)}">${inWatch(sym) ? "★" : "☆"}</button>`;
+document.addEventListener("click", async (e) => {  // capture phase, so a star inside a clickable row doesn't open the row
+  const b = e.target.closest && e.target.closest("[data-star]");
+  if (!b) return;
+  e.stopPropagation(); e.preventDefault();
+  await toggleWatch(b.dataset.star);
+}, true);
+window.addEventListener("watchchange", (e) => {
+  const { sym, on } = e.detail;
+  document.querySelectorAll("[data-star]").forEach((x) => {
+    if (x.dataset.star !== sym) return;
+    x.classList.toggle("on", on); x.textContent = on ? "★" : "☆"; x.setAttribute("aria-pressed", String(on));
+  });
+  document.querySelectorAll("[data-watch-panel]").forEach((p) => watchPanel(p));
+});
+/** The watchlist as a card: each name with its 1-day move, links to `route`, ★ to remove, export and import. */
+async function watchPanel(el) {
+  if (!el || !el.isConnected) return;
+  const route = el.dataset.watchPanel || "stock", list = await watchlist();
+  const rows = await Promise.all(list.map(async (s) => (await rowFor(s).catch(() => null)) || { s }));
+  el.innerHTML = `<div class="card wl-panel">
+      <div class="wl-head"><h3>Your watchlist ★</h3><span class="caption">${list.length} name${list.length === 1 ? "" : "s"}, saved in this browser</span>
+        <span class="wl-actions"><button type="button" class="btn q-small" data-wl="export">Export JSON</button>
+        <label class="btn q-small">Import JSON<input type="file" accept="application/json,.json" data-wl="import" hidden></label></span></div>
+      <div class="wl-chips">${rows.length ? rows.map((r) => `<span class="wl-chip">${starBtn(r.s)}<a href="#/${route}/${encodeURIComponent(r.s)}"><b>${esc(r.s)}</b></a>
+        <span class="${tone(r.r1d)}">${ok(r.r1d) ? pct(r.r1d, 1) : ""}</span></span>`).join("") : '<span class="muted">Star any ticker (☆) to add it here.</span>'}</div>
+      <p class="caption wl-msg" aria-live="polite"></p></div>`;
+  const msg = (t) => { $(".wl-msg", el).textContent = t; };
+  $("[data-wl=export]", el).addEventListener("click", () => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([Util.exportWatchlist(list)], { type: "application/json" }));
+    a.download = `watchlist_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  });
+  $("[data-wl=import]", el).addEventListener("change", async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    try {
+      const { list: incoming, skipped } = Util.parseWatchlist(await file.text());
+      const before = (await watchlist()).length;
+      setWatchlist([...(await watchlist()), ...incoming]);
+      const added = watchCache.length - before;
+      document.querySelectorAll("[data-watch-panel]").forEach((p) => watchPanel(p));
+      setTimeout(() => document.querySelectorAll(".wl-msg").forEach((m) => { m.textContent = `Imported: ${added} added, ${incoming.length - added} already there${skipped ? `, ${skipped} skipped` : ""}.`; }), 50);
+    } catch (err) { msg(`Couldn't import ${file.name}: ${err.message}.`); }
+  });
 }
 
 // --- basket picker (Quantum labs, Compare, correlations) ------------------------------------------
@@ -526,6 +576,7 @@ async function viewGlobal(view) {
     <p class="caption">${counts.s.toLocaleString()} stocks ≥ $1B in 21 markets · ${counts.e.toLocaleString()} liquid US-listed ETFs ·
       ${counts.c.toLocaleString()} coins · scored ${esc(g.scored_at.slice(0, 16).replace("T", " "))} UTC. Click a row for its chart and the reasons behind its signal.
       ${SIGNAL_NOTE}</p>
+    <div id="g-watch" data-watch-panel="stock"></div>
     <h2>Market regimes ${mq("regimes-global")}${fresh("scores", "yahoo-prices")}</h2>
     <div class="grid g6">${regimes}</div>
     <div class="controls">
@@ -555,6 +606,10 @@ async function viewGlobal(view) {
   $("#g-cap", view).addEventListener("change", (e) => { G.cap = e.target.value; refresh(); });
   $("#g-unusual", view).addEventListener("change", (e) => { G.unusual = e.target.checked; refresh(); });
   view.querySelectorAll("#g-tabs button").forEach((b) => b.addEventListener("click", () => { G.tab = b.dataset.tab; refresh(); }));
+  const onWatch = () => { if (G.tab === "watch" && $("#g-body")) drawGlobal(); };
+  window.addEventListener("watchchange", onWatch);
+  window.onRouteCleanup(() => window.removeEventListener("watchchange", onWatch));
+  watchPanel($("#g-watch", view));
   drawGlobal();
 }
 
@@ -571,7 +626,7 @@ function filtered() {
     && (!q || r.s.toLowerCase().includes(q) || (r.n || "").toLowerCase().includes(q)));
 }
 
-const starCell = { h: "★", f: (r) => `<button class="star${inWatch(r.s) ? " on" : ""}" data-star="${esc(r.s)}" title="Add to or remove from your watchlist">${inWatch(r.s) ? "★" : "☆"}</button>` };
+const starCell = { h: "★", f: (r) => starBtn(r.s) };
 const SCREEN_COLS = [
   starCell,
   { h: "Symbol", sort: "s", f: (r) => `<b>${esc(r.s)}</b>${dqMark(r.dq)}` },
@@ -594,14 +649,6 @@ const SCREEN_COLS = [
   { h: "6M", cls: "spark-cell", f: (r) => spark(r.sp) },
   { h: "Why", cls: "wrap-text", f: (r) => `<div class="clamp" title="${esc(r.why)}">${esc(r.why)}</div>` },
 ];
-function bindStars(root, onChange) {
-  root.querySelectorAll("[data-star]").forEach((b) => b.addEventListener("click", async (e) => {
-    e.stopPropagation();
-    const on = await toggleWatch(b.dataset.star);
-    b.classList.toggle("on", on); b.textContent = on ? "★" : "☆";
-    if (onChange) onChange();
-  }));
-}
 
 // --- sector heatmap (Global, "Sector heatmap" tab) -----------------------------------------------
 const GS = { sector: null };
@@ -697,7 +744,6 @@ function drawGlobal() {
     G.dir = G.sort === k ? -G.dir : (k === "s" ? 1 : -1);
     G.sort = k; G.page = 0; drawGlobal();
   }));
-  bindStars(body, () => { if (G.tab === "watch") drawGlobal(); });
   csvFor($(".table-wrap", body), () => ({  // every matching row, not just this page of 50
     cols: ["symbol", "name", "class", "market", "sector", "signal", "score", "trend", "momentum", "value", "quality", "risk", "analysts",
       "ret_1d", "ret_1m", "ret_ytd", "mom_12_1", "fwd_pe", "mkt_cap_usd_bn", "unusual", "data_checks", "why"],
@@ -1269,7 +1315,7 @@ async function peersHtml(sym, r) {
   if (!top.some((x) => x.s === sym)) top.push(r);
   const med = (k) => { const v = peers.map((x) => x[k]).filter(ok).sort((a, b) => a - b); return v.length ? v[Math.floor(v.length / 2)] : null; };
   return table([
-    { h: "Symbol", f: (x) => routeLink("financials", x.s) }, { h: "Name", cls: "clip", f: (x) => esc(x.n || "") },
+    { h: "★", f: (x) => starBtn(x.s) }, { h: "Symbol", f: (x) => routeLink("financials", x.s) }, { h: "Name", cls: "clip", f: (x) => esc(x.n || "") },
     { h: "Mkt cap $B", r: 1, f: (x) => num(x.cap, x.cap >= 100 ? 0 : 1) }, { h: "Fwd P/E", r: 1, f: (x) => num(x.fpe, 1) },
     { h: "ROE", r: 1, f: (x) => pct(x.roe, 0, false) }, { h: "YTD", r: 1, f: (x) => signed(x.ytd, 0) }, { h: "Score", f: (x) => bar(x.sc) },
   ], top, { rowClass: (x) => (x.s === sym ? "me" : "") }) +
