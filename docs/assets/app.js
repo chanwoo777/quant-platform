@@ -47,6 +47,7 @@ function money(x, d = 0) {
 const tone = (x) => (!ok(x) ? "" : x > 0 ? "pos" : x < 0 ? "neg" : "");
 const toneMark = { bullish: "▲ bullish", bearish: "▼ bearish", neutral: "● neutral" };
 const SIGNAL = { BUY: "▲ BUY", HOLD: "● HOLD", AVOID: "▼ AVOID", "N/A": "–" };
+const SIGNAL_NOTE = "BUY / HOLD / AVOID are mechanical labels from ranking past data against peers: not recommendations, and not predictions of returns.";
 const CLASS_NAME = { s: "Stock", e: "ETF", c: "Crypto", i: "Index" };
 const signed = (x, d = 2) => `<span class="${tone(x)}">${pct(x, d)}</span>`;
 
@@ -311,7 +312,8 @@ async function viewGlobal(view) {
   view.innerHTML = `
     <h1>Global Overview</h1>
     <p class="caption">${counts.s.toLocaleString()} stocks ≥ $1B in 21 markets · ${counts.e.toLocaleString()} liquid US-listed ETFs ·
-      ${counts.c.toLocaleString()} coins · scored ${esc(g.scored_at.slice(0, 16).replace("T", " "))} UTC. Click a row for its chart and the reasons behind its signal.</p>
+      ${counts.c.toLocaleString()} coins · scored ${esc(g.scored_at.slice(0, 16).replace("T", " "))} UTC. Click a row for its chart and the reasons behind its signal.
+      ${SIGNAL_NOTE}</p>
     <h2>Market regimes</h2>
     <div class="grid g6">${regimes}</div>
     <div class="controls">
@@ -447,7 +449,7 @@ async function openDetail(r, span = "1Y") {
       <div class="caption">${esc(r.m)} · ${esc(r.sec || { e: "ETF", c: "Crypto" }[r.a] || "")}${r.also ? ` · also listed: ${esc(r.also)}` : ""} · last ${num(r.px, 2)} ${esc(r.cur || "")}</div></div>
       <button class="btn close" id="d-close">Close ✕</button></div>
     <p><span class="badge ${r.sig === "BUY" ? "good" : r.sig === "AVOID" ? "bad" : ""}">${SIGNAL[r.sig] || "–"}</span>
-      <span class="soft">${esc(r.why || "")}</span></p>
+      <span class="soft">${esc(r.why || "")}</span></p><p class="caption">${SIGNAL_NOTE}</p>
     <div class="chips" id="d-span">${["6M", "1Y", "All"].map((s) => `<button class="chip${s === span ? " on" : ""}" data-v="${s}">${s}</button>`).join("")}</div>
     <div class="chart" id="d-chart" style="min-height:320px"><div class="loading">Loading prices…</div></div>
     <div class="pillars">${pill("Score", r.sc)}${pill("Trend", r.t)}${pill("Momentum", r.mo)}${pill("Risk", r.r)}${pill("Value", r.v)}${pill("Quality", r.q)}${pill("Analysts", r.an)}${pill(r.a === "e" ? "Cost" : "RSI (14)", r.a === "e" ? r.co : r.rsi)}</div>
@@ -827,7 +829,7 @@ async function viewStockUniverse(view, sym, row) {
     </div>
     <div class="chart-title">${esc(sym)} · daily${err ? "" : ` · ${esc(px.source)}, loaded in your browser`}</div>
     <div class="chart" id="u-chart" style="min-height:460px">${err ? `<div class="empty">${esc(err)}</div>` : ""}</div>
-    ${row.why ? `<div class="note"><b>Why ${SIGNAL[row.sig] || ""}:</b> ${esc(row.why)}</div>` : ""}
+    ${row.why ? `<div class="note"><b>Why ${SIGNAL[row.sig] || ""}:</b> ${esc(row.why)} <span class="muted">${SIGNAL_NOTE}</span></div>` : ""}
     <div class="grid g2">
       <div><h2>Returns and risk</h2>${table([{ h: "Measure", f: (x) => esc(x[0]) }, { h: "Value", r: 1, f: (x) => x[1] }], [
         ["1 day", signed(row.r1d, 2)], ["1 week", signed(row.r1w, 2)], ["1 month", signed(row.r1m, 1)], ["3 months", signed(row.r3m, 1)],
