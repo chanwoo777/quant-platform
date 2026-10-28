@@ -689,11 +689,11 @@
       const mc = mcOption({ S, K, T, r, vol, kind: O.kind, n: O.n, seed: O.seed, checkpoints: [100, 200, 500, 1e3, 2e3, 5e3, 1e4, 2e4, 5e4, 1e5, 2e5, 5e5, 1e6] });
       const item = items.find((it) => it.ticker === O.sym && it.maturity_days === O.days);
       $("#op-out", sec).innerHTML = `
-        <div class="card q-res"><div class="q-res-h">Black-Scholes <span class="badge">formula</span></div>
+        <div class="card q-res"><div class="q-res-h">Black-Scholes <span class="badge">formula</span>${mq("q-black-scholes")}</div>
           <div class="q-big">${money2(bs.price)}</div>
           <div class="sub">d₁ ${num(bs.d1, 3)} · d₂ ${num(bs.d2, 3)} · delta ${num(bs.delta, 3)}</div>
           <p class="caption">Exact if prices are lognormal with constant volatility. The reference for the other two.</p></div>
-        <div class="card q-res"><div class="q-res-h">Monte Carlo <span class="badge">classical</span></div>
+        <div class="card q-res"><div class="q-res-h">Monte Carlo <span class="badge">classical</span>${mq("q-monte-carlo")}</div>
           <div class="q-big">${money2(mc.price)}</div>
           <div class="sub">95% interval ${money2(mc.ci[0])} – ${money2(mc.ci[1])} · ${big(mc.n)} paths · ${num(mc.price - bs.price, 3, true)} vs Black-Scholes</div>
           <div class="row"><button type="button" class="btn q-small" id="op-rerun">Run again with new random numbers</button></div></div>
@@ -716,7 +716,7 @@
     };
 
     function quantumCard(item, cur) {
-      const head = `<div class="q-res-h">Amplitude estimation <span class="badge warn">quantum, simulated</span></div>`;
+      const head = `<div class="q-res-h">Amplitude estimation <span class="badge warn">quantum, simulated</span>${mq("q-qae")}</div>`;
       if (!ctx.q) return `<div class="card q-res">${head}<p class="soft">Not available yet: the nightly simulation results (data/quantum.json) haven't been published.
         The classical prices beside this don't need them.</p></div>`;
       if (!item) {
@@ -795,9 +795,10 @@
         <div class="control"><span class="label">History</span><div class="chips" id="rk-look"><button type="button" class="chip" data-v="252">1 year</button><button type="button" class="chip" data-v="500">2 years</button></div></div>
         <div class="control"><label for="rk-amt">Portfolio value ($)</label><input type="number" id="rk-amt" min="1000" step="1000" style="width:140px"></div>
       </div>
+      <p class="caption">VaR and CVaR methods ${mq("q-var")}</p>
       <div id="rk-out"></div>
       <div class="chart-title">Daily returns of this basket, with the historical VaR lines</div><div class="chart" id="rk-hist"></div>
-      <h3 class="q-h3">The quantum angle</h3>
+      <h3 class="q-h3">The quantum angle ${mq("q-qae-var")}</h3>
       <div id="rk-q"></div>
       <div class="q-callout"><b>Why this is the most credible near-term use.</b> Banks already run enormous Monte Carlo simulations every night to measure
         market risk (VaR, CVaR) and the capital they must hold against credit losses. Those are exactly the averages and tail probabilities amplitude
@@ -883,7 +884,7 @@
       ${basketHtml("pf")}
       <div class="controls"><div class="control"><span class="label">History</span><div class="chips" id="pf-look"><button type="button" class="chip" data-v="252">1 year</button>
         <button type="button" class="chip" data-v="500">2 years</button></div></div></div>
-      <h3 class="q-h3">a) Mean-variance (Markowitz)</h3>
+      <h3 class="q-h3">a) Mean-variance (Markowitz) ${mq("q-frontier")}</h3>
       <p class="soft">Long only and fully invested: weights are at least 0 and add up to 100%. The efficient frontier is the best return for each level of risk.</p>
       <div class="controls">
         <div class="control"><span class="label">Portfolio to show</span><div class="chips" id="pf-pick"><button type="button" class="chip" data-v="sharpe">Maximum Sharpe</button>
@@ -897,7 +898,7 @@
         and solve it with a quantum interior-point method, whose inner steps solve linear systems with HHL-style quantum linear algebra. The claimed speedup
         is polynomial, not exponential, and it depends on the condition numbers of those systems, on how precisely the weights must be read out, and on
         loading the covariance matrix into qubits. For 15 stocks the classical solver above takes milliseconds.</div>
-      <h3 class="q-h3">b) Hold at most K stocks (cardinality)</h3>
+      <h3 class="q-h3">b) Hold at most K stocks (cardinality) ${mq("q-qubo")}</h3>
       <p class="soft">Choosing exactly K names out of n is a yes/no decision per stock, which makes the problem combinatorial, the kind QAOA targets.
         Each chosen stock gets weight 1/K, and x<sub>i</sub> = 1 means "hold stock i".</p>
       <div class="controls">
@@ -908,7 +909,7 @@
       <p class="caption" id="pf-qnote"></p>
       <div id="pf-qubo"></div>
       <div id="pf-brute"></div>
-      <h3 class="q-h3">QAOA on the nightly basket</h3>
+      <h3 class="q-h3">QAOA on the nightly basket ${mq("q-qaoa")}</h3>
       <div id="pf-qaoa"></div>`;
   }
   async function initPortfolio(sec, ctx) {

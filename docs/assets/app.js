@@ -53,8 +53,8 @@ const signed = (x, d = 2) => `<span class="${tone(x)}">${pct(x, d)}</span>`;
 /** A small "?" link to a metric's section on the Methodology page (nothing until that page is loaded). */
 const mq = (id) => (window.METHOD ? `<a class="mq" href="#/methodology/${id}" title="How this is calculated" aria-label="How this is calculated">?</a>` : "");
 
-function kpi(label, value, sub = "", help = "") {
-  return `<div class="card kpi"><div class="label"${help ? ` title="${esc(help)}"` : ""}>${esc(label)}${help ? " ⓘ" : ""}</div>
+function kpi(label, value, sub = "", help = "", q = "") {
+  return `<div class="card kpi"><div class="label"${help ? ` title="${esc(help)}"` : ""}>${esc(label)}${help ? " ⓘ" : ""}${q ? mq(q) : ""}</div>
     <div class="value">${value}</div>${sub ? `<div class="sub">${sub}</div>` : ""}</div>`;
 }
 function bar(v, max = 100) {
@@ -366,7 +366,7 @@ async function viewGlobal(view) {
     <p class="caption">${counts.s.toLocaleString()} stocks ≥ $1B in 21 markets · ${counts.e.toLocaleString()} liquid US-listed ETFs ·
       ${counts.c.toLocaleString()} coins · scored ${esc(g.scored_at.slice(0, 16).replace("T", " "))} UTC. Click a row for its chart and the reasons behind its signal.
       ${SIGNAL_NOTE}</p>
-    <h2>Market regimes</h2>
+    <h2>Market regimes ${mq("regimes-global")}</h2>
     <div class="grid g6">${regimes}</div>
     <div class="controls">
       <div class="control"><span class="label">Asset class</span>${chips("cls", [["s", "Stocks"], ["e", "ETFs"], ["c", "Crypto"]], G.classes)}</div>
@@ -417,17 +417,17 @@ const SCREEN_COLS = [
   { h: "Name", cls: "clip", f: (r) => esc(r.n) },
   { h: "Market", f: (r) => esc(r.m) },
   { h: "Sector", cls: "clip", f: (r) => esc(r.sec || { e: "ETF", c: "Crypto" }[r.a] || "–") },
-  { h: "Signal", f: (r) => `<span class="sig-${esc(r.sig)}">${SIGNAL[r.sig] || "–"}</span>` },
-  { h: "Score", sort: "sc", f: (r) => bar(r.sc) },
-  { h: "Trend", sort: "t", r: 1, f: (r) => num(r.t, 0) },
-  { h: "Mom.", sort: "mo", r: 1, f: (r) => num(r.mo, 0) },
-  { h: "Value", sort: "v", r: 1, f: (r) => num(r.v, 0) },
-  { h: "Quality", sort: "q", r: 1, f: (r) => num(r.q, 0) },
-  { h: "Risk", sort: "r", r: 1, f: (r) => num(r.r, 0) },
-  { h: "1D", sort: "r1d", r: 1, f: (r) => signed(r.r1d, 1) },
-  { h: "1M", sort: "r1m", r: 1, f: (r) => signed(r.r1m, 1) },
-  { h: "YTD", sort: "ytd", r: 1, f: (r) => signed(r.ytd, 1) },
-  { h: "12-1", sort: "m121", r: 1, f: (r) => pct(r.m121, 0) },
+  { h: "Signal", q: "signal", f: (r) => `<span class="sig-${esc(r.sig)}">${SIGNAL[r.sig] || "–"}</span>` },
+  { h: "Score", sort: "sc", q: "composite", f: (r) => bar(r.sc) },
+  { h: "Trend", sort: "t", q: "pillars", r: 1, f: (r) => num(r.t, 0) },
+  { h: "Mom.", sort: "mo", q: "pillars", r: 1, f: (r) => num(r.mo, 0) },
+  { h: "Value", sort: "v", q: "pillars", r: 1, f: (r) => num(r.v, 0) },
+  { h: "Quality", sort: "q", q: "pillars", r: 1, f: (r) => num(r.q, 0) },
+  { h: "Risk", sort: "r", q: "pillars", r: 1, f: (r) => num(r.r, 0) },
+  { h: "1D", sort: "r1d", q: "returns", r: 1, f: (r) => signed(r.r1d, 1) },
+  { h: "1M", sort: "r1m", q: "returns", r: 1, f: (r) => signed(r.r1m, 1) },
+  { h: "YTD", sort: "ytd", q: "returns", r: 1, f: (r) => signed(r.ytd, 1) },
+  { h: "12-1", sort: "m121", q: "momentum", r: 1, f: (r) => pct(r.m121, 0) },
   { h: "Fwd P/E", sort: "fpe", r: 1, f: (r) => num(r.fpe, 1) },
   { h: "Mkt cap $B", sort: "cap", r: 1, f: (r) => num(r.cap, r.cap >= 100 ? 0 : 1) },
   { h: "6M", cls: "spark-cell", f: (r) => spark(r.sp) },
@@ -498,9 +498,9 @@ function drawGlobal() {
   const rows = filtered();
   const buy = rows.filter((r) => r.sig === "BUY").length, avoid = rows.filter((r) => r.sig === "AVOID").length;
   $("#g-kpis", view).innerHTML = kpi("Matching", rows.length.toLocaleString()) +
-    kpi("Buy candidates", buy.toLocaleString(), "", "Up-trend + composite ≥ 60 + market not in a Bear regime") +
-    kpi("Avoid", avoid.toLocaleString(), "", "Down-trend + composite ≤ 40") +
-    kpi("Unusual move today", rows.filter((r) => r.u).length.toLocaleString(), "", "≥ 8% (crypto 20%), or ≥ 3 robust σ and ≥ 2% (crypto 5%)");
+    kpi("Buy candidates", buy.toLocaleString(), "", "Up-trend + composite ≥ 60 + market not in a Bear regime", "signal") +
+    kpi("Avoid", avoid.toLocaleString(), "", "Down-trend + composite ≤ 40", "signal") +
+    kpi("Unusual move today", rows.filter((r) => r.u).length.toLocaleString(), "", "≥ 8% (crypto 20%), or ≥ 3 robust σ and ≥ 2% (crypto 5%)", "unusual");
   view.querySelectorAll("#g-tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === G.tab));
 
   if (G.tab === "sectors") { drawSectorMap($("#g-body", view), rows); return; }
@@ -508,7 +508,7 @@ function drawGlobal() {
   if (G.tab === "movers") {
     list = rows.filter((r) => r.u).sort((a, b) => Math.abs(b.r1d || 0) - Math.abs(a.r1d || 0));
     cols = [SCREEN_COLS[0], SCREEN_COLS[1], SCREEN_COLS[2], SCREEN_COLS[3],
-      { h: "1D", r: 1, f: (r) => signed(r.r1d, 1) }, { h: "z", r: 1, f: (r) => num(r.z, 1) }, SCREEN_COLS[5], SCREEN_COLS[6], SCREEN_COLS[19]];
+      { h: "1D", r: 1, q: "returns", f: (r) => signed(r.r1d, 1) }, { h: "z", r: 1, q: "unusual", f: (r) => num(r.z, 1) }, SCREEN_COLS[5], SCREEN_COLS[6], SCREEN_COLS[19]];
   } else {
     if (G.tab === "watch") list = rows.filter((r) => inWatch(r.s));
     const k = G.sort, dir = G.dir;
@@ -523,7 +523,7 @@ function drawGlobal() {
   const pages = Math.max(1, Math.ceil(list.length / PAGE));
   G.page = Math.min(G.page, pages - 1);
   const pageRows = list.slice(G.page * PAGE, (G.page + 1) * PAGE);
-  const marked = cols.map((c) => Object.assign({}, c, { mark: c.sort && c.sort === G.sort && G.tab !== "movers" ? (G.dir < 0 ? " ↓" : " ↑") : "" }));
+  const marked = cols.map((c) => Object.assign({}, c, { mark: (c.q ? mq(c.q) : "") + (c.sort && c.sort === G.sort && G.tab !== "movers" ? (G.dir < 0 ? " ↓" : " ↑") : "") }));
   const empty = G.tab === "watch" ? "Your watchlist has no names matching these filters. Click ☆ on any row to add it (saved in this browser)." : "No matches. Try loosening the filters.";
   const body = $("#g-body", view);
   body.innerHTML = table(marked, pageRows, { click: true, empty }) + (list.length > PAGE ? `
@@ -547,7 +547,8 @@ function closeDrawer() {
 async function openDetail(r, span = "1Y") {
   const drawer = $("#drawer"), back = $("#drawer-back");
   const yahoo = `https://finance.yahoo.com/quote/${encodeURIComponent(r.s)}`;
-  const pill = (label, v) => `<div class="card kpi"><div class="label">${label}</div><div class="value">${ok(v) ? v.toFixed(0) : "–"}</div></div>`;
+  const pill = (label, v) => `<div class="card kpi"><div class="label">${label}${mq(label === "Score" ? "composite" : label.startsWith("RSI") ? "rsi" : "pillars")}</div>
+    <div class="value">${ok(v) ? v.toFixed(0) : "–"}</div></div>`;
   drawer.innerHTML = `
     <div class="head"><div><h2>${esc(r.s)} · ${esc(r.n || "")}</h2>
       <div class="caption">${esc(r.m)} · ${esc(r.sec || { e: "ETF", c: "Crypto" }[r.a] || "")}${r.also ? ` · also listed: ${esc(r.also)}` : ""} · last ${num(r.px, 2)} ${esc(r.cur || "")}</div></div>
@@ -559,7 +560,7 @@ async function openDetail(r, span = "1Y") {
     <div class="pillars">${pill("Score", r.sc)}${pill("Trend", r.t)}${pill("Momentum", r.mo)}${pill("Risk", r.r)}${pill("Value", r.v)}${pill("Quality", r.q)}${pill("Analysts", r.an)}${pill(r.a === "e" ? "Cost" : "RSI (14)", r.a === "e" ? r.co : r.rsi)}</div>
     <div class="grid g4" style="margin-top:12px">
       ${kpi("1 month", signed(r.r1m, 1))}${kpi("Year to date", signed(r.ytd, 1))}
-      ${kpi("Momentum 12-1", pct(r.m121, 0))}${kpi("vs 200-day MA", pct(r.d200))}
+      ${kpi("Momentum 12-1", pct(r.m121, 0), "", "", "momentum")}${kpi("vs 200-day MA", pct(r.d200), "", "", "moving-averages")}
       ${kpi("Fwd P/E", num(r.fpe, 1))}${kpi("ROE", pct(r.roe, 0, false))}${kpi("Dividend yield", ok(r.dy) ? num(r.dy, 2) + "%" : "–")}${kpi("Mkt cap", ok(r.cap) ? money(r.cap * 1e9) : "–")}
     </div>
     <p class="caption">Pillars are percentiles among peers (stocks: same market, and same sector for value and quality; ETFs and coins within their class).</p>
@@ -701,9 +702,9 @@ async function viewMarkets(view) {
     <h1>Market Overview</h1>
     <div class="grid g2">
       <div><div class="grid g3">
-        ${kpi("Market regime", esc(reg.label), "", "S&P 500 trend (50/200-day MA, 20% drawdown rule) + VIX level")}
-        ${kpi("Stance", esc(reg.stance), `<span class="badge ${stanceClass}">${esc(reg.stance)} · as of ${esc(reg.as_of)}</span>`, "From the 0-1 risk score: trend, volatility, credit, labour, curve, inflation")}
-        ${kpi("Risk score", num(reg.risk_score, 2), "0 = benign · 1 = stressed", "Risk-On < 0.33, Risk-Off > 0.6")}
+        ${kpi("Market regime", esc(reg.label), "", "S&P 500 trend (50/200-day MA, 20% drawdown rule) + VIX level", "market-regime")}
+        ${kpi("Stance", esc(reg.stance), `<span class="badge ${stanceClass}">${esc(reg.stance)} · as of ${esc(reg.as_of)}</span>`, "From the 0-1 risk score: trend, volatility, credit, labour, curve, inflation", "stance")}
+        ${kpi("Risk score", num(reg.risk_score, 2), "0 = benign · 1 = stressed", "Risk-On < 0.33, Risk-Off > 0.6", "risk-score")}
       </div></div>
       <div class="card"><h3>Why</h3><ul class="reasons">${(reg.reasons || []).map((r) => `<li>${esc(r)}</li>`).join("")}</ul></div>
     </div>
@@ -716,10 +717,10 @@ async function viewMarkets(view) {
     <div id="w-table"></div>
     <div class="controls"><div class="control"><span class="label">Range</span>${chips("span", [["6M", "6M"], ["1Y", "1Y"], ["2Y", "2Y"], ["10Y", "10Y (weekly)"]], M.span, false)}</div></div>
     <div class="controls" style="margin-top:0">${indicatorChipsHtml(spx.error ? { close: [] } : ohlcv(spx))}</div>
-    <div class="chart-title">S&amp;P 500 with regime stance</div>
+    <div class="chart-title">S&amp;P 500 with regime stance ${mq("stance")}</div>
     <div class="chart" id="m-spx">${spx.error ? `<div class="empty">${esc(spx.error)}</div>` : ""}</div>
     <p class="caption">Prices load in your browser from CNBC: daily bars for two years, weekly bars for ten (indicator lengths then count weeks).</p>
-    <h2>Economic indicators (FRED)</h2>
+    <h2>Economic indicators (FRED) ${mq("fred-tiles")}</h2>
     <div class="grid g5">${tiles}</div>
     <h2>Breaking news</h2><div class="controls" style="margin-top:0">${chips("scope", [["All", "All"], ["Watchlist", "Watchlist"], ["Market-wide", "Market-wide"]], M.scope, false)}</div><div id="m-news"></div>`;
 
@@ -844,17 +845,17 @@ async function viewStockDeep(view, ticker) {
     <div class="grid g5">
       ${kpi("Close", num(snap.close, 2), `${signed(chg, 2)} · ${esc(snap.date)}`)}
       ${kpi("50 vs 200-day MA", pct(spread), spread > 0 ? '<span class="pos">golden-cross alignment</span>' : '<span class="neg">death-cross alignment</span>')}
-      ${kpi("RSI (14)", num(rsi, 0), rsi >= 70 ? "overbought" : rsi <= 30 ? "oversold" : "neutral")}
-      ${kpi("Momentum 12-1", d.score ? pct(d.score.momentum_12_1, 0) : "–", "", "Return from 12 months to 1 month ago (Jegadeesh & Titman 1993)")}
-      ${kpi("Factor score", d.score ? `${num(d.score.composite, 0)}/100` : "–", d.score ? `rank ${d.score.rank} of ${d.score.of}` : "")}
+      ${kpi("RSI (14)", num(rsi, 0), rsi >= 70 ? "overbought" : rsi <= 30 ? "oversold" : "neutral", "", "indicators")}
+      ${kpi("Momentum 12-1", d.score ? pct(d.score.momentum_12_1, 0) : "–", "", "Return from 12 months to 1 month ago (Jegadeesh & Titman 1993)", "deep-scores")}
+      ${kpi("Factor score", d.score ? `${num(d.score.composite, 0)}/100` : "–", d.score ? `rank ${d.score.rank} of ${d.score.of}` : "", "", "deep-scores")}
     </div>
     <div class="chart-title" id="s-title"></div>
     <div class="chart" id="s-chart" style="min-height:640px">${h.error ? `<div class="empty">${esc(h.error)}</div>` : ""}</div>
     <p class="caption">Candles: blue up, red down. ▲ / ▼ / ● news markers = bullish / bearish / neutral FinBERT average of on-topic headlines,
       placed on the session they first affected. ★ = unusual move; hover for the explanation. ${h.error ? "" : `About two years of daily bars, loaded in your browser from ${esc(h.source)}.`}</p>
-    <details><summary>Indicator readings</summary><ul class="reasons">${(snap.readings || []).map((r) => `<li>${esc(r)}</li>`).join("")}</ul></details>
+    <details><summary>Indicator readings ${mq("indicators")}</summary><ul class="reasons">${(snap.readings || []).map((r) => `<li>${esc(r)}</li>`).join("")}</ul></details>
     <div class="grid g2">
-      <div><h2>Unusual moves</h2>${table([
+      <div><h2>Unusual moves ${mq("explained-moves")}</h2>${table([
         { h: "When", f: (m) => esc(m.d) },
         { h: "Move", r: 1, f: (m) => signed(m.ret, 1) },
         { h: "z", r: 1, f: (m) => num(m.z, 1) },
@@ -862,7 +863,7 @@ async function viewStockDeep(view, ticker) {
         { h: "Explanation", cls: "wrap-text", f: (m) => esc(m.why) },
         { h: "Catalyst", f: (m) => link(m.url) },
       ], [...d.moves].reverse(), { tall: true, empty: "No unusual moves in the last three years." })}</div>
-      <div><h2>Headlines</h2>${table([
+      <div><h2>Headlines ${mq("news-sentiment")}</h2>${table([
         { h: "Time (ET)", f: (h) => esc(h.t.slice(5)) },
         { h: "Headline", cls: "wrap-text", f: (h) => link(h.url, h.title) },
         { h: "Source", cls: "clip", f: (h) => esc(h.src || "") },
@@ -927,21 +928,22 @@ async function viewStockUniverse(view, sym, row) {
     <div class="grid g5">
       ${kpi("Last close", num(last ?? row.px, (last ?? row.px) >= 1000 ? 0 : 2), `${signed(chg ?? row.r1d, 2)}${err ? "" : " · " + esc(px.dates[n - 1])}`)}
       ${kpi("50 vs 200-day MA", pct(spread), spread == null ? "" : spread > 0 ? '<span class="pos">golden-cross alignment</span>' : '<span class="neg">death-cross alignment</span>')}
-      ${kpi("RSI (14)", num(rsi[n - 1], 0), ok(rsi[n - 1]) ? (rsi[n - 1] >= 70 ? "overbought" : rsi[n - 1] <= 30 ? "oversold" : "neutral") : "")}
-      ${kpi("Momentum 12-1", pct(row.m121, 0), "", "Return from 12 months to 1 month ago")}
+      ${kpi("RSI (14)", num(rsi[n - 1], 0), ok(rsi[n - 1]) ? (rsi[n - 1] >= 70 ? "overbought" : rsi[n - 1] <= 30 ? "oversold" : "neutral") : "", "", "indicators")}
+      ${kpi("Momentum 12-1", pct(row.m121, 0), "", "Return from 12 months to 1 month ago", "momentum")}
       ${kpi("Composite score", ok(row.sc) ? `${num(row.sc, 0)}/100` : "–", `<span class="sig-${esc(row.sig)}">${SIGNAL[row.sig] || "–"}</span>`)}
     </div>
     <div class="chart-title">${esc(sym)} · daily${err ? "" : ` · ${esc(px.source)}, loaded in your browser`}</div>
     <div class="chart" id="u-chart" style="min-height:460px">${err ? `<div class="empty">${esc(err)}</div>` : ""}</div>
     ${row.why ? `<div class="note"><b>Why ${SIGNAL[row.sig] || ""}:</b> ${esc(row.why)} <span class="muted">${SIGNAL_NOTE}</span></div>` : ""}
     <div class="grid g2">
-      <div><h2>Returns and risk</h2>${table([{ h: "Measure", f: (x) => esc(x[0]) }, { h: "Value", r: 1, f: (x) => x[1] }], [
+      <div><h2>Returns and risk ${mq("returns")}</h2>${table([{ h: "Measure", f: (x) => esc(x[0]) + (x[2] ? mq(x[2]) : "") }, { h: "Value", r: 1, f: (x) => x[1] }], [
         ["1 day", signed(row.r1d, 2)], ["1 week", signed(row.r1w, 2)], ["1 month", signed(row.r1m, 1)], ["3 months", signed(row.r3m, 1)],
-        ["Year to date", signed(row.ytd, 1)], ["52 weeks", ok(info.w52) ? signed(info.w52 / 100, 1) : "–"], ["Momentum 12-1", pct(row.m121, 1)],
-        ["Momentum 6-1", pct(info.m61, 1)], ["Distance to 200-day MA", pct(row.d200, 1)], ["Volatility (1y, annualised)", pct(info.vol ?? row.vol, 1, false)],
-        ["Max drawdown (1y)", pct(info.mdd ?? row.mdd, 1)], ["Last MA cross", info.cross ? `${esc(info.cross)} cross, ${info.cross_ago} sessions ago` : "–"],
+        ["Year to date", signed(row.ytd, 1)], ["52 weeks", ok(info.w52) ? signed(info.w52 / 100, 1) : "–"], ["Momentum 12-1", pct(row.m121, 1), "momentum"],
+        ["Momentum 6-1", pct(info.m61, 1), "momentum"], ["Distance to 200-day MA", pct(row.d200, 1), "moving-averages"],
+        ["Volatility (60-day, annualised)", pct(info.vol ?? row.vol, 1, false), "volatility"],
+        ["Max drawdown (1y)", pct(info.mdd ?? row.mdd, 1), "max-drawdown"], ["Last MA cross", info.cross ? `${esc(info.cross)} cross, ${info.cross_ago} sessions ago` : "–", "moving-averages"],
       ])}</div>
-      <div><h2>Peer percentiles</h2>${row.a === "i" ? '<div class="empty">Indices are not scored.</div>' : table([{ h: "Pillar", f: (x) => esc(x[0]) }, { h: "Percentile among peers", f: (x) => bar(x[1]) }], [
+      <div><h2>Peer percentiles ${mq("pillars")}</h2>${row.a === "i" ? '<div class="empty">Indices are not scored.</div>' : table([{ h: "Pillar", f: (x) => esc(x[0]) }, { h: "Percentile among peers", f: (x) => bar(x[1]) }], [
         ["Composite", row.sc], ["Trend", row.t], ["Momentum", row.mo], ["Risk (low is better)", row.r], ["Value", row.v], ["Quality", row.q],
         ["Analysts", row.an], ...(row.a === "e" ? [["Cost", row.co]] : []),
       ])}
@@ -1008,18 +1010,18 @@ async function viewFinancials(view, arg) {
     <div class="grid g6">
       ${kpi("Last", num(r.px, r.px >= 1000 ? 0 : 2), `${signed(r.r1d, 2)} 1D · ${esc(r.cur || "")}`)}
       ${kpi("Market cap", ok(r.cap) ? money(r.cap * 1e9) : "–")}
-      ${kpi("Signal", `<span class="sig-${esc(r.sig)}">${SIGNAL[r.sig] || "–"}</span>`, ok(r.sc) ? `composite ${num(r.sc, 0)}/100` : "")}
+      ${kpi("Signal", `<span class="sig-${esc(r.sig)}">${SIGNAL[r.sig] || "–"}</span>`, ok(r.sc) ? `composite ${num(r.sc, 0)}/100` : "", "", "signal")}
       ${kpi("Year to date", signed(r.ytd, 1))}
-      ${kpi("Momentum 12-1", pct(r.m121, 0))}
-      ${kpi("Volatility (1y)", pct(info.vol, 0, false))}
+      ${kpi("Momentum 12-1", pct(r.m121, 0), "", "", "momentum")}
+      ${kpi("Volatility (60-day)", pct(info.vol, 0, false), "", "", "volatility")}
     </div>
     <h2>Fundamentals</h2>${fundamentalsHtml(r, info)}
     <div class="grid g2">
-      <div><h2>Analysts</h2>${analystHtml(r, sym)}<div id="fh-reco"></div></div>
+      <div><h2>Analysts ${mq("pillars")}</h2>${analystHtml(r, sym)}<div id="fh-reco"></div></div>
       <div><h2>Peers</h2><div id="peers"><div class="loading">Loading peers…</div></div></div>
     </div>
-    <h2>Financial statements</h2><div id="statements"></div>
-    <h2>Factor model</h2>
+    <h2>Financial statements ${mq("sec-financials")}</h2><div id="statements"></div>
+    <h2>Factor model ${mq("factor-model")}</h2>
     <div class="controls" style="margin-top:0"><div class="control"><span class="label" title="${esc(MODEL_HELP)}">Model ⓘ</span>
       ${chips("model", [["FF3", "FF3"], ["Carhart", "Carhart"], ["FF5", "FF5"]], F.model, false)}</div></div>
     <div id="ff"><div class="loading">Running the regression…</div></div>
@@ -1214,7 +1216,7 @@ async function drawFactorModel(sym, r, model) {
 function watchlistResearchHtml(research, model) {
   const exps = research.exposures[model] || [];
   const cols = Q.MODELS[model];
-  return `<h3 style="margin-top:12px">Deep-tier factor exposures (${esc(model)}, Python)</h3>${table([
+  return `<h3 style="margin-top:12px">Deep-tier factor exposures (${esc(model)}, Python) ${mq("factor-model")}</h3>${table([
       { h: "Ticker", f: (x) => routeLink("financials", x.ticker) },
       { h: "Alpha/yr", r: 1, f: (x) => pct(x.alpha_annual) }, { h: "Alpha t", r: 1, f: (x) => num(x.alpha_t, 1) },
       ...cols.map((f) => ({ h: FACTOR[f], r: 1, f: (x) => num(x.betas[f], 2) })),
@@ -1222,7 +1224,7 @@ function watchlistResearchHtml(research, model) {
       { h: "Stock-specific variance", f: (x) => bar(100 * (x.variance_share?.idiosyncratic ?? NaN)) },
       { h: "Tilts", cls: "wrap-text", f: (x) => esc((x.tilts || []).join(", ")) },
     ], exps)}
-    <h3 style="margin-top:18px">Composite factor scores</h3>
+    <h3 style="margin-top:18px">Composite factor scores ${mq("deep-scores")}</h3>
     <p class="caption">Each metric is ranked across the deep tier (0 = worst, 100 = best) and averaged into pillars: Value (E/P, FCF/P, B/M, S/P),
       Quality (ROE, cash ROA, low leverage, low accruals), Momentum (12-1, 6-1).</p>
     ${table([
@@ -1232,7 +1234,7 @@ function watchlistResearchHtml(research, model) {
       { h: "B/M", r: 1, f: (s) => num(s.bm, 2) }, { h: "ROE", r: 1, f: (s) => pct(s.roe, 0, false) }, { h: "D/E", r: 1, f: (s) => num(s.de, 2) },
       { h: "Mom 12-1", r: 1, f: (s) => pct(s.m121, 0) },
     ], research.scores)}
-    <h3 style="margin-top:18px">Academic strategy backtests</h3>${table([
+    <h3 style="margin-top:18px">Academic strategy backtests ${mq("strategy-backtests")}</h3>${table([
       { h: "Strategy", f: (s) => esc(s.strategy) }, { h: "Paper", cls: "clip", f: (s) => esc(s.paper) },
       { h: "CAGR", r: 1, f: (s) => pct(s.cagr, 1, false) }, { h: "Vol", r: 1, f: (s) => pct(s.vol, 1, false) },
       { h: "Sharpe", r: 1, f: (s) => num(s.sharpe, 2) }, { h: "Max drawdown", r: 1, f: (s) => pct(s.mdd, 1, false) },
@@ -1246,6 +1248,7 @@ function watchlistResearchHtml(research, model) {
 // ====================================================================================================
 const ROUTES = { global: viewGlobal, markets: viewMarkets, stock: viewStock, financials: viewFinancials,
   compare: (view, arg) => viewCompare(view, arg),
+  methodology: (view, arg) => (window.METHOD ? window.METHOD.view(view, arg) : (view.innerHTML = '<div class="empty">The Methodology page failed to load.</div>')),
   quantum: (view, arg) => (window.QUANTUM ? window.QUANTUM.view(view, arg) : (view.innerHTML = '<div class="empty">The Quantum page failed to load.</div>')),
   live: (view, arg) => (window.LIVE ? window.LIVE.view(view, arg) : (view.innerHTML = '<div class="empty">Live charts failed to load.</div>')) };
 const MOVED = { bot: "#/global" };  // retired routes: old links land somewhere useful

@@ -335,7 +335,7 @@
   function footNote(r, feed) {
     const src = feed === "binance" ? "Binance public market data over WebSocket (no key)."
       : `CNBC's quote and chart service (unofficial, no key), polled every 15 s${r.us && FH.key() ? "; Finnhub trade ticks with your key on intraday intervals" : r.us ? "; add a free Finnhub key (⚙) for tick-by-tick updates" : ""}. Bars include pre- and post-market sessions where available.`;
-    return `${src} Indicators are computed in your browser with TradingView's formulas and stay as you set them. Drawings are saved per symbol in this browser.
+    return `${src} Indicators are computed in your browser with TradingView's formulas and stay as you set them ${mq("live-studies")}. Drawings are saved per symbol in this browser.
       Charting by <a href="https://www.tradingview.com/lightweight-charts/" target="_blank" rel="noopener">TradingView Lightweight Charts</a>. Research only, not investment advice.`;
   }
   function setStatus(kind, text) {

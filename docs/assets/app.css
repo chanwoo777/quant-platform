@@ -478,3 +478,16 @@ table.corr tbody th { background: var(--bg-soft); position: sticky; left: 0; }
 .toast { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: 10px; background: var(--surface); color: var(--text);
   border: 1px solid var(--accent); box-shadow: var(--shadow); font-size: 0.9rem; }
 .toast button { margin-left: auto; background: none; border: none; color: var(--text-faint); cursor: pointer; }
+/* methodology */
+.m-toc { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px 20px; margin: 16px 0 8px; font-size: 0.86rem; }
+.m-toc div { display: flex; flex-direction: column; gap: 3px; }
+.m-toc b { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-soft); margin-bottom: 2px; }
+.m-entry { margin: 12px 0; scroll-margin-top: 70px; max-width: 980px; }
+.m-entry > p { color: var(--text-soft); margin: 0 0 8px; }
+.m-entry.m-target { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.m-formula { overflow-x: auto; padding: 10px 12px; margin: 8px 0 10px; background: var(--code-bg); border-radius: 8px; font-size: 1.05rem; }
+.m-formula math { font-family: "Cambria Math", "STIX Two Math", "Latin Modern Math", serif; }
+.m-entry dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; font-size: 0.86rem; }
+.m-entry dt { color: var(--text-faint); }
+.m-entry dd { margin: 0; color: var(--text-soft); }
+@media (max-width: 560px) { .m-entry dl { grid-template-columns: 1fr; } .m-entry dd { margin-bottom: 6px; } }
