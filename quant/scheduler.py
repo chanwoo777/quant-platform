@@ -69,8 +69,23 @@ def daily_cycle(sizing: str = "vol_parity", universe: bool = True, publish_site:
             log.info("  %s %g %s @ %.2f [%s] %s", f.side, f.shares, f.ticker, f.price, f.reason, f.rationale)
     if universe:
         universe_refresh()
+    catch_up_daily([*deep, *settings.indices])
     if publish_site:
         site_publish()
+
+
+def catch_up_daily(tickers: list[str]) -> None:
+    """Fetch the deep-tier daily bars once more just before publishing. Yahoo can post a stock's daily bar
+    later than its index's (on 29 October the 28th was there for ^GSPC but not for AAPL at 21:30 New York), and
+    the universe refresh in between takes ~40 minutes, so this second look usually finds it. Idempotent."""
+    try:
+        from quant.ingestion.market_data import update_daily
+
+        with session_scope(init_db()) as session:
+            rows = sum(update_daily(session, t, get_settings().daily_history_period) for t in dict.fromkeys(tickers))
+        log.info("deep-tier daily bars re-checked before publishing: %d rows", rows)
+    except Exception:
+        log.exception("deep-tier daily catch-up failed")
 
 
 def universe_refresh() -> None:

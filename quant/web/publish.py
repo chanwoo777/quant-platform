@@ -70,10 +70,13 @@ CALCULATION_TESTS = ("tests/test_calculations.py", "tests/test_research_js.py", 
 
 
 def check_calculations(repo: Path = ROOT) -> None:
-    """Run the calculation tests; raise (and publish nothing) if any fails."""
+    """Run the calculation tests; raise (and publish nothing) if any fails.
+
+    stdin is /dev/null: the scheduled task runs under pythonw, which has no console handles, and the Node.js
+    tests' subprocesses failed to inherit them (OSError WinError 50), which blocked the 29 October publish."""
     flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
     done = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", *CALCULATION_TESTS], cwd=repo,
-                          capture_output=True, text=True, encoding="utf-8", errors="replace", creationflags=flags)
+                          stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding="utf-8", errors="replace", creationflags=flags)
     summary = (done.stdout.strip().splitlines() or ["no output"])[-1]
     if done.returncode:
         raise RuntimeError(f"calculation tests failed, so the site was not published: {summary}\n{done.stdout[-3000:]}")
