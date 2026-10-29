@@ -133,7 +133,13 @@ document.addEventListener("click", (e) => {
   if (box) box.innerHTML = '<span class="loading-inline">Trying again…</span>';
   retries.get(b.dataset.retry)();
 });
-const link = (url, text = "Open", data = false) => (url ? `<a href="${esc(url)}" target="_blank" rel="noopener"${data ? ' translate="no"' : ""}>${esc(text)}</a>` : "–");
+/** http(s) URLs only: a feed's javascript:, data: or relative link becomes null. */
+const safeUrl = (url) => { try { const u = new URL(String(url)); return u.protocol === "https:" || u.protocol === "http:" ? u.href : null; } catch (e) { return null; } };
+const link = (url, text = "Open", data = false) => {
+  const href = url ? safeUrl(url) : null;
+  if (!href) return url && text !== "Open" ? `<span${data ? ' translate="no"' : ""}>${esc(text)}</span>` : "–";
+  return `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer"${data ? ' translate="no"' : ""}>${esc(text)}</a>`;
+};
 /** Data shown as is in every language (company names, headlines): the page translator skips it. */
 const raw = (s) => `<span translate="no">${esc(s ?? "")}</span>`;
 const routeLink = (route, sym, text) => `<a href="#/${route}/${encodeURIComponent(sym)}">${text ?? `<b>${esc(sym)}</b>`}</a>`;
@@ -563,13 +569,14 @@ async function watchPanel(el) {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
     try {
+      if (file.size > Util.WATCH_BYTES) throw new Error("the file is larger than 100 KB");
       const { list: incoming, skipped } = Util.parseWatchlist(await file.text());
       const before = (await watchlist()).length;
       setWatchlist([...(await watchlist()), ...incoming]);
       const added = watchCache.length - before;
       document.querySelectorAll("[data-watch-panel]").forEach((p) => watchPanel(p));
       setTimeout(() => document.querySelectorAll(".wl-msg").forEach((m) => { m.textContent = `Imported: ${added} added, ${incoming.length - added} already there${skipped ? `, ${skipped} skipped` : ""}.`; }), 50);
-    } catch (err) { msg(`Couldn't import ${file.name}: ${err.message}.`); }
+    } catch (err) { msg(`Couldn't import the file: ${err.message}.`); e.target.value = ""; }
   });
 }
 
@@ -592,7 +599,7 @@ function bindBasket(sec, p, B, { min, max, weights = false, minBars = 130, onCha
       msg(""); draw(); onChange();
     }));
     sec.querySelectorAll(`#${p}-chips .q-w`).forEach((inp) => inp.addEventListener("change", () => {
-      B.w[Number(inp.dataset.i)] = Math.max(0, Number(inp.value) || 0) / 100;
+      B.w[Number(inp.dataset.i)] = Math.min(100, Math.max(0, Number(inp.value) || 0)) / 100;
       msg(Math.abs(B.w.reduce((t, x) => t + x, 0) - 1) > 1e-6 ? "Weights are scaled to add up to 100%." : ""); onChange();
     }));
     const eq = $(`#${p}-eq`, sec);
@@ -661,7 +668,14 @@ function bindSearch(root, onPick) {
   input.addEventListener("keydown", (e) => {
     if (e.key === "ArrowDown" && items.length) { active = (active + 1) % items.length; draw(); e.preventDefault(); }
     else if (e.key === "ArrowUp" && items.length) { active = (active - 1 + items.length) % items.length; draw(); e.preventDefault(); }
-    else if (e.key === "Enter") { e.preventDefault(); const q = input.value.trim(); if (q) pick(items[active] ? items[active][0] : q.toUpperCase()); }
+    else if (e.key === "Enter") {
+      e.preventDefault();
+      const q = input.value.trim();
+      if (!q) return;
+      if (items[active]) pick(items[active][0]);
+      else if (Util.isTicker(q)) pick(q.toUpperCase());
+      else { box.innerHTML = '<div class="none">Not a valid ticker: use letters, digits and . ^ = - only.</div>'; box.hidden = false; }
+    }
     else if (e.key === "Escape") close();
   });
   box.addEventListener("mousedown", (e) => { const o = e.target.closest(".opt"); if (o) { e.preventDefault(); pick(items[Number(o.dataset.i)][0]); } });
@@ -778,7 +792,7 @@ async function viewGlobal(view) {
   $("#g-market", view).addEventListener("change", (e) => { G.market = e.target.value; refresh(); });
   $("#g-sector", view).addEventListener("change", (e) => { G.sector = e.target.value; refresh(); });
   $("#g-q", view).addEventListener("input", (e) => { G.q = e.target.value; refresh(); });
-  $("#g-min", view).addEventListener("input", (e) => { G.min = Number(e.target.value) || 0; refresh(); });
+  $("#g-min", view).addEventListener("input", (e) => { G.min = Util.numParam(e.target.value, 0, 0, 100); refresh(); });
   $("#g-cap", view).addEventListener("change", (e) => { G.cap = e.target.value; refresh(); });
   $("#g-unusual", view).addEventListener("change", (e) => { G.unusual = e.target.checked; refresh(); });
   view.querySelectorAll("#g-tabs button").forEach((b) => b.addEventListener("click", () => { G.tab = b.dataset.tab; refresh(); }));
@@ -1840,6 +1854,7 @@ async function render() {
   if (!location.hash.replace(/^#\/?/, "") && !routeFromPath() && !store.get("visited")) { location.replace("#/start"); return; }  // a first visit starts here
   store.set("visited", true);
   const parsed = Util.parseHash(location.hash || routeFromPath()), name = parsed.route || "global", arg = parsed.arg;
+  if (parsed.rejected) toast("Part of this link wasn't valid (only tickers, numbers and the page's own settings are accepted), so it was ignored.");
   if (MOVED[name]) { location.replace(MOVED[name]); return; }
   const route = ROUTES[name] ? name : "global";
   Object.assign(NOW, { route, params: parsed.params });

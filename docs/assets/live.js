@@ -838,7 +838,9 @@
         $("[data-ok]", m).addEventListener("click", () => {
           m.querySelectorAll("[data-k]").forEach((x) => {
             const p = def.params.find((y) => y.key === x.dataset.k);
-            inst.params[p.key] = p.type === "select" || p.type === "date" ? x.value.trim() : Math.min(p.max ?? Infinity, Math.max(p.min ?? -Infinity, Number(x.value)));
+            const v = Number(x.value);  // a blank or non-numeric field keeps the previous value
+            inst.params[p.key] = p.type === "select" || p.type === "date" ? x.value.trim().slice(0, 40)
+              : Number.isFinite(v) && x.value.trim() !== "" ? Math.min(p.max ?? Infinity, Math.max(p.min ?? -Infinity, v)) : inst.params[p.key];
           });
           m.querySelectorAll("[data-c]").forEach((x) => { inst.colors[x.dataset.c] = x.value; });
           saveStudies(); rebuildStudies(); close();
@@ -978,9 +980,11 @@
     $("#al-add", el).addEventListener("click", async () => {
       const s = $("#al-sym", el).value.trim().toUpperCase(), kind = $("#al-kind", el).value, value = Number($("#al-value", el).value);
       if (!s) { msg("Enter a symbol."); return; }
-      if (!(value > 0)) { msg("Enter a positive value."); return; }
+      if (!Util.isTicker(s)) { msg("Not a valid ticker: use letters, digits and . ^ = - only."); return; }
+      if (!(value > 0) || value > 1e9) { msg("Enter a positive value."); return; }
       const r = await resolve(s);
       if (!r.row && r.feed !== "binance") { msg(`${s} isn't in the universe.`); return; }
+      if (alertList().length >= 50) { msg("Up to 50 alerts can be saved; delete one first."); return; }
       const first = !alertList().length;
       saveAlerts([...alertList(), { id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, sym: r.sym, kind, value, state: "armed", created: new Date().toISOString() }]);
       if (first && "Notification" in window && Notification.permission === "default") {

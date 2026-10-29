@@ -780,7 +780,7 @@
     sec.querySelectorAll("#op-days .chip").forEach((b) => b.addEventListener("click", () => { O.days = Number(b.dataset.v); draw(); }));
     sec.querySelectorAll("#op-kind .chip").forEach((b) => b.addEventListener("click", () => { O.kind = b.dataset.v; draw(); }));
     $("#op-n", sec).addEventListener("change", (e) => { O.n = Number(e.target.value); draw(); });
-    $("#op-k", sec).addEventListener("change", (e) => { const k = Number(e.target.value); if (k > 0) { O.strike = k; draw(); } });
+    $("#op-k", sec).addEventListener("change", (e) => { const k = Number(e.target.value); if (k > 0 && k < 1e7) { O.strike = k; draw(); } });
     $("#op-atm", sec).addEventListener("click", () => { O.strike = null; draw(); });
     draw();
   }
@@ -871,7 +871,7 @@
     const fail = (e) => { console.error(e); $("#rk-out", sec).innerHTML = errorBox(e.message, () => compute().catch(fail)); };
     const redraw = bindBasket(sec, "rk", B, { min: 1, max: 10, weights: true, onChange: () => compute().catch(fail) });
     sec.querySelectorAll("#rk-look .chip").forEach((b) => b.addEventListener("click", () => { R.look = Number(b.dataset.v); compute().catch(fail); }));
-    $("#rk-amt", sec).addEventListener("change", (e) => { R.amt = Math.max(1000, Number(e.target.value) || 1e6); compute().catch(fail); });
+    $("#rk-amt", sec).addEventListener("change", (e) => { R.amt = Math.min(1e12, Math.max(1000, Number(e.target.value) || 1e6)); compute().catch(fail); });
     await compute();
   }
   SECTIONS.push({ id: "risk", title: "Stock risk lab: VaR and CVaR", html: risk, init: initRisk });
