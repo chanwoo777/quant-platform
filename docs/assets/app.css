@@ -482,6 +482,7 @@ table.corr tbody th { background: var(--bg-soft); position: sticky; left: 0; }
 .m-toc { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px 20px; margin: 16px 0 8px; font-size: 0.86rem; }
 .m-toc div { display: flex; flex-direction: column; gap: 3px; }
 .m-toc b { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-soft); margin-bottom: 2px; }
+.m-toc a { min-height: 24px; display: flex; align-items: center; }  /* touch targets at least 24px tall */
 .m-entry { margin: 12px 0; scroll-margin-top: 70px; max-width: 980px; }
 .m-entry > p { color: var(--text-soft); margin: 0 0 8px; }
 .m-entry.m-target { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
