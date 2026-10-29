@@ -450,7 +450,10 @@ function plot(el, traces, lay) {
   if (!el.classList.contains("js-plotly-plot")) el.innerHTML = "";  // drop any "Loading…" placeholder
   [traces, lay] = I18N.plotly(traces, lay);  // trace names and axis titles in the visitor's language
   Plotly.react(el, traces, lay, { displaylogo: false, responsive: true, modeBarButtonsToRemove: ["lasso2d", "select2d"] });
-  el.querySelectorAll(".modebar-btn:not([role])").forEach((a) => a.setAttribute("role", "button"));  // toolbar <a>s have no href
+  el.querySelectorAll(".modebar-btn:not([role])").forEach((a) => {  // toolbar <a>s have no href: name them as buttons
+    a.setAttribute("role", "button");
+    a.setAttribute("aria-label", a.getAttribute("data-title") || "Chart tool");
+  });
   el.setAttribute("role", "img");
   el.setAttribute("aria-label", chartSummary(el, traces));
   if (el.parentElement) addDownloads(el.parentElement);  // the CSV button (chart redraws don't reach the panel observer)

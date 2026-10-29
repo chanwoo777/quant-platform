@@ -31,3 +31,14 @@ def test_no_personal_data_in_published_code():
         if p.suffix in {".html", ".js", ".css"}:
             hits += [f"{p.name}: {m.group(0)}" for m in personal.finditer(p.read_text(encoding="utf-8"))]
     assert not hits, hits
+
+
+def test_images_have_alt_text_and_sources_are_credited():
+    for p in DOCS.glob("*.html"):
+        for tag in re.findall(r"<img\b[^>]*>", p.read_text(encoding="utf-8")):
+            assert re.search(r'\balt="[^"]{3,}"', tag), (p.name, tag[:80])
+    for f in (DOCS / "about.html", DOCS / "assets" / "methodology.js"):
+        text = f.read_text(encoding="utf-8")
+        assert "Federal Reserve Bank of St. Louis" in text and "Kenneth R. French Data Library" in text and "CoinGecko" in text, f.name
+    app = (DOCS / "assets" / "app.js").read_text(encoding="utf-8")
+    assert 'a.setAttribute("aria-label", a.getAttribute("data-title")' in app  # chart toolbar buttons have names

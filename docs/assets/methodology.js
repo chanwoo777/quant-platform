@@ -294,6 +294,7 @@
       <p class="soft q-lede">How every score, signal and metric on this site is calculated, written from the code that computes it. Each entry names the
         file and function, its inputs and their source, the window, how often it updates, and what it can't tell you. A <span class="mq">?</span> next to a number
         on the dashboard links here.</p>
+      <p class="caption m-credits">Data credits: FRED® series from the Federal Reserve Bank of St. Louis (fred.stlouisfed.org); Fama-French factors and the risk-free rate from the Kenneth R. French Data Library (Tuck School of Business, Dartmouth); filings from SEC EDGAR; coin data provided by CoinGecko; latest closes and fundamentals from Yahoo Finance; listings from Nasdaq Trader. Each source keeps its own terms; see <a href="privacy.html#sources">the privacy and data sources page</a>.</p>
       <nav class="m-toc" aria-label="Methodology contents">${groups.map((g) => `<div><b>${esc(g)}</b>${E.filter((e) => e[1] === g).map((e) =>
         `<a href="#/methodology/${e[0]}">${esc(e[2])}</a>`).join("")}</div>`).join("")}</nav>
       ${groups.map((g) => `<h2>${esc(g)}</h2>${E.filter((e) => e[1] === g).map(([id, , title, what, formula, inputs, windowText, updated, limits, code]) => `
