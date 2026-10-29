@@ -6,7 +6,15 @@ __pycache__/
 data/*
 !data/.gitkeep
 
-# local secrets and logs
+# local secrets and logs: keys live in .env (ignored) or GitHub Actions secrets, never in the tree
 .streamlit/secrets.toml
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
 *.log
 .coverage
+
+# local notes and audit reports, never published
+.local/
