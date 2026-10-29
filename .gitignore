@@ -15,6 +15,22 @@ data/*
 *.p12
 *.log
 .coverage
+htmlcov/
+.ruff_cache/
+.mypy_cache/
+node_modules/
+
+# notebooks, OS and editor files, raw API dumps
+.ipynb_checkpoints/
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+*.dump
+raw/
+dumps/
 
 # local notes and audit reports, never published
 .local/
