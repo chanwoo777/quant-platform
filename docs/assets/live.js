@@ -956,7 +956,7 @@
     if (sym) el.dataset.sym = sym;
     const list = alertList(), when = (iso) => new Date(iso).toLocaleString();
     el.innerHTML = `
-      <h3>Price alerts ${typeof mq === "function" ? mq("alerts") : ""}</h3>
+      <h2 class="h3">Price alerts ${typeof mq === "function" ? mq("alerts") : ""}</h2>
       <p class="caption">Alerts work only while this tab is open. No data leaves your browser: alerts are saved in it, and checking them only asks
         CNBC or Binance for the symbols' prices, as the Live chart does. Checked every ${ALERT_EVERY / 1000} s${A.checked ? `; last check ${esc(A.checked.toLocaleTimeString())}` : ""}${A.error ? ` (${esc(A.error)})` : ""}.</p>
       <div class="pc-alert-form">

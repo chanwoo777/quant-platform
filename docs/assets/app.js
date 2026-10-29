@@ -174,7 +174,7 @@ function fresh(...parts) {
   const tip = infos.map((i) => `${tr(i.label)}${i.provider && i.provider !== i.label ? ` · ${tr(i.provider)}` : ""}: ${i.asOf
     ? tr(`as of ${i.asOf}, ${i.age} ${i.calendar ? "days" : "weekdays"} old (expected ≤ ${i.expect})`) : tr("no data")} · ${tr(STATE_TEXT[i.state])}${i.error ? ` · ${tr(i.error)}` : ""}`).join("\n");
   // Translated here, so the page translator leaves the badge alone (translate="no"); data-src stays English for CSV headers.
-  return ` <a class="fresh ${state}" href="#/status" translate="no" data-src="${esc(src)}" data-asof="${esc(oldest || "")}" title="${esc(tip + "\n" + tr("Data status →"))}"><i></i>${esc(names)} · ${oldest ? esc(I18N.localToken(oldest)) : esc(tr("missing"))}</a>`;
+  return ` <a class="fresh ${state}" href="#/status" translate="no" data-src="${esc(src)}" data-asof="${esc(oldest || "")}" title="${esc(tip + "\n" + tr("Data status →"))}"><i aria-hidden="true">${{ green: "✓", amber: "!", red: "✕" }[state]}</i><span class="sr-only">${esc(tr(STATE_TEXT[state]))}: </span>${esc(names)} · ${oldest ? esc(I18N.localToken(oldest)) : esc(tr("missing"))}</a>`;
 }
 // Each route's default source, given to any panel heading the view didn't label itself (null: no data panels).
 const PAGE_SOURCES = { global: ["scores"], markets: ["deep-prices"], stock: ["scores"], financials: ["yahoo-fundamentals"], compare: ["scores"],
@@ -382,7 +382,22 @@ function plot(el, traces, lay) {
   if (!el.classList.contains("js-plotly-plot")) el.innerHTML = "";  // drop any "Loading…" placeholder
   [traces, lay] = I18N.plotly(traces, lay);  // trace names and axis titles in the visitor's language
   Plotly.react(el, traces, lay, { displaylogo: false, responsive: true, modeBarButtonsToRemove: ["lasso2d", "select2d"] });
+  el.setAttribute("role", "img");
+  el.setAttribute("aria-label", chartSummary(el, traces));
   if (el.parentElement) addDownloads(el.parentElement);  // the CSV button (chart redraws don't reach the panel observer)
+}
+/** What a chart shows, in words, for screen readers: each series' span, last value and range. */
+function chartSummary(el, traces) {
+  const head = before(el, "#view h2, #view h3, #view .chart-title, #drawer .chart-title");
+  const fmt = (v) => (Math.abs(v) >= 1000 ? Math.round(v).toLocaleString("en-US") : Number(v.toPrecision(4)).toString());
+  const parts = (traces || []).slice(0, 8).map((t) => {
+    const ys = (Array.isArray(t.y) && t.y.some((v) => typeof v === "number") ? t.y : t.close || t.x || []).filter(ok);
+    if (!ys.length) return null;
+    const xs = Array.isArray(t.x) ? t.x : [], dated = typeof xs[0] === "string" && /^\d{4}-\d{2}-\d{2}/.test(xs[0]);
+    const span = dated ? tr(`${ys.length} points from ${xs[0].slice(0, 10)} to ${String(xs[xs.length - 1]).slice(0, 10)}`) : tr(`${ys.length} points`);
+    return `${tr(t.name || "series")}: ${span}; ${tr(`last ${fmt(ys[ys.length - 1])}, range ${fmt(Math.min(...ys))} to ${fmt(Math.max(...ys))}`)}`;
+  }).filter(Boolean);
+  return `${head ? cellText(head) + ". " : ""}${tr("Chart")}: ${parts.join(". ")}. ${tr("The CSV button above has every value.")}`;
 }
 function missingWeekdays(dates) {
   // Plotly rangebreaks for holidays: weekdays between the first and last bar with no bar.
@@ -507,7 +522,7 @@ async function watchPanel(el) {
   const route = el.dataset.watchPanel || "stock", list = await watchlist();
   const rows = await Promise.all(list.map(async (s) => (await rowFor(s).catch(() => null)) || { s }));
   el.innerHTML = `<div class="card wl-panel">
-      <div class="wl-head"><h3>Your watchlist ★</h3><span class="caption">${list.length} name${list.length === 1 ? "" : "s"}, saved in this browser</span>
+      <div class="wl-head"><h2 class="h3">Your watchlist ★</h2><span class="caption">${list.length} name${list.length === 1 ? "" : "s"}, saved in this browser</span>
         <span class="wl-actions"><button type="button" class="btn q-small" data-wl="export">Export JSON</button>
         <label class="btn q-small">Import JSON<input type="file" accept="application/json,.json" data-wl="import" hidden></label></span></div>
       <div class="wl-chips">${rows.length ? rows.map((r) => `<span class="wl-chip">${starBtn(r.s)}<a href="#/${route}/${encodeURIComponent(r.s)}"><b>${esc(r.s)}</b></a>
@@ -760,7 +775,7 @@ function drawBrief(el, doc) {
   el.innerHTML = `<div class="card brief">
     <div class="brief-head"><h2>Daily brief · ${esc(pick.date)}${fresh({ provider: "Nightly brief", label: "Daily brief", asOf: latest ? pick.date : doc.briefs[0].date })}</h2>
       <label class="brief-pick">Archive <select id="brief-date">${doc.briefs.map((b) => `<option value="${esc(b.date)}"${b === pick ? " selected" : ""}>${esc(b.date)}${b === doc.briefs[0] ? " (latest)" : ""}</option>`).join("")}</select></label></div>
-    ${latest ? "" : `<p class="note">An archived brief, written on the night of ${esc(pick.date)}. <a href="#" id="brief-latest">Back to the latest</a></p>`}
+    ${latest ? "" : `<p class="note">An archived brief, written on the night of ${esc(pick.date)}. <button type="button" class="linklike" id="brief-latest">Back to the latest</button></p>`}
     <ul class="brief-list" translate="no">${pick.items.map((it) => `<li data-kind="${esc(it.kind)}">${esc(I18N.lang === "ko" && it.ko ? it.ko : it.en)}</li>`).join("")}</ul>
     <p class="caption">Written by rules from the nightly data, not by AI: the largest moves among stocks worth $10B or more, the best and worst sector (cap-weighted),
       factor ETFs against SPY, the VIX and Treasury yields. Prices as of the close of ${esc(pick.date)}. ${SIGNAL_NOTE}</p></div>`;
@@ -906,7 +921,13 @@ function drawGlobal() {
       "ret_1d", "ret_1m", "ret_ytd", "mom_12_1", "fwd_pe", "mkt_cap_usd_bn", "unusual", "data_checks", "why"],
     rows: list.map((r) => [r.s, r.n, CLASS_NAME[r.a] || r.a, r.m, r.sec, r.sig, r.sc, r.t, r.mo, r.v, r.q, r.r, r.an, r.r1d, r.r1m, r.ytd, r.m121, r.fpe, r.cap,
       r.u ? 1 : 0, r.dq || "", r.why]) }));
-  body.querySelectorAll("tr.clickable").forEach((tr) => tr.addEventListener("click", () => openDetail(pageRows[Number(tr.dataset.i)])));
+  body.querySelectorAll("tr.clickable").forEach((tr) => {
+    const open = () => openDetail(pageRows[Number(tr.dataset.i)]);
+    tr.tabIndex = 0;
+    tr.setAttribute("aria-label", `${pageRows[Number(tr.dataset.i)].s}: ${tr.textContent.replace(/\s+/g, " ").slice(0, 80)}`);
+    tr.addEventListener("click", open);
+    tr.addEventListener("keydown", (e) => { if ((e.key === "Enter" || e.key === " ") && e.target === tr) { e.preventDefault(); open(); } });
+  });
   const prev = $("#g-prev", body), next = $("#g-next", body);
   if (prev) prev.addEventListener("click", () => { G.page--; drawGlobal(); body.scrollIntoView({ block: "start" }); });
   if (next) next.addEventListener("click", () => { G.page++; drawGlobal(); body.scrollIntoView({ block: "start" }); });
@@ -1091,7 +1112,7 @@ async function viewMarkets(view) {
         ${kpi("Stance", esc(reg.stance), `<span class="badge ${stanceClass}">${esc(reg.stance)} · as of ${esc(reg.as_of)}</span>`, "From the 0-1 risk score: trend, volatility, credit, labour, curve, inflation", "stance")}
         ${kpi("Risk score", num(reg.risk_score, 2), "0 = benign · 1 = stressed", "Risk-On < 0.33, Risk-Off > 0.6", "risk-score")}
       </div></div>
-      <div class="card"><h3>Why${fresh("deep-prices", "fred")}</h3><ul class="reasons">${(reg.reasons || []).map((r) => `<li>${esc(r)}</li>`).join("")}</ul></div>
+      <div class="card"><h2 class="h3">Why${fresh("deep-prices", "fred")}</h2><ul class="reasons">${(reg.reasons || []).map((r) => `<li>${esc(r)}</li>`).join("")}</ul></div>
     </div>
     <h2>Your watchlist${fresh("scores", "yahoo-prices")}</h2>
     <div class="controls" style="margin-top:0">

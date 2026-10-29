@@ -306,7 +306,7 @@ async function drawCorrelationPanel(el, syms) {
     </div>
     <div class="table-wrap corr-wrap"><table class="corr"><thead><tr><th></th>${order.map((j) => `<th>${esc(names[j])}</th>`).join("")}</tr></thead>
       <tbody>${order.map((i) => `<tr><th>${esc(names[i])}</th>${order.map((j) => `<td style="background:${color(C[i][j])}"
-        title="${esc(names[i])} vs ${esc(names[j])}: ${C[i][j].toFixed(3)} over ${n} ${weekly ? "weeks" : "days"}">${C[i][j].toFixed(2)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>
+        title="${esc(names[i])} vs ${esc(names[j])}: ${C[i][j].toFixed(3)} over ${n} ${weekly ? "weeks" : "days"}">${i === j ? "1.00" : num(C[i][j], 2, true)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>
     <p class="caption">Pearson correlation of ${weekly ? "weekly" : "daily"} returns on the ${n} ${weekly ? "weeks" : "trading days"} all ${names.length} share,
       ${esc(al.dates[i0 + 1] || "")} to ${esc(end)}. Blue: move together; red: move opposite. ${CORR.order === "cluster" ? "Clustered: average linkage on 1 − correlation, so similar assets sit together." : ""}
       Prices: CNBC (Binance for coins), loaded in your browser.${missing.length ? ` No prices for ${esc(missing.join(", "))}.` : ""}</p>`;
