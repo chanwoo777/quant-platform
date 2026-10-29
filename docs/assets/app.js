@@ -822,7 +822,18 @@ const SCREEN_COLS = [
 ];
 
 // --- sector heatmap (Global, "Sector heatmap" tab) -----------------------------------------------
-const GS = { sector: null };
+const GS = { sector: null, view: null };  // view: "map" or "list"; unset = list on narrow screens, map otherwise
+const narrow = () => window.matchMedia("(max-width: 640px)").matches;
+/** A ranked list in place of a heatmap: what phones show, and a table for screen readers everywhere. */
+function moveList(items, scale) {
+  const sorted = [...items].sort((a, b) => (ok(b.change) ? b.change : -Infinity) - (ok(a.change) ? a.change : -Infinity));
+  return `<ol class="move-list">${sorted.map((t) => {
+    const w = ok(t.change) ? Math.min(100, (100 * Math.abs(t.change)) / scale) : 0;
+    return `<li><button type="button" class="move-row" data-i="${t.i}"><span class="ml-name"><b>${esc(t.label)}</b>${t.sub ? `<em>${esc(t.sub)}</em>` : ""}</span>
+      <span class="ml-bar ${ok(t.change) && t.change < 0 ? "dn" : "up"}" aria-hidden="true"><i style="width:${w}%"></i></span>
+      <span class="ml-val ${tone(t.change)}">${ok(t.change) ? pct(t.change, 2) : "n/a"}</span></button></li>`;
+  }).join("")}</ol>`;
+}
 function moveColor(x, scale) {
   if (!ok(x)) return { bg: "var(--bg-soft)", fg: "var(--text-faint)" };
   const a = 0.15 + 0.75 * Math.min(1, Math.abs(x) / scale);
@@ -849,7 +860,8 @@ function drawSectorMap(body, rows) {
     scale = 0.05;
     crumb = `<button type="button" class="btn q-small" id="sm-back">← All sectors</button> <b>${esc(GS.sector)}</b> · ${members.length.toLocaleString()} stocks${members.length > shown.length ? `, the largest ${shown.length} shown` : ""}. Click a stock for its details.`;
   }
-  const rects = Q.squarify(tiles.map((t) => t.size), 0, 0, W, H);
+  const mode = GS.view || (narrow() ? "list" : "map");
+  const rects = mode === "map" ? Q.squarify(tiles.map((t) => t.size), 0, 0, W, H) : [];
   setTimeout(() => csvFor($(".sm-map", body), () => ({ cols: ["tile", "detail", "size", "change_1d"], rows: tiles.map((t) => [t.label, t.sub, t.size, t.change]) })));
   const cell = (r) => {
     const t = tiles[r.i], col = moveColor(t.change, scale), area = r.w * r.h;
@@ -861,11 +873,15 @@ function drawSectorMap(body, rows) {
     <div class="sm-asof">Latest nightly close: prices as of <b>${esc(G.asOf.prices)}</b>, scored ${esc(G.asOf.scored.slice(0, 16).replace("T", " "))} UTC.
       This is not live intraday data. ${mq("sector-map")}${fresh("scores", "yahoo-prices")}</div>
     <div class="sm-crumb">${crumb}</div>
-    <div class="sm-map" style="height:${H}px">${rects.map(cell).join("")}</div>
-    <div class="sm-legend"><span>${pct(-scale, 0)}</span><span class="sm-scale"></span><span>${pct(scale, 0)}</span><span class="sm-na">n/a</span></div>
-    <p class="caption">Tile size: market cap in US dollars; colour: the 1-day close-to-close change (sector tiles: cap-weighted average). Sector: the sector field
+    <div class="chips sm-view" role="group" aria-label="Show as">${[["map", "Map"], ["list", "List"]].map(([v, l]) =>
+      `<button type="button" class="chip${v === mode ? " on" : ""}" data-smv="${v}" aria-pressed="${v === mode}">${l}</button>`).join("")}</div>
+    ${mode === "list" ? moveList(tiles.map((t, i) => Object.assign({ i }, t)), scale)
+    : `<div class="sm-map" style="height:${H}px">${rects.map(cell).join("")}</div>
+    <div class="sm-legend"><span>${pct(-scale, 0)}</span><span class="sm-scale"></span><span>${pct(scale, 0)}</span><span class="sm-na">n/a</span></div>`}
+    <p class="caption">${mode === "list" ? "Ranked by the 1-day close-to-close change (sectors: cap-weighted average); the bar's length is the size of the move." : "Tile size: market cap in US dollars; colour: the 1-day close-to-close change (sector tiles: cap-weighted average)."} Sector: the sector field
       from Yahoo Finance in the nightly export. Stocks only; the filters above apply. Grey tiles have no 1-day change in the export.</p>`;
-  body.querySelectorAll(".sm-tile").forEach((b) => b.addEventListener("click", () => {
+  body.querySelectorAll("[data-smv]").forEach((b) => b.addEventListener("click", () => { GS.view = b.dataset.smv; drawGlobal(); }));
+  body.querySelectorAll(".sm-tile, .move-row").forEach((b) => b.addEventListener("click", () => {
     const t = tiles[Number(b.dataset.i)];
     if (t.sector) { GS.sector = t.sector; drawGlobal(); } else if (t.row) openDetail(t.row);
   }));

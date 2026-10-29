@@ -594,3 +594,31 @@ p a:not(.btn):not(.fresh):not(.mq), li a:not(.btn):not(.fresh):not(.mq), .captio
 .chip { min-height: 28px; }
 .mq { margin: 0 2px 0 4px; }
 
+/* --- phones: heatmaps become ranked lists; nothing wider than the screen --------------------- */
+.sm-view { margin: 8px 0; }
+.move-list { list-style: none; padding: 0; margin: 8px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.move-list li { border-bottom: 1px solid var(--border); }
+.move-list li:last-child { border-bottom: 0; }
+.move-row, .corr-list li { display: grid; grid-template-columns: minmax(0, 1fr) 30% auto; gap: 10px; align-items: center; width: 100%;
+  padding: 8px 12px; background: none; border: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.ml-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ml-name em { display: block; font-style: normal; font-size: 0.78rem; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; }
+.ml-bar { height: 8px; background: var(--bg-soft); border-radius: 4px; overflow: hidden; }
+.ml-bar i { display: block; height: 100%; }
+.ml-bar.up i { background: #2a78d6; } .ml-bar.dn i { background: #e34948; margin-left: auto; }
+.ml-val { font-variant-numeric: tabular-nums; text-align: right; min-width: 4.5em; }
+html, body { max-width: 100%; overflow-x: hidden; }
+@media (max-width: 640px) {
+  .wrap { padding-left: 12px; padding-right: 12px; }
+  header.top .bar { gap: 8px; }
+  .icon-btn.lang-btn { padding: 0 6px; }
+  .controls .control { min-width: 0; flex: 1 1 140px; }
+  .controls select, .controls input[type="search"], .controls input[type="number"] { width: 100%; }
+  h1 { font-size: 1.45rem; }
+  .pc-toolbar { flex-wrap: wrap; }
+}
+@media (max-width: 400px) { .hsearch { width: 96px; } #share { display: none; } }
+.grid > * { min-width: 0; }  /* a wide table scrolls inside its column instead of stretching the grid */
+.subtabs { overflow-x: auto; scrollbar-width: thin; white-space: nowrap; }
+.tile .spark svg { width: 100%; height: auto; }
+math[display="block"] { display: block; max-width: 100%; overflow-x: auto; overflow-y: hidden; padding-bottom: 4px; }

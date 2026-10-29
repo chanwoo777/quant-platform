@@ -297,6 +297,9 @@ async function drawCorrelationPanel(el, syms) {
   const names = have.map(([s]) => s), C = Q.correlationMatrix(cols);
   const order = CORR.order === "cluster" ? Q.clusterOrder(C) : names.map((_, i) => i).sort((a, b) => names[a].localeCompare(names[b]));
   const st = Q.pairStats(C, names);
+  st.pairsList = [];
+  for (let i = 0; i < names.length; i++) for (let j = i + 1; j < names.length; j++) st.pairsList.push({ a: names[i], b: names[j], rho: C[i][j] });
+  st.pairsList.sort((x, y) => y.rho - x.rho);
   const color = (r) => (r >= 0 ? `rgba(42,120,214,${(0.12 + 0.68 * r).toFixed(3)})` : `rgba(227,73,72,${(0.12 + 0.68 * -r).toFixed(3)})`);
   body.innerHTML = `
     <div class="grid g3 corr-kpis">
@@ -304,7 +307,10 @@ async function drawCorrelationPanel(el, syms) {
       ${kpi("Most correlated", `${esc(st.most.a)} · ${esc(st.most.b)}`, num(st.most.rho, 2))}
       ${kpi("Least correlated", `${esc(st.least.a)} · ${esc(st.least.b)}`, num(st.least.rho, 2))}
     </div>
-    <div class="table-wrap corr-wrap"><table class="corr"><thead><tr><th></th>${order.map((j) => `<th>${esc(names[j])}</th>`).join("")}</tr></thead>
+    ${narrow() ? `<ol class="move-list corr-list">${st.pairsList.map((p) => `<li><span class="ml-name"><b>${esc(p.a)} · ${esc(p.b)}</b></span>
+      <span class="ml-bar ${p.rho < 0 ? "dn" : "up"}" aria-hidden="true"><i style="width:${Math.abs(p.rho) * 100}%"></i></span><span class="ml-val">${num(p.rho, 2, true)}</span></li>`).join("")}</ol>
+      <p class="caption">Every pair, most correlated first. A wider screen shows the matrix.</p>` : ""}
+    <div class="table-wrap corr-wrap${narrow() ? " sr-only" : ""}"><table class="corr"><thead><tr><th></th>${order.map((j) => `<th>${esc(names[j])}</th>`).join("")}</tr></thead>
       <tbody>${order.map((i) => `<tr><th>${esc(names[i])}</th>${order.map((j) => `<td style="background:${color(C[i][j])}"
         title="${esc(names[i])} vs ${esc(names[j])}: ${C[i][j].toFixed(3)} over ${n} ${weekly ? "weeks" : "days"}">${i === j ? "1.00" : num(C[i][j], 2, true)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>
     <p class="caption">Pearson correlation of ${weekly ? "weekly" : "daily"} returns on the ${n} ${weekly ? "weeks" : "trading days"} all ${names.length} share,
