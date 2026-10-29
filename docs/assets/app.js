@@ -9,7 +9,9 @@
 
 // --- data -----------------------------------------------------------------------------------------
 const cache = new Map();
-const fetchJson = (url, path, opts) => fetch(url, opts).then((r) => {
+/** An abort signal for a request timeout (undefined on browsers without AbortSignal.timeout). */
+const timeoutSignal = (ms) => (window.AbortSignal && AbortSignal.timeout ? AbortSignal.timeout(ms) : undefined);
+const fetchJson = (url, path, opts) => fetch(url, Object.assign({ signal: timeoutSignal(30000) }, opts)).then((r) => {
   if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
   return r.json();
 });
@@ -712,7 +714,7 @@ const FH = {
   async get(path, params = {}) {
     const key = FH.key();
     if (!key) throw new Error("No Finnhub key: add one in ⚙ settings");
-    const r = await fetch(`https://finnhub.io/api/v1/${path}?${new URLSearchParams(Object.assign({}, params, { token: key }))}`);
+    const r = await fetch(`https://finnhub.io/api/v1/${path}?${new URLSearchParams(Object.assign({}, params, { token: key }))}`, { signal: timeoutSignal(15000) });
     if (r.status === 401 || r.status === 403) throw new Error("Finnhub refused the request (invalid key, or this data needs a paid plan)");
     if (r.status === 429) throw new Error("Finnhub rate limit reached (60 calls a minute on the free plan); try again shortly");
     if (!r.ok) throw new Error(`Finnhub HTTP ${r.status}`);

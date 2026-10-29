@@ -103,7 +103,7 @@
   }
 
   async function getJSON(url) {
-    const r = await fetch(url);
+    const r = await fetch(url, { signal: timeoutSignal(15000) });  // a stalled request fails after 15 s and is retried with back-off
     if (r.status === 403 || r.status === 429) { const e = new Error("throttled"); e.throttled = true; throw e; }
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return r.json();
@@ -127,7 +127,7 @@
   const FEEDS = {
     async history(r, iv) {
       if (r.feed === "binance") {
-        const res = await fetch(`${BINANCE_REST}/klines?symbol=${r.pair}&interval=${iv}&limit=1000`);
+        const res = await fetch(`${BINANCE_REST}/klines?symbol=${r.pair}&interval=${iv}&limit=1000`, { signal: timeoutSignal(15000) });
         if (res.status === 400) throw new Error(`Binance has no ${r.pair} pair`);
         if (!res.ok) throw new Error(`Binance HTTP ${res.status}`);
         return (await res.json()).map((k) => ({ t: Math.floor(k[0] / 1000), open: +k[1], high: +k[2], low: +k[3], close: +k[4], volume: +k[5] }));
@@ -874,7 +874,9 @@
   // ==============================================================================================
   const ALERT_KEY = "alerts", ALERT_EVERY = 15000;
   const ALERT_KINDS = { above: "Price at or above", below: "Price at or below", up: "Up from previous close by at least (%)", down: "Down from previous close by at least (%)" };
-  const A = { timer: null, quotes: {}, checked: null, error: "", panel: null };
+  // Alert checks: every 15 s while the tab is visible, paused while it is hidden (and run again on return),
+  // backing off exponentially to 5 minutes while the quote source fails.
+  const A = { on: false, busy: false, timer: null, wait: ALERT_EVERY, quotes: {}, checked: null, error: "", panel: null };
   const alertList = () => { const l = store.get(ALERT_KEY, []); return Array.isArray(l) ? l : []; };
   const saveAlerts = (l) => store.set(ALERT_KEY, l);  // store wraps localStorage in try/catch
 
@@ -931,8 +933,12 @@
     if (!armed.length) { stopAlerts(); renderAlerts(); return; }
     try {
       Object.assign(A.quotes, await fetchQuotes([...new Set(armed.map((a) => a.sym))]));
-      A.error = "";
-    } catch (e) { A.error = e.throttled ? "CNBC is throttling requests; retrying" : e.message; }
+      A.error = ""; A.wait = ALERT_EVERY;
+    } catch (e) {
+      console.warn("alert quotes", e);
+      A.wait = Math.min(A.wait * 2, 300000);
+      A.error = e.throttled ? "CNBC is throttling requests; retrying" : "Prices are unavailable right now; retrying";
+    }
     A.checked = new Date();
     let changed = false;
     for (const a of armed) {
@@ -949,11 +955,19 @@
     if (changed && !current.some((a) => a.state === "armed")) stopAlerts();
   }
   function startAlerts() {
-    if (A.timer || !alertList().some((a) => a.state === "armed")) return;
-    A.timer = setInterval(checkAlerts, ALERT_EVERY);
-    checkAlerts();
+    if (A.on || !alertList().some((a) => a.state === "armed")) return;
+    A.on = true; A.wait = ALERT_EVERY;
+    runAlerts();
   }
-  function stopAlerts() { clearInterval(A.timer); A.timer = null; }
+  async function runAlerts() {
+    clearTimeout(A.timer); A.timer = null;
+    if (!A.on || A.busy || document.hidden) return;  // hidden: visibilitychange resumes it
+    A.busy = true;
+    try { await checkAlerts(); } finally { A.busy = false; }
+    if (A.on && !document.hidden) A.timer = setTimeout(runAlerts, A.wait);
+  }
+  function stopAlerts() { A.on = false; clearTimeout(A.timer); A.timer = null; }
+  document.addEventListener("visibilitychange", () => { if (document.hidden) { clearTimeout(A.timer); A.timer = null; } else if (A.on) runAlerts(); });
 
   /** The alert list and form, drawn into `el` (the Live page's panel). */
   function renderAlerts(el = A.panel, sym = el && el.dataset.sym) {
@@ -963,7 +977,7 @@
     const list = alertList(), when = (iso) => new Date(iso).toLocaleString();
     el.innerHTML = `
       <h2 class="h3">Price alerts ${typeof mq === "function" ? mq("alerts") : ""}</h2>
-      <p class="caption">Alerts work only while this tab is open. No data leaves your browser: alerts are saved in it, and checking them only asks
+      <p class="caption">Alerts are checked only while this tab is open and visible. No data leaves your browser: alerts are saved in it, and checking them only asks
         CNBC or Binance for the symbols' prices, as the Live chart does. Checked every ${ALERT_EVERY / 1000} s${A.checked ? `; last check ${esc(A.checked.toLocaleTimeString())}` : ""}${A.error ? ` (${esc(A.error)})` : ""}.</p>
       <div class="pc-alert-form">
         <label>Symbol<input type="text" id="al-sym" value="${esc(el.dataset.sym || "")}" spellcheck="false" autocomplete="off"></label>
@@ -992,13 +1006,13 @@
       if (first && "Notification" in window && Notification.permission === "default") {
         try { await Notification.requestPermission(); } catch (e) { /* older Safari: callback form only; the toast still works */ }
       }
-      if (A.timer) checkAlerts(); else startAlerts();  // check the new alert straight away
+      if (A.on) runAlerts(); else startAlerts();  // check the new alert straight away
       renderAlerts();
     });
     el.querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", () => { saveAlerts(alertList().filter((a) => a.id !== b.dataset.del)); renderAlerts(); }));
     el.querySelectorAll("[data-rearm]").forEach((b) => b.addEventListener("click", () => {
       saveAlerts(alertList().map((a) => (a.id === b.dataset.rearm ? Object.assign(a, { state: "armed", firedAt: null, firedPrice: null, note: "" }) : a)));
-      if (A.timer) checkAlerts(); else startAlerts();
+      if (A.on) runAlerts(); else startAlerts();
       renderAlerts();
     }));
   }
