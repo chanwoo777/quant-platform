@@ -49,10 +49,15 @@ function needScript(src, label, integrity) {
 }
 const need = (...names) => Promise.all(names.map((n) => needScript(`assets/${MODULES[n]}${ASSET_V ? `?v=${ASSET_V}` : ""}`, MODULES[n])));
 const needPlotly = () => (window.Plotly ? Promise.resolve() : needScript(PLOTLY_URL, "The chart library (cdn.jsdelivr.net)", PLOTLY_SRI));
+const NS = (window.QP_STORAGE && QP_STORAGE.NS) || "qp:v1:";  // storage namespace, from boot.js
 const store = {
-  get(k, fallback = null) { try { const v = localStorage.getItem(k); return v === null ? fallback : JSON.parse(v); } catch (e) { return fallback; } },
-  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* private mode: keep in memory only */ } },
-  del(k) { try { localStorage.removeItem(k); } catch (e) { /* ignore */ } },
+  // keys are namespaced "qp:v1:" (boot.js); a value that doesn't parse is dropped and the default used
+  get(k, fallback = null) {
+    try { const v = localStorage.getItem(NS + k); return v === null ? fallback : JSON.parse(v); }
+    catch (e) { try { localStorage.removeItem(NS + k); } catch (e2) { /* blocked */ } return fallback; }
+  },
+  set(k, v) { try { localStorage.setItem(NS + k, JSON.stringify(v)); } catch (e) { /* private mode: keep in memory only */ } },
+  del(k) { try { localStorage.removeItem(NS + k); } catch (e) { /* ignore */ } },
 };
 
 // --- formatting -----------------------------------------------------------------------------------
@@ -131,6 +136,16 @@ function errorBox(message, retry = null) {
   return `<div class="panel-error" role="alert"><span class="pe-icon" aria-hidden="true">!</span><span class="pe-msg">${esc(message)}</span>
     <button type="button" class="btn q-small" data-retry="${id}">Try again</button></div>`;
 }
+document.addEventListener("click", (e) => {  // footer: "Clear my saved data"
+  const b = e.target.closest && e.target.closest("[data-clear-data]");
+  if (!b || !window.QP_STORAGE) return;
+  if (!confirm(tr("Remove your watchlist, alerts, settings and language choice from this browser?"))) return;
+  let n = 0;
+  try { n = QP_STORAGE.clearAll(); } catch (err) { toast("Your browser blocked access to its storage, so there was nothing to clear."); return; }
+  watchCache = null;
+  toast(n ? `Removed ${n} saved items. The page now uses its defaults.` : "Nothing was saved.");
+  setTimeout(() => location.reload(), 1200);
+});
 document.addEventListener("click", (e) => {  // the skip link moves focus to the page, not the URL
   const skip = e.target.closest && e.target.closest("a.skip");
   if (skip) { e.preventDefault(); $("#view").focus(); }
@@ -700,9 +715,9 @@ function bindSearch(root, onPick) {
 // The key is a credential, so by default it lives in sessionStorage and is gone when the tab closes;
 // "Remember on this device" moves it to localStorage. It is only ever sent to finnhub.io.
 const session = {
-  get(k) { try { return sessionStorage.getItem(k); } catch (e) { return null; } },
-  set(k, v) { try { sessionStorage.setItem(k, v); } catch (e) { /* storage blocked: keep nothing */ } },
-  del(k) { try { sessionStorage.removeItem(k); } catch (e) { /* ignore */ } },
+  get(k) { try { return sessionStorage.getItem(NS + k); } catch (e) { return null; } },
+  set(k, v) { try { sessionStorage.setItem(NS + k, v); } catch (e) { /* storage blocked: keep nothing */ } },
+  del(k) { try { sessionStorage.removeItem(NS + k); } catch (e) { /* ignore */ } },
 };
 const FH = {
   key: () => session.get("finnhubKey") || store.get("finnhubKey", ""),
@@ -1810,7 +1825,7 @@ const ROUTES = { global: viewGlobal, markets: viewMarkets, stock: viewStock, fin
   "track-record": async (view, arg) => { await need("trust"); return window.TRUST.trackRecord(view, arg); },
   quantum: async (view, arg) => { await need("research", "quantum"); return window.QUANTUM.view(view, arg); },  // the portfolio lab uses research.js's correlation panel
   live: async (view, arg) => { await need("live"); return window.LIVE.view(view, arg); } };
-const MOVED = { bot: "#/global" };  // retired routes: old links land somewhere useful
+const MOVED = { bot: "#/global", privacy: "privacy.html" };  // retired routes: old links land somewhere useful
 // Each page's title and description (quant/web/export.py writes the same ones into the static entry pages
 // /global/, /markets/, ... that search engines index). {sym} is the ticker or tickers in the address.
 const ROUTE_META = {
@@ -1952,7 +1967,7 @@ async function shell() {
   $("#theme").addEventListener("click", () => {
     const next = isDark() ? "light" : "dark";
     document.documentElement.setAttribute("data-theme", next);
-    try { localStorage.setItem("theme", next); } catch (e) { /* ignore */ }
+    try { localStorage.setItem(NS + "theme", next); } catch (e) { /* ignore */ }
     render();
   });
   window.addEventListener("hashchange", render);

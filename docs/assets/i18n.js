@@ -15,7 +15,8 @@
 (function (root) {
   "use strict";
   const LANGS = { en: "English", ko: "한국어" };
-  const read = () => { try { return localStorage.getItem("lang"); } catch (e) { return null; } };
+  const KEY = "qp:v1:lang";  // namespaced like every key this site saves (boot.js)
+  const read = () => { try { const v = localStorage.getItem(KEY); return v === "ko" || v === "en" ? v : null; } catch (e) { return null; } };
   const browserLang = typeof navigator !== "undefined" ? navigator.language || "" : "";
   const lang = LANGS[read()] ? read() : browserLang.toLowerCase().startsWith("ko") ? "ko" : "en";
   const dict = (root.I18N_DICT = root.I18N_DICT || {});
@@ -174,7 +175,7 @@
     if (btn) {
       btn.textContent = lang === "ko" ? "English" : "한국어";
       btn.setAttribute("aria-label", lang === "ko" ? "Switch to English" : "한국어로 보기");
-      btn.addEventListener("click", () => { try { localStorage.setItem("lang", lang === "ko" ? "en" : "ko"); } catch (e) { /* private mode */ } location.reload(); });
+      btn.addEventListener("click", () => { try { localStorage.setItem(KEY, lang === "ko" ? "en" : "ko"); } catch (e) { /* private mode */ } location.reload(); });
     }
     if (lang === "en") return;
     walk(document.body);

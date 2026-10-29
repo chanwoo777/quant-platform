@@ -9,7 +9,7 @@
     var t = root.getAttribute("data-theme");
     var next = (t ? t === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches) ? "light" : "dark";
     root.setAttribute("data-theme", next);
-    try { localStorage.setItem("theme", next); } catch (e) { /* storage blocked */ }
+    try { localStorage.setItem(window.QP_STORAGE.NS + "theme", next); } catch (e) { /* storage blocked */ }
   });
   // Copy buttons on code blocks (comments are left out).
   document.querySelectorAll(".code").forEach(function (block) {
@@ -24,22 +24,16 @@
       });
     });
   });
-  // Remove only this site's keys: other github.io project sites of the same account share this storage.
-  var clear = document.getElementById("clear");
-  if (clear) clear.addEventListener("click", function () {
-    var KEYS = ["theme", "watchlist", "saved", "ticker", "stockIndicators", "finnhubKey", "liveSymbol", "pc:type", "pc:studies", "pc:legendFolded",
-      "q:opt", "q:risk", "q:pf", "q:circuit", "compare", "alerts"];
-    var PREFIXES = ["pc:interval:", "pc:draw:"];
-    var msg = document.getElementById("clear-msg"), n = 0;
-    try {
-      for (var i = localStorage.length - 1; i >= 0; i--) {
-        var k = localStorage.key(i);
-        if (KEYS.indexOf(k) >= 0 || PREFIXES.some(function (p) { return k.indexOf(p) === 0; })) { localStorage.removeItem(k); n++; }
+  // Remove only this site's keys (boot.js): other github.io project sites of the same account share this storage.
+  document.querySelectorAll("#clear, [data-clear-data]").forEach(function (clear) {
+    clear.addEventListener("click", function () {
+      var msg = document.getElementById("clear-msg") || clear.nextElementSibling;
+      try {
+        var n = window.QP_STORAGE.clearAll();
+        if (msg) msg.textContent = n ? "Removed " + n + " saved item" + (n > 1 ? "s" : "") + "." : "Nothing was saved.";
+      } catch (e) {
+        if (msg) msg.textContent = "Your browser blocked access to its storage, so there was nothing to clear.";
       }
-      if (sessionStorage.getItem("finnhubKey") !== null) { sessionStorage.removeItem("finnhubKey"); n++; }
-      msg.textContent = n ? "Removed " + n + " saved item" + (n > 1 ? "s" : "") + "." : "Nothing was saved.";
-    } catch (e) {
-      msg.textContent = "Your browser blocked access to its storage, so there was nothing to clear.";
-    }
+    });
   });
 })();

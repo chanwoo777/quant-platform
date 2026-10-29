@@ -65,7 +65,7 @@
 
 <main class="wrap policy">
   <h1>Privacy and data sources</h1>
-  <p class="caption">Last updated 28 October 2026.</p>
+  <p class="caption">Last updated 29 October 2026.</p>
 
   <div class="summary">
     <div class="card"><h3>No accounts, no tracking</h3><p>No sign-up, cookies, analytics, ads or tracking pixels. The site never asks for a password or card details, and sells nothing.</p></div>
@@ -75,11 +75,14 @@
 
   <h2>What is saved in your browser</h2>
   <p>The site uses your browser's local storage, which stays on your device until you clear it, and session storage, which is emptied when
-    you close the tab. Neither is ever sent to this project. Other people using the same browser profile can see them.</p>
+    you close the tab. Neither is ever sent to this project or anyone else. Other people using the same browser profile can see them.
+    Every item's name starts with <code>qp:v1:</code>, so it can't be confused with other sites on github.io. No personal data is collected:
+    there are no accounts, forms, cookies or analytics.</p>
   <div class="table-wrap"><table>
     <thead><tr><th>Stored item</th><th>What it holds</th><th>Used by</th></tr></thead>
     <tbody>
-      <tr><td><code>theme</code></td><td>Light or dark mode</td><td>Every page</td></tr>
+      <tr><td><code>theme</code>, <code>lang</code></td><td>Light or dark mode, and English or Korean</td><td>Every page</td></tr>
+      <tr><td><code>visited</code></td><td>That you have been here before, so the first visit opens Start here</td><td>Every page</td></tr>
       <tr><td><code>watchlist</code>, <code>saved</code></td><td>The symbols on your watchlist (<code>saved</code> is from an older version)</td><td>Global, Markets</td></tr>
       <tr><td><code>ticker</code>, <code>stockIndicators</code></td><td>The last stock you opened and the indicators you turned on</td><td>Stock, Financials, Markets</td></tr>
       <tr><td><code>finnhubKey</code></td><td>Your Finnhub API key, only if you saved one in ⚙ settings: in session storage until you close the tab,
@@ -92,6 +95,8 @@
     </tbody>
   </table></div>
   <div class="row"><button class="btn" id="clear" type="button">Clear everything this site saved</button><span class="caption" id="clear-msg" role="status"></span></div>
+  <p class="caption">The same button is at the bottom of every dashboard page ("Clear my saved data"). Your browser's own "clear site data" setting
+    removes everything too.</p>
 
   <h3 style="margin-top:22px">Your Finnhub key</h3>
   <p>The optional Finnhub key is a password-like credential for your own free Finnhub account. It is kept only in this browser and sent only to
