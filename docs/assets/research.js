@@ -228,7 +228,7 @@ async function viewCompare(view, arg) {
     const rows = compareRows(last.ctx);
     const cols = ["metric", ...last.items.map((t) => t.sym)];
     const data = rows.map(([, label, , get]) => Object.fromEntries([["metric", label], ...last.items.map((t) => { const x = cellValue(get(t)); return [t.sym, ok(x) || typeof x === "string" ? x : ""]; })]));
-    downloadCsv(`compare_${last.items.map((t) => t.sym).join("_")}.csv`, cols, data);
+    downloadCsv(Util.fileName(`compare ${last.items.map((t) => t.sym).join(" ")}`, new Date().toISOString().slice(0, 10), "csv"), cols, data);
   });
   await draw().catch(fail);
 }
@@ -250,11 +250,8 @@ function drawCompareChart(items) {
 }
 
 function downloadCsv(filename, cols, rows) {
-  const quote = (v) => (v == null ? "" : /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
-  const csv = [cols.join(","), ...rows.map((r) => cols.map((k) => quote(r[k])).join(","))].join("\n");
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-  a.download = filename; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  saveCsv([`Free Quant Platform: Compare`, "Source: CNBC / Binance prices loaded in your browser; Kenneth R. French Data Library factors",
+    `Downloaded: ${new Date().toISOString()}`, DISCLAIMER], cols, rows.map((r) => cols.map((k) => r[k])), filename);
 }
 
 // --- correlation heatmap (Compare and the Quantum portfolio lab share it) -----------------------------

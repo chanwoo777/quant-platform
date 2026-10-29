@@ -7,11 +7,12 @@
   // --- watchlist files ------------------------------------------------------------------------------
   const WATCH_FORMAT = "free-quant-platform/watchlist";
   const WATCH_MAX = 500, WATCH_BYTES = 100 * 1024;
-  const WATCH_KEYS = ["format", "version", "exported_at", "watchlist"];
+  const WATCH_KEYS = ["format", "version", "exported_at", "disclaimer", "watchlist"];
+  const DISCLAIMER = "Research and education only, not investment advice. Data may be delayed or wrong. Past performance does not predict future results.";
   const isTicker = (s) => typeof s === "string" && /^[A-Za-z0-9.^=\-]{1,32}$/.test(s.trim());
   /** The JSON a visitor downloads: {format, version, exported_at, watchlist}. */
   function exportWatchlist(list, now = new Date()) {
-    return JSON.stringify({ format: WATCH_FORMAT, version: 1, exported_at: now.toISOString(), watchlist: list }, null, 1);
+    return JSON.stringify({ format: WATCH_FORMAT, version: 1, exported_at: now.toISOString(), disclaimer: DISCLAIMER, watchlist: list }, null, 1);
   }
   /** Parse an exported watchlist, or a bare array of tickers. Throws a readable error on anything else:
    * over 100 KB, not JSON, fields other than the export's, another format or version, or non-text entries.
@@ -81,7 +82,29 @@
   /** A value from a URL only when it is one of `allowed`. */
   const oneOf = (s, allowed, fallback) => (allowed.includes(s) ? s : fallback);
 
-  const U = { WATCH_FORMAT, WATCH_BYTES, HASH_KEYS, isTicker, exportWatchlist, parseWatchlist, parseHash, buildHash, listParam, numParam, oneOf };
+  // --- downloads --------------------------------------------------------------------------------------
+  // A spreadsheet runs a cell that starts with = + - @ (or a tab or carriage return) as a formula, so
+  // such text gets a leading apostrophe. Plain numbers ("-0.42", "1.5e-3", "-12%") are left alone.
+  const NUMBER = /^[-+]?(\d+(\.\d+)?|\.\d+)([eE][-+]?\d+)?%?$/;
+  function csvCell(v) {
+    let s = v === null || v === undefined || (typeof v === "number" && !Number.isFinite(v)) ? "" : String(v);
+    if (typeof v !== "number" && /^[=+\-@\t\r]/.test(s) && !NUMBER.test(s)) s = "'" + s;
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  /** A CSV file's text: a BOM (so Excel reads Korean as UTF-8), the header lines (title, source, as-of,
+   * disclaimer), then every field quoted and neutralised. */
+  function toCsv(header, cols, rows) {
+    const lines = [...header.map((h) => csvCell(`# ${h}`)), cols.map(csvCell).join(","), ...rows.map((r) => r.map(csvCell).join(","))];
+    return "\uFEFF" + lines.join("\r\n") + "\r\n";
+  }
+  /** A download name from free text: lower-case letters, digits, dashes and underscores, plus an optional date. */
+  function fileName(title, date, ext, fallback = "data") {
+    const slug = String(title || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || fallback;
+    const d = String(date || "").replace(/[^0-9A-Za-z-]+/g, "-").replace(/^-|-$/g, "").slice(0, 20);
+    return `${slug}${d ? "_" + d : ""}.${String(ext).replace(/[^a-z0-9]/g, "")}`;
+  }
+
+  const U = { WATCH_FORMAT, WATCH_BYTES, HASH_KEYS, DISCLAIMER, csvCell, toCsv, fileName, isTicker, exportWatchlist, parseWatchlist, parseHash, buildHash, listParam, numParam, oneOf };
   if (typeof module !== "undefined" && module.exports) module.exports = U;
   root.Util = U;
 })(typeof window !== "undefined" ? window : globalThis);

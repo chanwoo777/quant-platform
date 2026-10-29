@@ -18,8 +18,10 @@ def test_every_page_has_the_same_block():
         assert [plain(b) for b in blocks] == [TEXT], page.name
 
 
-def test_csv_headers_use_the_same_words():
-    assert f'const DISCLAIMER = "{TEXT}";' in (DOCS / "assets" / "app.js").read_text(encoding="utf-8")
+def test_downloads_use_the_same_words():
+    # util.js holds the one copy: CSV headers, PNG footers and the watchlist JSON all read it
+    assert f'const DISCLAIMER = "{TEXT}";' in (DOCS / "assets" / "util.js").read_text(encoding="utf-8")
+    assert "const DISCLAIMER = Util.DISCLAIMER;" in (DOCS / "assets" / "app.js").read_text(encoding="utf-8")
 
 
 def test_no_other_disclaimer_wording():

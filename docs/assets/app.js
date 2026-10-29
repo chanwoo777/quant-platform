@@ -215,10 +215,9 @@ function decorate(root) {
   });
 }
 // --- CSV downloads: every table and chart, with its source and as-of date in the file's header -------
-const DISCLAIMER = "Research and education only, not investment advice. Data may be delayed or wrong. Past performance does not predict future results.";
+const DISCLAIMER = Util.DISCLAIMER;
 const csvExtra = new WeakMap();  // element -> () => {cols, rows}, for panels that aren't a <table> or a Plotly chart
 function csvFor(el, fn) { if (el) { csvExtra.set(el, fn); el.dataset.csv = "1"; } }
-const csvQuote = (v) => { const s = v === null || v === undefined || (typeof v === "number" && !Number.isFinite(v)) ? "" : String(v); return /[",\n#]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
 function cellText(c) {
   const x = c.cloneNode(true);
   x.querySelectorAll(".mq, .fresh, button, .cmp-src, summary").forEach((n) => n.remove());
@@ -254,21 +253,24 @@ function downloadPanel(el) {
   const badge = el.closest("[data-fresh-src]") || before(el, ".fresh");
   const title = head ? cellText(head) : document.title;
   const asOf = badge ? badge.dataset.asof || "" : "";
-  const lines = [`# Free Quant Platform: ${title}`, `# Source: ${badge ? badge.dataset.src : "see the page"}`, `# As of: ${asOf || "n/a"}`,
-    `# Downloaded: ${new Date().toISOString()} from ${location.href}`, `# ${DISCLAIMER}`,
-    cols.map(csvQuote).join(","), ...rows.map((r) => r.map(csvQuote).join(","))];
+  saveCsv([`Free Quant Platform: ${title}`, `Source: ${badge ? badge.dataset.src : "see the page"}`, `As of: ${asOf || "n/a"}`,
+    `Downloaded: ${new Date().toISOString()} from ${location.origin}${location.pathname}${location.hash}`, DISCLAIMER], cols, rows, Util.fileName(title, asOf, "csv"));
+}
+/** Download rows as CSV with the given header lines (Util.toCsv: BOM, quoted, formula-safe). */
+function saveCsv(header, cols, rows, name) {
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([lines.join("\n") + "\n"], { type: "text/csv;charset=utf-8" }));
-  a.download = `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "data"}${asOf ? "_" + asOf : ""}.csv`;
+  a.href = URL.createObjectURL(new Blob([Util.toCsv(header, cols, rows)], { type: "text/csv;charset=utf-8" }));
+  a.download = name;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
 // --- PNG export: a chart as an image, with the site's address and the data's as-of date on it ----------
 const SITE_URL = "chanwoo777.github.io/quant-platform";
-/** Draw `img` (a chart) on a canvas with a footer strip: the panel's title on the left, the site and the
- * as-of date on the right, plus a faint watermark of the address in the chart's corner. */
-function watermark(img, { title = "", asOf = "", scale = 2 } = {}) {
-  const c = pal(), strip = 30 * scale, canvas = document.createElement("canvas");
+/** Draw `img` (a chart) on a canvas with a footer strip: the panel's title and source on the left, the site
+ * and the as-of date on the right, the disclaimer below, plus a faint watermark of the address in the chart's
+ * corner. Nothing else from the page or the browser goes into the image. */
+function watermark(img, { title = "", asOf = "", source = "", scale = 2 } = {}) {
+  const c = pal(), strip = 46 * scale, canvas = document.createElement("canvas");
   canvas.width = img.width; canvas.height = img.height + strip;
   const ctx = canvas.getContext("2d");
   ctx.fillStyle = c.surface; ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -281,12 +283,16 @@ function watermark(img, { title = "", asOf = "", scale = 2 } = {}) {
   ctx.textBaseline = "middle"; ctx.font = `${11 * scale}px ${FONT}`;
   const right = `${SITE_URL} · ${asOf ? `data as of ${asOf}` : new Date().toISOString().slice(0, 10)}`;
   const room = canvas.width - ctx.measureText(right).width - 34 * scale;
-  let t = title;
+  const label = source ? `${title} · Source: ${source}` : title;
+  let t = label;
   while (t && ctx.measureText(t).width > room) t = t.slice(0, -2);
+  const row1 = img.height + 15 * scale, row2 = img.height + 34 * scale;
   ctx.fillStyle = c.ink2; ctx.textAlign = "left";
-  ctx.fillText(t === title ? t : `${t.trimEnd()}…`, 10 * scale, img.height + strip / 2);
+  ctx.fillText(t === label ? t : `${t.trimEnd()}…`, 10 * scale, row1);
   ctx.fillStyle = c.muted; ctx.textAlign = "right";
-  ctx.fillText(right, canvas.width - 10 * scale, img.height + strip / 2);
+  ctx.fillText(right, canvas.width - 10 * scale, row1);
+  ctx.font = `${10 * scale}px ${FONT}`; ctx.textAlign = "left";
+  ctx.fillText(DISCLAIMER, 10 * scale, row2);
   return canvas;
 }
 function saveCanvas(canvas, name) {
@@ -297,23 +303,22 @@ function saveCanvas(canvas, name) {
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }, "image/png");
 }
-const fileSlug = (title, asOf) => `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "chart"}${asOf ? "_" + asOf : ""}`;
 /** The panel title and as-of date for a chart (its heading and freshness badge). */
 function panelMeta(el) {
   const head = before(el, "#view h1, #view h2, #view h3, #view .chart-title, #drawer h2, #drawer .chart-title, #view .panel-meta");
-  const badge = before(el, ".fresh");
-  return { title: head ? cellText(head) : document.title, asOf: badge ? badge.dataset.asof || "" : "" };
+  const badge = el.closest("[data-fresh-src]") || before(el, ".fresh");
+  return { title: head ? cellText(head) : document.title, asOf: badge ? badge.dataset.asof || "" : "", source: badge ? badge.dataset.src || "" : "" };
 }
 async function downloadPng(el) {
   if (!window.Plotly || !el.data) return;
-  const { title, asOf } = panelMeta(el);
+  const { title, asOf, source } = panelMeta(el);
   const url = await Plotly.toImage(el, { format: "png", width: Math.max(900, el.clientWidth), height: Math.max(360, el.clientHeight), scale: 2 });
   const img = await new Promise((done, fail) => {  // onload, not img.decode(), which never settles in some embedded browsers
     const i = new Image();
     i.onload = () => done(i); i.onerror = () => fail(new Error("the chart image didn't load"));
     i.src = url;
   });
-  saveCanvas(watermark(img, { title, asOf }), `${fileSlug(title, asOf)}.png`);
+  saveCanvas(watermark(img, { title, asOf, source }), Util.fileName(title, asOf, "png", "chart"));
 }
 /** "CSV" above every table, chart and registered panel that has data, and "PNG" next to it on charts. */
 function addDownloads(root) {

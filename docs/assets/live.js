@@ -706,8 +706,8 @@
     $("#pc-pct", el).addEventListener("click", (e) => { pctOn = !pctOn; logOn = false; setScale(); e.target.classList.toggle("on", pctOn); $("#pc-log", el).classList.remove("on"); });
     const screenshot = () => {
       const shot = chart.takeScreenshot(true, false), last = bars.length ? new Date(bars[bars.length - 1].t * 1000).toISOString() : "";
-      saveCanvas(watermark(shot, { title: `${r.sym} · ${LABEL[iv] || iv} · ${r.feed === "binance" ? "Binance" : "CNBC"}`, asOf: last.slice(0, 16).replace("T", " "), scale: window.devicePixelRatio || 1 }),
-        `${r.sym}_${iv}_${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")}.png`);
+      saveCanvas(watermark(shot, { title: `${r.sym} · ${LABEL[iv] || iv}`, source: r.feed === "binance" ? "Binance" : "CNBC", asOf: last.slice(0, 16).replace("T", " "), scale: window.devicePixelRatio || 1 }),
+        Util.fileName(`${r.sym} ${iv}`, new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-"), "png", "chart"));
     };
     const fullscreen = () => { const node = $("#pc", el); if (document.fullscreenElement) document.exitFullscreen(); else if (node.requestFullscreen) node.requestFullscreen(); };
     $("#pc-shot", el).addEventListener("click", screenshot);

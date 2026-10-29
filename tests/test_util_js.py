@@ -73,3 +73,17 @@ def test_page_state_round_trips_through_the_hash(tmp_path):
     assert out["g"] == "#/global?cls=s,e&sig=BUY&page=2" and out["gback"].get("arg") is None and out["gback"]["params"]["cls"] == "s,e"
     assert out["plain"] == {"route": "stock", "arg": "AAPL", "params": {}, "rejected": False} and out["root"]["route"] == ""
     assert out["lists"] == [["a", "b", "c"], []] and out["nums"] == [5, 1, 2] and out["oneOf"] == ["FF3", "FF3"]
+
+
+
+def test_csv_is_formula_safe_quoted_and_excel_readable(tmp_path):
+    out = js(tmp_path, r"""
+      return { cells: ['=HYPERLINK("http://x","y")', "+1+1", "-2+3", "@SUM(A1)", "\tx", "-0.42", "1.5e-3", "-12%", -7, "삼성전자", 'say "hi"', null, NaN]
+                 .map(U.csvCell),
+               csv: U.toCsv(["Title", "Source: x"], ["a", "b"], [["=1", 2]]),
+               names: [U.fileName("S&P 500 <script>", "2026-10-28", "csv"), U.fileName("", "../../etc", "png", "chart"), U.fileName("삼성", "", "csv")] };""")
+    q = '"'
+    assert out["cells"] == [q + "'=HYPERLINK(\"\"http://x\"\",\"\"y\"\")" + q, q + "'+1+1" + q, q + "'-2+3" + q, q + "'@SUM(A1)" + q, q + "'\tx" + q,
+                            '"-0.42"', '"1.5e-3"', '"-12%"', '"-7"', '"삼성전자"', '"say ""hi"""', '""', '""']
+    assert out["csv"] == "﻿" + '"# Title"\r\n"# Source: x"\r\n"a","b"\r\n"\'=1","2"\r\n'
+    assert out["names"] == ["s-p-500-script_2026-10-28.csv", "chart_etc.png", "data.csv"]
