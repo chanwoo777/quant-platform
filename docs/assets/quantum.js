@@ -868,7 +868,7 @@
       const load = $("#rk-load", sec);
       if (load) load.addEventListener("click", () => { B.syms = qv.basket.slice(); B.w = B.syms.map(() => 1 / B.syms.length); R.look = qv.sessions; redraw(); compute().catch(fail); });
     };
-    const fail = (e) => { console.error(e); $("#rk-out", sec).innerHTML = `<div class="empty">${esc(e.message)}</div>`; };
+    const fail = (e) => { console.error(e); $("#rk-out", sec).innerHTML = errorBox(e.message, () => compute().catch(fail)); };
     const redraw = bindBasket(sec, "rk", B, { min: 1, max: 10, weights: true, onChange: () => compute().catch(fail) });
     sec.querySelectorAll("#rk-look .chip").forEach((b) => b.addEventListener("click", () => { R.look = Number(b.dataset.v); compute().catch(fail); }));
     $("#rk-amt", sec).addEventListener("change", (e) => { R.amt = Math.max(1000, Number(e.target.value) || 1e6); compute().catch(fail); });
@@ -922,7 +922,7 @@
     let est = null;
     const lamOf = (v) => (v <= 0 ? 0 : 10 ** (-3 + (4.5 * v) / 100));
     const chipsOn = (id, v) => sec.querySelectorAll(`#${id} .chip`).forEach((b) => b.classList.toggle("on", b.dataset.v === String(v)));
-    const fail = (e) => { console.error(e); $("#pf-weights", sec).innerHTML = `<div class="empty">${esc(e.message)}</div>`; };
+    const fail = (e) => { console.error(e); $("#pf-weights", sec).innerHTML = errorBox(e.message, () => estimate().then(drawQaoa).catch(fail)); };
 
     const estimate = async () => {
       const run = ++P.run;

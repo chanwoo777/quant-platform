@@ -114,6 +114,25 @@ function table(cols, rows, opts = {}) {
     `<td class="${c.r ? "r" : ""}${c.cls ? " " + c.cls : ""}"${c.style ? ` style="${c.style(r)}"` : ""}>${c.f(r)}</td>`).join("")}</tr>`).join("");
   return `<div class="table-wrap${opts.tall ? " tall" : ""}"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
+// --- error states: every panel that can fail says why and offers to try again --------------------------
+const retries = new Map();
+let retryId = 0;
+/** An error panel with a "Try again" button; `retry` re-runs just that panel (default: the whole page).
+ * Failed downloads aren't cached (load, dailyHistory), so trying again really fetches again. */
+function errorBox(message, retry = null) {
+  const id = String(++retryId);
+  retries.set(id, retry || (() => render()));
+  if (retries.size > 200) retries.delete(retries.keys().next().value);
+  return `<div class="panel-error" role="alert"><span class="pe-icon" aria-hidden="true">!</span><span class="pe-msg">${esc(message)}</span>
+    <button type="button" class="btn q-small" data-retry="${id}">Try again</button></div>`;
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest && e.target.closest("[data-retry]");
+  if (!b || !retries.has(b.dataset.retry)) return;
+  const box = b.closest(".panel-error");
+  if (box) box.innerHTML = '<span class="loading-inline">Trying again…</span>';
+  retries.get(b.dataset.retry)();
+});
 const link = (url, text = "Open", data = false) => (url ? `<a href="${esc(url)}" target="_blank" rel="noopener"${data ? ' translate="no"' : ""}>${esc(text)}</a>` : "–");
 /** Data shown as is in every language (company names, headlines): the page translator skips it. */
 const raw = (s) => `<span translate="no">${esc(s ?? "")}</span>`;
@@ -376,7 +395,7 @@ function plot(el, traces, lay) {
   if (!window.Plotly) {  // the library loads with the first chart, not with every page
     if (!el.classList.contains("js-plotly-plot")) el.innerHTML = '<div class="loading">Loading the chart…</div>';
     needPlotly().then(() => { if (el.isConnected) plot(el, traces, lay); })
-      .catch((e) => { el.innerHTML = `<div class="empty">${esc(e.message)}</div>`; });
+      .catch((e) => { el.innerHTML = errorBox(e.message, () => plot(el, traces, lay)); });
     return;
   }
   if (!el.classList.contains("js-plotly-plot")) el.innerHTML = "";  // drop any "Loading…" placeholder
@@ -717,7 +736,7 @@ async function viewGlobal(view) {
       ${counts.c.toLocaleString()} coins · scored ${esc(g.scored_at.slice(0, 16).replace("T", " "))} UTC. Click a row for its chart and the reasons behind its signal.
       ${SIGNAL_NOTE}</p>
     <div id="g-brief"></div>
-    <div id="g-watch" class="reserve-watch" data-watch-panel="stock"></div>
+    <div id="g-watch" class="reserve-watch" data-watch-panel="stock"><div class="card wl-panel"><div class="loading small">Loading your watchlist…</div></div></div>
     <h2>Market regimes ${mq("regimes-global")}${fresh("scores", "yahoo-prices")}</h2>
     <div class="grid g6">${regimes}</div>
     <div id="g-rest" class="reserve-screener"><div class="loading">Loading the screener: every stock, ETF and coin…</div></div>`;
@@ -989,7 +1008,7 @@ async function openDetail(r, span = "1Y") {
   const el = $("#d-chart");
   let h;
   try { h = await priceHistory(r.s); priceChart(el, h, span, { height: 340 }); }
-  catch (e) { h = { error: e.message }; el.innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+  catch (e) { h = { error: e.message }; el.innerHTML = errorBox(e.message, () => openDetail(r, span)); }
   const t = $("#d-title");
   if (t) t.insertAdjacentHTML("beforeend", fresh(pxSrc(h)));
 }
@@ -1140,7 +1159,7 @@ async function viewMarkets(view) {
     <div class="controls"><div class="control"><span class="label">Range</span>${chips("span", [["6M", "6M"], ["1Y", "1Y"], ["2Y", "2Y"], ["10Y", "10Y (weekly)"]], M.span, false)}</div></div>
     <div class="controls" style="margin-top:0">${indicatorChipsHtml(spx.error ? { close: [] } : ohlcv(spx))}</div>
     <div class="chart-title">S&amp;P 500 with regime stance ${mq("stance")}${fresh(pxSrc(spx), "deep-prices")}</div>
-    <div class="chart" id="m-spx">${spx.error ? `<div class="empty">${esc(spx.error)}</div>` : ""}</div>
+    <div class="chart" id="m-spx">${spx.error ? errorBox(spx.error) : '<div class="loading">Loading prices…</div>'}</div>
     <p class="caption">Prices load in your browser from CNBC: daily bars for two years, weekly bars for ten (indicator lengths then count weeks).</p>
     <h2>Economic indicators (FRED) ${mq("fred-tiles")}${fresh("fred")}</h2>
     <div class="grid g5" id="m-fred">${tiles}</div>
@@ -1151,7 +1170,7 @@ async function viewMarkets(view) {
     const span = [...M.span][0], el = $("#m-spx");
     let h = spx;
     if (span === "10Y") try { h = await priceHistory("^GSPC", { weekly: true }); } catch (e) { h = { error: e.message }; }
-    if (h.error) { el.innerHTML = `<div class="empty">${esc(h.error)}</div>`; return; }
+    if (h.error) { el.innerHTML = errorBox(h.error); return; }
     const d = ohlcv(h), start = startFor(d.time[d.time.length - 1], span);
     const i0 = Math.max(0, d.time.findIndex((t) => t >= start));
     const c = pal(), x = d.time.slice(i0);
@@ -1287,7 +1306,7 @@ async function viewStockDeep(view, ticker) {
       ${kpi("Factor score", d.score ? `${num(d.score.composite, 0)}/100` : "–", d.score ? `rank ${d.score.rank} of ${d.score.of}` : "", "", "deep-scores")}
     </div>
     <div class="chart-title" id="s-title" data-nofresh></div>
-    <div class="chart" id="s-chart" style="min-height:640px">${h.error ? `<div class="empty">${esc(h.error)}</div>` : ""}</div>
+    <div class="chart" id="s-chart" style="min-height:640px">${h.error ? errorBox(h.error) : '<div class="loading">Drawing the chart…</div>'}</div>
     <p class="caption">Candles: blue up, red down. ▲ / ▼ / ● news markers = bullish / bearish / neutral FinBERT average of on-topic headlines,
       placed on the session they first affected. ★ = unusual move; hover for the explanation. ${h.error ? "" : `About two years of daily bars, loaded in your browser from ${esc(h.source)}.`}</p>
     <details><summary>Indicator readings ${mq("indicators")}</summary><ul class="reasons">${(snap.readings || []).map((r) => `<li>${esc(r)}</li>`).join("")}</ul></details>
@@ -1375,7 +1394,7 @@ async function viewStockUniverse(view, sym, row) {
       ${kpi("Composite score", ok(row.sc) ? `${num(row.sc, 0)}/100` : "–", `<span class="sig-${esc(row.sig)}">${SIGNAL[row.sig] || "–"}</span>`)}
     </div>
     <div class="chart-title">${esc(sym)} · daily${err ? "" : ` · ${esc(px.source)}, loaded in your browser`}${fresh(pxSrc(px))}</div>
-    <div class="chart" id="u-chart" style="min-height:460px">${err ? `<div class="empty">${esc(err)}</div>` : ""}</div>
+    <div class="chart" id="u-chart" style="min-height:460px">${err ? errorBox(err) : '<div class="loading">Drawing the chart…</div>'}</div>
     ${dqNote(row.dq)}
     <div id="why-note">${whyNote(row)}</div>
     <div class="grid g2">
@@ -1423,7 +1442,7 @@ async function viewUnknown(view, sym, route) {
       <div class="grid g6">${kpi("Price", num(q.c, 2), `${signed(q.dp / 100, 2)} today`)}${kpi("Market cap", money((prof.marketCapitalization || NaN) * 1e6))}
         ${kpi("52-week high", num(m["52WeekHigh"], 2))}${kpi("52-week low", num(m["52WeekLow"], 2))}${kpi("Beta", num(m.beta, 2))}${kpi("P/E (TTM)", num(m.peTTM ?? m.peBasicExclExtraTTM, 1))}</div>
       <p><a class="btn" href="#/live/${encodeURIComponent(sym)}">Live chart</a></p>`;
-  } catch (e) { box.innerHTML = `<div class="note">${esc(e.message)}</div>`; }
+  } catch (e) { box.innerHTML = errorBox(e.message); }
 }
 
 // ====================================================================================================
@@ -1486,7 +1505,8 @@ async function viewFinancials(view, arg) {
     drawSecCharts(d.fin);
   } else if (usTicker(sym) && FH.key()) {
     st.innerHTML = '<div class="loading">Loading reported statements from Finnhub…</div>';
-    finnhubStatements(sym).then((h) => { st.innerHTML = h; }).catch((e) => { st.innerHTML = `<div class="note">${esc(e.message)}</div>`; });
+    const statements = () => finnhubStatements(sym).then((h) => { st.innerHTML = h; }).catch((e) => { st.innerHTML = errorBox(e.message, statements); });
+    statements();
   } else {
     const yahooFin = `https://finance.yahoo.com/quote/${encodeURIComponent(sym)}/financials`;
     st.innerHTML = `<div class="note">Full statements are stored for the deep-tier names (SEC 10-K / 10-Q).
@@ -1498,7 +1518,7 @@ async function viewFinancials(view, arg) {
     const el = $("#ff"), title = $("#ff-title");
     if (title && !title.querySelector(".fresh")) title.insertAdjacentHTML("beforeend", fresh(e.dataPath ? "french" : { provider: "Factor model", error: e.message }));
     if (el) el.innerHTML = e.dataPath ? `<div class="unavail"><span class="state red">● missing</span> <code>data/${esc(e.dataPath)}</code> isn't in the published site, so the
-      regression isn't drawn. <a href="#/status">Data status</a></div>` : `<div class="empty">${esc(e.message)}</div>`;
+      regression isn't drawn. <a href="#/status">Data status</a></div>` : errorBox(e.message, () => drawFactorModel(sym, r, model));
   });
   $("#wl-research").innerHTML = watchlistResearchHtml(research, model);
 }
@@ -1628,7 +1648,7 @@ async function drawFactorModel(sym, r, model) {
   const title0 = $("#ff-title");
   try { hist = await priceHistory(sym); } catch (e) {
     if (title0) title0.insertAdjacentHTML("beforeend", fresh("french", pxSrc({ error: e.message })));
-    el.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return;
+    el.innerHTML = errorBox(e.message, () => drawFactorModel(sym, r, F.model.values().next().value)); return;
   }
   const factors = factorData || (factorData = await load("factors.json"));
   const fb = fresh("french", pxSrc(hist)), title = $("#ff-title");
@@ -1762,7 +1782,8 @@ async function render() {
     view.innerHTML = `<h1>Data not available</h1>${e.dataPath
       ? `<div class="unavail"><span class="state red">● missing</span> <code>data/${esc(e.dataPath)}</code> isn't in the published site (${esc(e.message)}),
           so this page shows nothing rather than a partial chart. <a href="#/status">Data status</a> shows which nightly source or export step failed.</div>`
-      : `<p class="soft">This page couldn't load its data (${esc(e.message)}).</p>`}
+      : errorBox(`This page couldn't load: ${e.message}`)}
+      ${e.dataPath ? errorBox(`data/${e.dataPath} could not be loaded.`) : ""}
       <p class="soft">The site is refreshed once a day; if this persists, the latest export may not have been published.</p>`;
   }
 }

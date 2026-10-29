@@ -179,7 +179,10 @@
         const col = (k) => bars.map((b) => b[k]);
         return { sym, source: r.feed === "binance" ? "Binance" : "CNBC", weekly, dates: bars.map((b) => new Date(b.t * 1000).toISOString().slice(0, 10)),
           open: col("open"), high: col("high"), low: col("low"), close: col("close"), volume: bars.some((b) => b.volume) ? col("volume") : null };
-      })().catch((e) => { histCache.delete(key); throw e; }));
+      })().catch((e) => {  // not cached, so "Try again" fetches again; the browser's "Failed to fetch" says nothing useful
+        histCache.delete(key);
+        throw /failed to fetch|networkerror|load failed/i.test(e.message) ? new Error(`Couldn't reach the price service for ${sym}. Check your connection and try again.`) : e;
+      }));
     }
     return histCache.get(key);
   }
@@ -325,7 +328,7 @@
       bars = await FEEDS.history(r, iv);
     } catch (e) {
       const msg = e.throttled ? "CNBC is throttling requests right now; try again in a minute." : e.message;
-      $("#pc-chart").innerHTML = `<div class="empty">${esc(msg)}${r.row ? `<br><a href="#/stock/${encodeURIComponent(r.sym)}">The stock page</a> still has its scores and returns.` : ""}</div>`;
+      $("#pc-chart").innerHTML = `${errorBox(msg, () => view(el, r.sym))}${r.row ? `<br><a href="#/stock/${encodeURIComponent(r.sym)}">The stock page</a> still has its scores and returns.` : ""}</div>`;
       setStatus("err", msg);
       $("#pc-fresh").innerHTML = fresh({ provider: r.feed === "binance" ? "Binance" : "CNBC", label: "Live chart", error: msg });
       renderAlerts($("#pc-alerts", el), r.sym);

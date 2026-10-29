@@ -220,7 +220,7 @@ async function viewCompare(view, arg) {
     if (typeof window.drawCorrelationPanel === "function") window.drawCorrelationPanel(corr, CMP.syms);
   };
   bindBasket(view, "cmp", B, { min: 2, max: 5, minBars: 60, onChange: () => draw().catch(fail) });
-  const fail = (e) => { console.error(e); $("#cmp-out", view).innerHTML = `<div class="empty">${esc(e.message)}</div>`; };
+  const fail = (e) => { console.error(e); $("#cmp-out", view).innerHTML = errorBox(e.message, () => draw().catch(fail)); };
   view.querySelectorAll("#cmp-years .chip").forEach((b) => b.addEventListener("click", () => { CMP.years = Number(b.dataset.v); draw().catch(fail); }));
   view.querySelectorAll("#cmp-model .chip").forEach((b) => b.addEventListener("click", () => { CMP.model = b.dataset.v; draw().catch(fail); }));
   $("#cmp-csv", view).addEventListener("click", () => {
@@ -287,7 +287,7 @@ async function drawCorrelationPanel(el, syms) {
   const have = syms.map((s, i) => [s, hist[i]]).filter(([, h]) => !h.error);
   $(".corr-title", el).insertAdjacentHTML("beforeend", fresh(hist.map(pxSrc)));
   const missing = syms.filter((_, i) => hist[i].error);
-  if (have.length < 2) { body.innerHTML = `<div class="empty">Need prices for at least two tickers${missing.length ? ` (none for ${esc(missing.join(", "))})` : ""}.</div>`; return; }
+  if (have.length < 2) { body.innerHTML = errorBox(`Need prices for at least two tickers${missing.length ? ` (none for ${missing.join(", ")})` : ""}.`, () => drawCorrelationPanel(el, syms)); return; }
   const al = Q.align(have.map(([, h]) => ({ dates: weekly ? h.dates.map(Q.weekKey) : h.dates, values: h.close })));
   const end = al.dates[al.dates.length - 1], start = Q.shiftIso(end, w);
   const i0 = Math.max(0, al.dates.findIndex((d) => d >= start) - 1);

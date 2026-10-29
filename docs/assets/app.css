@@ -622,3 +622,11 @@ html, body { max-width: 100%; overflow-x: hidden; }
 .subtabs { overflow-x: auto; scrollbar-width: thin; white-space: nowrap; }
 .tile .spark svg { width: 100%; height: auto; }
 math[display="block"] { display: block; max-width: 100%; overflow-x: auto; overflow-y: hidden; padding-bottom: 4px; }
+
+/* --- error panels: the reason, and a way to try again ------------------------------------------ */
+.panel-error { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 10px 0; padding: 14px 16px; border: 1px solid var(--bad);
+  border-radius: var(--radius); background: var(--bad-soft); color: var(--text); }
+.pe-icon { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--bad); color: #fff; font-weight: 800; flex: none; }
+.pe-msg { flex: 1 1 220px; }
+.loading.small { padding: 14px 0; font-size: 0.86rem; }
+.loading-inline { color: var(--text-faint); }
