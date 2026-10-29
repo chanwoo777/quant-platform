@@ -84,6 +84,19 @@ def test_stamp_assets_versions_scripts_and_styles(tmp_path):
     assert 'src="https://cdn.example/x.js"' in html and '<meta name="asset-version" content="202610281200">' in html
 
 
+def test_route_pages_and_sitemap(tmp_path):
+    (tmp_path / "index.html").write_text('<html><head><title>Free Quant Platform</title><meta name="description" content="x">'
+                                         '<link rel="canonical" href="https://chanwoo777.github.io/quant-platform/"></head><body></body></html>', encoding="utf-8")
+    urls = export.write_route_pages(tmp_path, "2026-10-29")
+    page = (tmp_path / "markets" / "index.html").read_text(encoding="utf-8")
+    assert '<base href="../">' in page and "<title>Market overview · Free Quant Platform</title>" in page
+    assert 'href="https://chanwoo777.github.io/quant-platform/markets/"' in page and "FRED economic indicators" in page
+    titles = {(tmp_path / r / "index.html").read_text(encoding="utf-8").split("<title>")[1].split("<")[0] for r in export.SEO_PAGES}
+    assert len(titles) == len(export.SEO_PAGES)  # every page has its own title
+    sitemap = (tmp_path / "sitemap.xml").read_text(encoding="utf-8")
+    assert sitemap.count("<url>") == len(urls) == len(export.SEO_PAGES) + 3 and "<lastmod>2026-10-29</lastmod>" in sitemap
+
+
 @pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
 def test_publish_force_pushes_a_single_commit(tmp_path):
     def git(*args, cwd):

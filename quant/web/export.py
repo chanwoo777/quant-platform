@@ -576,6 +576,54 @@ def export_brief(out: Path, data_dir: Path, c) -> dict:
 
 # --- orchestration ----------------------------------------------------------------------------------
 
+SITE_URL = "https://chanwoo777.github.io/quant-platform/"
+# Static entry pages for search engines, which don't index #/hash routes: /global/, /markets/, ... are copies
+# of index.html with their own title, description and canonical URL, and the app reads the route from the
+# path. The same titles are in docs/assets/app.js (ROUTE_META), set when the visitor moves between pages.
+SEO_PAGES = {
+    "start": ("Start here", "Three one-click examples: compare big-tech peers, measure a basket's risk, and price an option classically and on a quantum simulator."),
+    "global": ("Global stock screener", "Screen about 11,000 stocks, ETFs and coins in 21 markets by trend, momentum, value, quality and risk, with tonight's daily brief."),
+    "markets": ("Market overview", "The market regime, risk score and stance, the S&P 500 shaded by regime, FRED economic indicators and breaking news."),
+    "compare": ("Compare", "Two to five tickers side by side: returns, risk, Sharpe and Sortino, factor exposures, margins and correlation."),
+    "quantum": ("Quantum computing for investors", "How quantum algorithms work, from zero, and what they could do for option pricing, risk and portfolios, next to the classical methods."),
+    "live": ("Live chart", "A TradingView-style live chart for stocks, ETFs, indices and coins, with indicators, drawing tools and price alerts."),
+    "methodology": ("Methodology", "How every score, signal and metric on the site is calculated, with the formula, the inputs, the limits and the code."),
+    "status": ("Data status", "What the nightly job loaded, from where, how fresh it is, and what its data-quality checks found."),
+    "track-record": ("Signal track record", "How the BUY / HOLD / AVOID labels did over the next 5, 20 and 60 trading days, from an append-only log."),
+    "changelog": ("Changelog", "Every feature and fix, from the repository's commit messages, with methodology changes highlighted."),
+}
+
+
+def write_route_pages(site_dir: Path, today: str | None = None) -> list[str]:
+    """The static entry pages, sitemap.xml and robots.txt. Returns the URLs in the sitemap."""
+    import html as htmlmod
+
+    today = today or dt.date.today().isoformat()
+    index = (site_dir / "index.html").read_text(encoding="utf-8")
+    urls = [SITE_URL]
+    for route, (title, desc) in SEO_PAGES.items():
+        url = f"{SITE_URL}{route}/"
+        t, d = htmlmod.escape(f"{title} · Free Quant Platform", quote=True), htmlmod.escape(desc, quote=True)
+        page = index.replace("<head>", '<head>\n<base href="../">', 1)
+        page = re.sub(r"<title>.*?</title>", f"<title>{t}</title>", page, count=1)
+        page = re.sub(r'<meta name="description" content="[^"]*">', f'<meta name="description" content="{d}">', page, count=1)
+        page = re.sub(r'<meta property="og:title" content="[^"]*">', f'<meta property="og:title" content="{t}">', page, count=1)
+        page = re.sub(r'<meta property="og:description" content="[^"]*">', f'<meta property="og:description" content="{d}">', page, count=1)
+        page = re.sub(r'<meta property="og:url" content="[^"]*">', f'<meta property="og:url" content="{url}">', page, count=1)
+        page = re.sub(r'<link rel="canonical" href="[^"]*">', f'<link rel="canonical" href="{url}">', page, count=1)
+        (site_dir / route).mkdir(exist_ok=True)
+        (site_dir / route / "index.html").write_text(page, encoding="utf-8")
+        urls.append(url)
+    urls += [f"{SITE_URL}about.html", f"{SITE_URL}privacy.html"]
+    (site_dir / "sitemap.xml").write_text('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+                                          + "".join(f"  <url><loc>{u}</loc><lastmod>{today}</lastmod></url>\n" for u in urls)
+                                          + "</urlset>\n", encoding="utf-8")
+    # Crawlers read robots.txt only at the domain's root (chanwoo777.github.io), so this one is informational;
+    # submit sitemap.xml in Google Search Console instead.
+    (site_dir / "robots.txt").write_text(f"User-agent: *\nAllow: /\nSitemap: {SITE_URL}sitemap.xml\n", encoding="utf-8")
+    return urls
+
+
 def stamp_assets(site_dir: Path, version: str | None = None) -> str:
     """Cache-bust the site's own scripts and styles: every assets/*.js and *.css reference in the pages gets
     ?v=<export time>, and index.html carries the version so code loaded later (route scripts) uses it too.
@@ -607,6 +655,7 @@ def build(site_dir: Path | None = None, quantum: bool = True, track_log: bool = 
             shutil.rmtree(item) if item.is_dir() else item.unlink()
     shutil.copytree(SITE_SRC, site_dir, dirs_exist_ok=True)
     stamp_assets(site_dir)
+    write_route_pages(site_dir)
     out = site_dir / "data"
     out.mkdir(parents=True, exist_ok=True)
     stats, steps, started = {}, {}, time.perf_counter()

@@ -10,7 +10,7 @@
   (function () {
     var base = "/quant-platform/";
     var path = location.pathname.indexOf(base) === 0 ? location.pathname.slice(base.length) : "";
-    var route = /^(global|markets|stock|financials|compare|quantum|live|methodology|status|track-record|changelog)(\/[^/]+)?\/?$/.test(path) ? "#/" + path.replace(/\/$/, "") : "";
+    var route = /^(start|global|markets|stock|financials|compare|quantum|live|methodology|status|track-record|changelog)(\/[^/]+)?\/?$/.test(path) ? "#/" + path.replace(/\/$/, "") : "";
     location.replace(base + route);
   })();
 </script>

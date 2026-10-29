@@ -401,6 +401,7 @@ function plot(el, traces, lay) {
   if (!el.classList.contains("js-plotly-plot")) el.innerHTML = "";  // drop any "Loading…" placeholder
   [traces, lay] = I18N.plotly(traces, lay);  // trace names and axis titles in the visitor's language
   Plotly.react(el, traces, lay, { displaylogo: false, responsive: true, modeBarButtonsToRemove: ["lasso2d", "select2d"] });
+  el.querySelectorAll(".modebar-btn:not([role])").forEach((a) => a.setAttribute("role", "button"));  // toolbar <a>s have no href
   el.setAttribute("role", "img");
   el.setAttribute("aria-label", chartSummary(el, traces));
   if (el.parentElement) addDownloads(el.parentElement);  // the CSV button (chart redraws don't reach the panel observer)
@@ -1736,6 +1737,35 @@ const ROUTES = { global: viewGlobal, markets: viewMarkets, stock: viewStock, fin
   quantum: async (view, arg) => { await need("research", "quantum"); return window.QUANTUM.view(view, arg); },  // the portfolio lab uses research.js's correlation panel
   live: async (view, arg) => { await need("live"); return window.LIVE.view(view, arg); } };
 const MOVED = { bot: "#/global" };  // retired routes: old links land somewhere useful
+// Each page's title and description (quant/web/export.py writes the same ones into the static entry pages
+// /global/, /markets/, ... that search engines index). {sym} is the ticker or tickers in the address.
+const ROUTE_META = {
+  start: ["Start here", "Three one-click examples: compare big-tech peers, measure a basket's risk, and price an option classically and on a quantum simulator."],
+  global: ["Global stock screener", "Screen about 11,000 stocks, ETFs and coins in 21 markets by trend, momentum, value, quality and risk, with tonight's daily brief."],
+  markets: ["Market overview", "The market regime, risk score and stance, the S&P 500 shaded by regime, FRED economic indicators and breaking news."],
+  stock: ["Stock chart and signals", "{sym}: price chart with indicators, returns and risk, peer percentiles and the reason behind its signal."],
+  financials: ["Financials and factor model", "{sym}: fundamentals, peers, financial statements and a Fama-French factor regression computed in your browser."],
+  compare: ["Compare", "{sym} side by side: returns, risk, Sharpe and Sortino, factor exposures, margins and correlation."],
+  quantum: ["Quantum computing for investors", "How quantum algorithms work, from zero, and what they could do for option pricing, risk and portfolios, next to the classical methods."],
+  live: ["Live chart", "{sym}: a TradingView-style live chart with indicators, drawing tools and price alerts."],
+  methodology: ["Methodology", "How every score, signal and metric on the site is calculated, with the formula, the inputs, the limits and the code."],
+  status: ["Data status", "What the nightly job loaded, from where, how fresh it is, and what its data-quality checks found."],
+  "track-record": ["Signal track record", "How the BUY / HOLD / AVOID labels did over the next 5, 20 and 60 trading days, from an append-only log."],
+  changelog: ["Changelog", "Every feature and fix, from the repository's commit messages, with methodology changes highlighted."],
+};
+function setRouteMeta(route, arg) {
+  const [title, desc] = ROUTE_META[route] || ROUTE_META.global;
+  const sym = arg ? String(arg).split(",").join(", ") : "";
+  const name = tr(title);
+  document.title = `${sym && route !== "methodology" && route !== "quantum" ? `${sym} · ` : ""}${name} · Free Quant Platform`;
+  const meta = document.querySelector('meta[name="description"]');
+  if (meta) meta.setAttribute("content", tr(desc).replace("{sym}", sym || tr("Any ticker")));
+}
+/** On a static entry page (/markets/ and so on, which have no hash yet) the route comes from the path. */
+function routeFromPath() {
+  const m = location.pathname.match(/\/([a-z-]+)\/(?:index\.html)?$/);
+  return m && ROUTES[m[1]] ? `#/${m[1]}` : "";
+}
 // --- page state in the URL (util.js parseHash / buildHash): a copied link reproduces the view --------
 const NOW = { route: "global", params: {} };
 /** The "?key=value" state of the link that opened this page. */
@@ -1743,7 +1773,7 @@ const pageParams = () => NOW.params;
 /** Write a view's state into the address bar (no reload, no history entry). Ignored when the visitor has
  * already moved to another route, so a slow page can't overwrite the next page's link. */
 function setPageParams(route, params, arg) {
-  if ((Util.parseHash(location.hash).route || "global") !== route && !(route === "global" && !location.hash.replace(/^#\/?/, ""))) return;
+  if ((Util.parseHash(location.hash || routeFromPath()).route || "global") !== route && !(route === "global" && !location.hash.replace(/^#\/?/, ""))) return;
   NOW.params = Object.fromEntries(Object.entries(params).map(([k, v]) => [k, Array.isArray(v) ? v.join(",") : v === undefined || v === null ? "" : String(v)]).filter(([, v]) => v !== ""));
   const h = Util.buildHash(route, arg, params);
   if (h !== location.hash) history.replaceState(null, "", h);
@@ -1761,13 +1791,14 @@ let cleanup = null;
 window.onRouteCleanup = (fn) => { cleanup = fn; };
 
 async function render() {
-  if (!location.hash.replace(/^#\/?/, "") && !store.get("visited")) { location.replace("#/start"); return; }  // a first visit starts here
+  if (!location.hash.replace(/^#\/?/, "") && !routeFromPath() && !store.get("visited")) { location.replace("#/start"); return; }  // a first visit starts here
   store.set("visited", true);
-  const parsed = Util.parseHash(location.hash), name = parsed.route || "global", arg = parsed.arg;
+  const parsed = Util.parseHash(location.hash || routeFromPath()), name = parsed.route || "global", arg = parsed.arg;
   if (MOVED[name]) { location.replace(MOVED[name]); return; }
   const route = ROUTES[name] ? name : "global";
   Object.assign(NOW, { route, params: parsed.params });
   shareIndicators = () => {};
+  setRouteMeta(route, arg);
   if (cleanup) { try { cleanup(); } catch (e) { console.error(e); } cleanup = null; }
   closeDrawer();
   await dataStatus();

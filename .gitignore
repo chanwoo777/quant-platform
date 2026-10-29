@@ -9,3 +9,4 @@ data/*
 # local secrets and logs
 .streamlit/secrets.toml
 *.log
+.coverage
