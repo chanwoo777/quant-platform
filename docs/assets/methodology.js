@@ -11,7 +11,6 @@
   const frac = (a, b) => `<mfrac>${row(a)}${row(b)}</mfrac>`;
   const sub = (a, b) => `<msub>${row(a)}${row(b)}</msub>`;
   const sup = (a, b) => `<msup>${row(a)}${row(b)}</msup>`;
-  const subsup = (a, b, c) => `<msubsup>${row(a)}${row(b)}${row(c)}</msubsup>`;
   const sqrt = (a) => `<msqrt>${row(a)}</msqrt>`;
   const paren = (...a) => row(mo("("), ...a, mo(")"));
   const math = (...a) => `<math display="block">${row(...a)}</math>`;

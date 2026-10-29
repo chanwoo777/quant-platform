@@ -56,7 +56,8 @@ RAW = an.RegimeParams(trend_confirm_days=1, vol_confirm_days=1)  # day-by-day la
 
 
 def test_classify_regimes_labels():
-    s = lambda *v: pd.Series(v, dtype=float)
+    def s(*v):
+        return pd.Series(v, dtype=float)
     out = an.classify_regimes(
         close=s(110, 110, 90, 101, 110),
         sma_50=s(105, 105, 95, 100.5, np.nan),

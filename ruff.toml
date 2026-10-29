@@ -1,0 +1,3 @@
+# ruff (Python lint), run in CI. The defaults (pyflakes plus pycodestyle errors) with the project's long lines.
+line-length = 200
+extend-exclude = ["data", ".local"]

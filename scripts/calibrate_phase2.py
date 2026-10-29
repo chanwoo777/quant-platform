@@ -451,18 +451,18 @@ def run_relevance() -> None:
         aliases = build_aliases(t, name, DEFAULT_ALIASES.get(t, ()))
         scored.append((relevance_score(row["title"], None, t, aliases, is_research_firm(sic)), int(row["label"]), row))
 
-    print(f"{len(rows)} hand-labelled headlines, {sum(l for _, l, _ in scored)} relevant (title-only scoring)")
+    print(f"{len(rows)} hand-labelled headlines, {sum(lab for _, lab, _ in scored)} relevant (title-only scoring)")
     print("score tiers:", pd.Series([s for s, _, _ in scored]).value_counts().sort_index().to_dict())
     for threshold in (0.4, 0.5, 0.75):
-        tp = sum(s >= threshold and l for s, l, _ in scored)
-        fp = sum(s >= threshold and not l for s, l, _ in scored)
-        fn = sum(s < threshold and l for s, l, _ in scored)
+        tp = sum(s >= threshold and lab for s, lab, _ in scored)
+        fp = sum(s >= threshold and not lab for s, lab, _ in scored)
+        fn = sum(s < threshold and lab for s, lab, _ in scored)
         print(f"threshold {threshold}: precision {tp / (tp + fp):.1%}  recall {tp / (tp + fn):.1%}  (fp={fp}, fn={fn})")
 
     print("\nRemaining errors at 0.5:")
-    for s, l, row in sorted(scored, key=lambda x: (x[1], x[0])):
-        if (s >= 0.5) != bool(l):
-            print(f"  {'FN' if l else 'FP'} {s:.2f} {row['ticker']:<5} {row['title'][:110]}")
+    for s, lab, row in sorted(scored, key=lambda x: (x[1], x[0])):
+        if (s >= 0.5) != bool(lab):
+            print(f"  {'FN' if lab else 'FP'} {s:.2f} {row['ticker']:<5} {row['title'][:110]}")
 
 
 COMMANDS = {"regime": run_regime, "regime-confirm": run_regime_confirm, "regime-stance": run_regime_stance,

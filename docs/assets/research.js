@@ -4,6 +4,7 @@
  * The maths lives in quant.js (Q.riskStats, Q.returnSince, Q.factorRegression, ...), where
  * tests/test_research_js.py checks it against hand calculations.
  */
+/* exported viewCompare, drawCorrelationPanel */  // used by app.js and quantum.js
 "use strict";
 
 const CMP = { syms: null, years: 2, model: "FF3" };
@@ -53,7 +54,6 @@ function windowMetrics(t, bench, ctx) {
   const out = { start: pr.dates[0], end, n: pr.returns.length, ppy, weekly };
   const rf = rfRates(ctx.market, pr.dates, ppy);
   out.rfLabel = rf.label;
-  let benchRets = null;
   if (b && !b.error) {
     const br = periodReturns(b, start, weekly), bm = new Map(br.keys.map((k, i) => [k, br.returns[i]]));
     const pairs = pr.keys.map((k, i) => [pr.returns[i], bm.get(k)]).filter((p) => ok(p[1]));

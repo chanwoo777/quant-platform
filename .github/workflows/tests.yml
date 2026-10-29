@@ -88,3 +88,22 @@ jobs:
           echo "a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb  gitleaks.tar.gz" | sha256sum -c -
           tar -xzf gitleaks.tar.gz gitleaks
           ./gitleaks git . --redact --no-banner --exit-code 1
+
+  lint:
+    # ruff for the Python (ruff.toml) and ESLint for the website's scripts (eslint.config.mjs, no plugins).
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
+        with:
+          node-version: "24"
+
+      - name: ruff
+        run: pipx run ruff==0.12.0 check --output-format github .
+
+      - name: ESLint
+        run: npx --yes eslint@9.20.0 -c eslint.config.mjs docs/assets

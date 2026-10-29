@@ -127,7 +127,7 @@ def rates(macro: pd.DataFrame) -> dict | None:
     if not parts:
         return None
     bp_txt = lambda bp: (f"{bp:+d} bp" if bp else "0 bp").replace("-", "−")  # noqa: E731
-    en = ", ".join(f"{l} {y:.2f}% ({bp_txt(bp)})" for l, _, y, bp, _ in parts)
+    en = ", ".join(f"{label} {y:.2f}% ({bp_txt(bp)})" for label, _, y, bp, _ in parts)
     ko = ", ".join(f"{k} {y:.2f}% ({bp_txt(bp)})" for _, k, y, bp, _ in parts)
     when = max(p[4] for p in parts)
     return {"kind": "rates", "data": data, "en": f"Treasury yields: {en}, as of {when:%Y-%m-%d} (FRED).",

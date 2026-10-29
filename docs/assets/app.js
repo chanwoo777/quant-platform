@@ -5,6 +5,7 @@
  * #/financials/<ticker>, #/compare/<A,B,C>, #/quantum/<section>, #/live/<symbol> (#/bot, the retired paper bot,
  * redirects to #/global). Pretty paths (/stock/AAPL) redirect via 404.html.
  */
+/* exported basketHtml, bindBasket, basketPrices, sameSet */  // used by quantum.js and research.js
 "use strict";
 
 // --- data -----------------------------------------------------------------------------------------
@@ -546,7 +547,6 @@ async function priceHistory(sym, opts) {
   return Object.assign({ values: h.close }, h);
 }
 const ohlcv = (h) => ({ time: h.dates, open: h.open, high: h.high, low: h.low, close: h.close, volume: h.volume });
-const isUSListed = (r) => r && (r.m === "US" || r.m === "US ETFs");
 const usTicker = (sym) => /^[A-Z][A-Z0-9-]{0,6}$/.test(sym) && !sym.endsWith("-USD");
 
 // --- watchlist (per visitor, in this browser) -------------------------------------------------------
@@ -1246,7 +1246,7 @@ async function viewMarkets(view) {
     if (h.error) { el.innerHTML = errorBox(h.error); return; }
     const d = ohlcv(h), start = startFor(d.time[d.time.length - 1], span);
     const i0 = Math.max(0, d.time.findIndex((t) => t >= start));
-    const c = pal(), x = d.time.slice(i0);
+    const x = d.time.slice(i0);
     const shapes = m.stance_runs.filter(([, end]) => end >= x[0]).map(([s, e, stance]) => ({
       type: "rect", xref: "x", yref: "paper", x0: s < x[0] ? x[0] : s, x1: e, y0: 0, y1: 1, line: { width: 0 },
       fillcolor: STANCE[stance], opacity: 0.1, layer: "below" }));

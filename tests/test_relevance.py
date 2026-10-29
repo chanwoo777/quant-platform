@@ -132,7 +132,7 @@ def test_hand_labelled_headlines_regression():
         aliases = build_aliases(t, None, DEFAULT_ALIASES.get(t, ()))
         preds.append(relevance_score(row["title"], None, t, aliases, source_firm=t == "JPM") >= RELEVANCE_THRESHOLD)
         labels.append(row["label"] == "1")
-    tp = sum(p and l for p, l in zip(preds, labels))
+    tp = sum(p and lab for p, lab in zip(preds, labels))
     precision = tp / sum(preds)
     recall = tp / sum(labels)
     assert precision >= 0.97 and recall >= 0.98, (precision, recall)
