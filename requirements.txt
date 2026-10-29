@@ -33,7 +33,8 @@ scipy>=1.11
 APScheduler>=3.10,<4
 
 # --- Phase 5: web dashboard ------------------------------------------------
-streamlit>=1.35
+streamlit>=1.66.1         # 1.66.1 is the first that accepts Pillow 13
+pillow>=13.0               # images: favicon set, metadata checks (12.x has published advisories)
 plotly>=5.20
 
 # --- Dev --------------------------------------------------------------------

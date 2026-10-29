@@ -32,6 +32,7 @@ jobs:
           cache-dependency-path: |
             requirements.txt
             requirements-quantum.txt
+            requirements-lock.txt
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
@@ -43,7 +44,14 @@ jobs:
         run: |
           grep -v -E '^(torch|transformers)\b' requirements.txt > ci-requirements.txt
           python -m pip install --upgrade pip
-          pip install -r ci-requirements.txt -r requirements-quantum.txt
+          pip install -r ci-requirements.txt -r requirements-quantum.txt -c requirements-lock.txt
+
+      - name: Audit Python dependencies (pip-audit)
+        # Known vulnerabilities (PyPI advisory database / OSV) in everything installed above. The website has no
+        # npm dependencies: its two browser libraries are pinned jsDelivr URLs with Subresource Integrity.
+        run: |
+          pip install pip-audit==2.9.0
+          pip-audit --progress-spinner off
 
       - name: Calculation tests, with coverage
         # Every financial calculation against hand-checked values (tests/test_calculations.py) and
