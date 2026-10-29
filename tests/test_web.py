@@ -70,7 +70,7 @@ def test_export_global_writes_screener_and_price_buckets(tmp_path, monkeypatch):
     bucket = json.loads((tmp_path / "sym" / f"{export.bucket('AAA')}.json").read_text(encoding="utf-8"))
     # No price history is published (pages load it in the browser); every fundamental is NaN here, and
     # NaNs are left out.
-    assert bucket["AAA"] == {"i": {}}
+    assert bucket["AAA"]["i"] == {} and bucket["AAA"]["r"]["sc"] == 71.2 and bucket["AAA"]["r"]["sp"] == [0, 50, 99]  # the row, for pages that show a few names
     symbols = json.loads((tmp_path / "symbols.json").read_text(encoding="utf-8"))
     assert symbols == [["AAA", "Aaa Corp", "s", "US"], ["BTC-USD", "Bitcoin", "c", "Crypto"]]
 

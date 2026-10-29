@@ -465,6 +465,11 @@ function screenerExtra() {
 }
 /** Screener row, or an index row shaped like one, or null. */
 async function rowFor(sym) {
+  if (!screener) {  // a page that shows a few names reads their buckets, not the 2.6 MB screener
+    const bucket = await symbolBucket(sym), rec = bucket[sym];
+    if (rec && rec.r) return rec.r.a === "i" ? Object.assign({ sig: "N/A", why: "", sec: "Index" }, rec.r) : rec.r;
+    if (Object.values(bucket).some((x) => x.r)) return null;  // buckets carry rows, and this symbol has none
+  }
   await screenerRows();
   if (screenerBySym.has(sym)) return screenerBySym.get(sym);
   const idx = await load("indices.json").catch(() => []);
@@ -477,11 +482,10 @@ function fnv1a(text) {
   for (const b of new TextEncoder().encode(text)) { h ^= b; h = Math.imul(h, 0x01000193); }
   return h >>> 0;
 }
+const symbolBucket = (sym) => load(`sym/${(fnv1a(sym) % 256).toString(16).padStart(2, "0")}.json`).catch(() => ({}));
 /** {info: fundamentals} from the symbol's bucket. The site publishes no price history: see priceHistory. */
 async function symbolData(sym) {
-  const b = (fnv1a(sym) % 256).toString(16).padStart(2, "0");
-  const bucketData = await load(`sym/${b}.json`).catch(() => ({}));
-  const rec = bucketData[sym];
+  const rec = (await symbolBucket(sym))[sym];
   return rec ? { info: rec.i || {} } : null;
 }
 async function isDeep(sym) { return (await load("meta.json")).deep.some((t) => t.ticker === sym); }
@@ -784,7 +788,14 @@ async function viewGlobal(view) {
   window.addEventListener("screenerextra", onExtra);
   window.onRouteCleanup(() => { window.removeEventListener("watchchange", onWatch); window.removeEventListener("screenerextra", onExtra); });
   drawGlobal();
-  screenerExtra();
+  // The sparklines and reasons (3 MB) load when the table comes into view, or at the visitor's first scroll or touch
+  const body = $("#g-body", view), events = ["scroll", "pointerdown", "keydown", "touchstart"];
+  const io = "IntersectionObserver" in window ? new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) go(); }, { rootMargin: "200px" }) : null;
+  const stop = () => { if (io) io.disconnect(); events.forEach((t) => window.removeEventListener(t, go)); };
+  function go() { stop(); screenerExtra(); }
+  if (io && body) io.observe(body);
+  events.forEach((t) => window.addEventListener(t, go, { passive: true }));
+  window.onRouteCleanup(stop);
 }
 
 /** Tonight's rule-based brief (quant/web/brief.py), with the last 30 a click away. */
@@ -1048,6 +1059,7 @@ function withAlpha(hex, a) {
   const n = parseInt(hex.slice(1), 16);
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
 }
+const ANY_BARS = { close: [], high: [], low: [], volume: [] };  // chip state before a page's prices arrive
 function indicatorChipsHtml(d) {
   const fit = (i) => (i.id === "volume" ? !!d.volume : Q.indicatorFits(i, d));
   return [["Overlays", "overlay"], ["Oscillators", "pane"]].map(([label, kind]) => `<div class="control"><span class="label">${label}</span>
@@ -1128,7 +1140,9 @@ async function viewMarkets(view) {
   indicatorsFromUrl(p);
   const toUrl = () => setPageParams("markets", { span: [...M.span][0], news: [...M.scope][0] === "All" ? "" : [...M.scope][0], ind: indicatorsParam() });
   shareIndicators = toUrl;
-  const [m, spx] = await Promise.all([load("market.json"), priceHistory("^GSPC").catch((e) => ({ error: e.message }))]);
+  const spxLoad = priceHistory("^GSPC").catch((e) => ({ error: e.message }));
+  const m = await load("market.json");
+  let spx = null;  // the daily S&P 500 bars, once they arrive
   const reg = m.regime;
   const stanceClass = { "Risk-On": "good", Neutral: "warn", "Risk-Off": "bad" }[reg.stance] || "";
   const tiles = m.fred.map((t) => {
@@ -1158,9 +1172,9 @@ async function viewMarkets(view) {
     </div>
     <div id="w-table"></div>
     <div class="controls"><div class="control"><span class="label">Range</span>${chips("span", [["6M", "6M"], ["1Y", "1Y"], ["2Y", "2Y"], ["10Y", "10Y (weekly)"]], M.span, false)}</div></div>
-    <div class="controls" style="margin-top:0">${indicatorChipsHtml(spx.error ? { close: [] } : ohlcv(spx))}</div>
-    <div class="chart-title">S&amp;P 500 with regime stance ${mq("stance")}${fresh(pxSrc(spx), "deep-prices")}</div>
-    <div class="chart" id="m-spx">${spx.error ? errorBox(spx.error) : '<div class="loading">Loading prices…</div>'}</div>
+    <div class="controls" style="margin-top:0" id="m-ind">${indicatorChipsHtml(ANY_BARS)}</div>
+    <div class="chart-title">S&amp;P 500 with regime stance ${mq("stance")}<span id="m-px-fresh"></span></div>
+    <div class="chart" id="m-spx" style="min-height:400px"><div class="loading">Loading prices…</div></div>
     <p class="caption">Prices load in your browser from CNBC: daily bars for two years, weekly bars for ten (indicator lengths then count weeks).</p>
     <h2>Economic indicators (FRED) ${mq("fred-tiles")}${fresh("fred")}</h2>
     <div class="grid g5" id="m-fred">${tiles}</div>
@@ -1169,6 +1183,7 @@ async function viewMarkets(view) {
   const drawSpx = async () => {
     toUrl();
     const span = [...M.span][0], el = $("#m-spx");
+    if (!spx || !el) return;
     let h = spx;
     if (span === "10Y") try { h = await priceHistory("^GSPC", { weekly: true }); } catch (e) { h = { error: e.message }; }
     if (h.error) { el.innerHTML = errorBox(h.error); return; }
@@ -1207,13 +1222,22 @@ async function viewMarkets(view) {
   bindChips(view, "span", M.span, false, drawSpx);
   bindIndicatorChips(view, drawSpx);
   bindChips(view, "scope", M.scope, false, drawNews);
-  await drawWatchlist();
-  screenerExtra().then(() => drawWatchlist());
-  drawSpx(); drawNews();
+  drawNews();
+  drawWatchlist().then(() => { if (screener) screenerExtra().then(() => drawWatchlist()); });  // bucket rows carry sparklines already
+  spx = await spxLoad;
+  const ind = $("#m-ind", view), badge = $("#m-px-fresh", view);
+  if (!ind || !ind.isConnected) return;  // the visitor moved on
+  ind.innerHTML = indicatorChipsHtml(spx.error ? { close: [] } : ohlcv(spx));
+  bindIndicatorChips(ind, drawSpx);
+  badge.innerHTML = fresh(pxSrc(spx), "deep-prices");
+  if (spx.error) $("#m-spx", view).innerHTML = errorBox(spx.error);
+  else drawSpx();
 }
 
 async function drawWatchlist() {
   const list = await watchlist();
+  const pending = $("#w-table");
+  if (pending && !pending.innerHTML) pending.innerHTML = '<div class="loading small">Loading your watchlist…</div>';
   const rows = await Promise.all(list.map(async (s) => (await rowFor(s)) || { s, n: "(no longer in the universe)", missing: true }));
   const el = $("#w-table");
   if (!el) return;
@@ -1286,10 +1310,11 @@ async function viewStockDeep(view, ticker) {
   if (p.layers !== undefined) { S.layers.clear(); Object.entries(LAYER_KEYS).forEach(([k, v]) => { if (Util.listParam(p.layers).includes(v)) S.layers.add(k); }); }
   const toUrl = () => setPageParams("stock", { span: [...S.span][0], layers: [...S.layers].map((k) => LAYER_KEYS[k]).join(",") || "none", ind: indicatorsParam() }, ticker);
   shareIndicators = toUrl;
-  const [d, h] = await Promise.all([load(`deep/${ticker.replace("^", "_")}.json`), priceHistory(ticker).catch((e) => ({ error: e.message }))]);
-  Object.assign(d, h.error ? { d: [], o: [], h: [], l: [], c: [], v: null } : { d: h.dates, o: h.open, h: h.high, l: h.low, c: h.close, v: h.volume, src: h.source });
-  const n = d.c.length, snap = d.snapshot;
-  const chg = n > 1 ? d.c[n - 1] / d.c[n - 2] - 1 : null;
+  const pxLoad = priceHistory(ticker).catch((e) => ({ error: e.message }));
+  const d = await load(`deep/${ticker.replace("^", "_")}.json`);
+  Object.assign(d, { d: [], o: [], h: [], l: [], c: [], v: null });
+  let h = null;  // the browser-loaded daily bars, once they arrive
+  const snap = d.snapshot;
   const spread = snap.sma_200 ? snap.sma_50 / snap.sma_200 - 1 : null;
   const rsi = snap.rsi_14;
   view.innerHTML = `
@@ -1298,18 +1323,18 @@ async function viewStockDeep(view, ticker) {
       <div class="control"><span class="label">Range</span>${chips("span", ["3M", "6M", "1Y", "All"].map((s) => [s, s]), S.span, false)}</div>
       <div class="control"><span class="label">Annotations</span>${chips("layers", ["News", "Unusual moves"].map((s) => [s, s]), S.layers)}</div>
     </div>
-    <div class="controls" style="margin-top:0">${indicatorChipsHtml(deepSeries(d))}</div>
+    <div class="controls" style="margin-top:0" id="s-ind">${indicatorChipsHtml(ANY_BARS)}</div>
     <div class="grid g5">
-      ${kpi("Close", num(snap.close, 2), `${signed(chg, 2)} · ${esc(snap.date)}`)}
+      ${kpi("Close", num(snap.close, 2), `<span id="s-chg"></span>${esc(snap.date)}`)}
       ${kpi("50 vs 200-day MA", pct(spread), spread > 0 ? '<span class="pos">golden-cross alignment</span>' : '<span class="neg">death-cross alignment</span>')}
       ${kpi("RSI (14)", num(rsi, 0), rsi >= 70 ? "overbought" : rsi <= 30 ? "oversold" : "neutral", "", "indicators")}
       ${kpi("Momentum 12-1", d.score ? pct(d.score.momentum_12_1, 0) : "–", "", "Return from 12 months to 1 month ago (Jegadeesh & Titman 1993)", "deep-scores")}
       ${kpi("Factor score", d.score ? `${num(d.score.composite, 0)}/100` : "–", d.score ? `rank ${d.score.rank} of ${d.score.of}` : "", "", "deep-scores")}
     </div>
     <div class="chart-title" id="s-title" data-nofresh></div>
-    <div class="chart" id="s-chart" style="min-height:640px">${h.error ? errorBox(h.error) : '<div class="loading">Drawing the chart…</div>'}</div>
+    <div class="chart" id="s-chart" style="min-height:640px"><div class="loading">Loading prices…</div></div>
     <p class="caption">Candles: blue up, red down. ▲ / ▼ / ● news markers = bullish / bearish / neutral FinBERT average of on-topic headlines,
-      placed on the session they first affected. ★ = unusual move; hover for the explanation. ${h.error ? "" : `About two years of daily bars, loaded in your browser from ${esc(h.source)}.`}</p>
+      placed on the session they first affected. ★ = unusual move; hover for the explanation. <span id="s-src"></span></p>
     <details><summary>Indicator readings ${mq("indicators")}</summary><ul class="reasons">${(snap.readings || []).map((r) => `<li>${esc(r)}</li>`).join("")}</ul></details>
     <div class="grid g2">
       <div><h2>Unusual moves ${mq("explained-moves")}${fresh("deep-prices", "news")}</h2>${table([
@@ -1330,10 +1355,20 @@ async function viewStockDeep(view, ticker) {
       ], d.news, { tall: true, empty: "No on-topic headlines for this ticker yet." })}</div>
     </div>`;
   bindAssetHeader(view, ticker, "stock");
-  const draw = () => { toUrl(); if (!h.error) drawStockChart(d); };
+  const draw = () => { toUrl(); if (h && !h.error && $("#s-chart")) drawStockChart(d); };
   bindChips(view, "span", S.span, false, draw);
   bindChips(view, "layers", S.layers, true, draw);
   bindIndicatorChips(view, draw);
+  h = await pxLoad;
+  const ind = $("#s-ind", view);
+  if (!ind || !ind.isConnected) return;  // the visitor moved on
+  if (h.error) { $("#s-chart", view).innerHTML = errorBox(h.error); ind.innerHTML = indicatorChipsHtml({ close: [] }); return; }
+  Object.assign(d, { d: h.dates, o: h.open, h: h.high, l: h.low, c: h.close, v: h.volume, src: h.source });
+  const n = d.c.length;
+  if (n > 1) $("#s-chg", view).innerHTML = `${signed(d.c[n - 1] / d.c[n - 2] - 1, 2)} · `;
+  $("#s-src", view).textContent = `About two years of daily bars, loaded in your browser from ${h.source}.`;
+  ind.innerHTML = indicatorChipsHtml(deepSeries(d));
+  bindIndicatorChips(ind, draw);
   draw();
 }
 
@@ -1373,29 +1408,31 @@ async function viewStockUniverse(view, sym, row) {
   if (p.span) setOne(U.span, Util.oneOf(p.span, ["3M", "6M", "1Y", "All"], "1Y"));
   const toUrl = () => setPageParams("stock", { span: [...U.span][0], ind: indicatorsParam() }, sym);
   shareIndicators = toUrl;
-  const [sd, px] = await Promise.all([symbolData(sym), priceHistory(sym).catch((e) => ({ error: e.message }))]);
-  const info = (sd && sd.info) || {}, err = px.error;
-  const vals = err ? [] : px.close;
-  const n = vals.length;
-  const ma50 = Q.sma(vals, 50), ma200 = Q.sma(vals, 200), rsi = Q.rsi(vals, 14);
-  const last = n ? vals[n - 1] : null, chg = n > 1 ? vals[n - 1] / vals[n - 2] - 1 : null;
-  const spread = n && ma200[n - 1] ? ma50[n - 1] / ma200[n - 1] - 1 : null;
+  const pxLoad = priceHistory(sym).catch((e) => ({ error: e.message }));
+  const sd = await symbolData(sym);
+  const info = (sd && sd.info) || {};
+  /** The headline tiles: from the browser-loaded bars once they arrive, from tonight's screener row until then. */
+  const tiles = (px) => {
+    const vals = px && !px.error ? px.close : [], n = vals.length;
+    const ma50 = Q.sma(vals, 50), ma200 = Q.sma(vals, 200), rsiAll = Q.rsi(vals, 14);
+    const last = n ? vals[n - 1] : null, chg = n > 1 ? vals[n - 1] / vals[n - 2] - 1 : null;
+    const spread = n && ma200[n - 1] ? ma50[n - 1] / ma200[n - 1] - 1 : null, rsi = n ? rsiAll[n - 1] : row.rsi;
+    return `${kpi("Last close", num(last ?? row.px, (last ?? row.px) >= 1000 ? 0 : 2), `${signed(chg ?? row.r1d, 2)}${n ? " · " + esc(px.dates[n - 1]) : ""}`)}
+      ${kpi("50 vs 200-day MA", pct(spread), spread == null ? "" : spread > 0 ? '<span class="pos">golden-cross alignment</span>' : '<span class="neg">death-cross alignment</span>')}
+      ${kpi("RSI (14)", num(rsi, 0), ok(rsi) ? (rsi >= 70 ? "overbought" : rsi <= 30 ? "oversold" : "neutral") : "", "", "indicators")}
+      ${kpi("Momentum 12-1", pct(row.m121, 0), "", "Return from 12 months to 1 month ago", "momentum")}
+      ${kpi("Composite score", ok(row.sc) ? `${num(row.sc, 0)}/100` : "–", `<span class="sig-${esc(row.sig)}">${SIGNAL[row.sig] || "–"}</span>`)}`;
+  };
   const sub = assetSub(row, info);
   view.innerHTML = `
     ${assetHeader(sym, row.n, sub, "stock")}
     <div class="controls">
       <div class="control"><span class="label">Range</span>${chips("uspan", ["3M", "6M", "1Y", "All"].map((s) => [s, s]), U.span, false)}</div>
     </div>
-    <div class="controls" style="margin-top:0">${indicatorChipsHtml(err ? { close: [] } : ohlcv(px))}</div>
-    <div class="grid g5">
-      ${kpi("Last close", num(last ?? row.px, (last ?? row.px) >= 1000 ? 0 : 2), `${signed(chg ?? row.r1d, 2)}${err ? "" : " · " + esc(px.dates[n - 1])}`)}
-      ${kpi("50 vs 200-day MA", pct(spread), spread == null ? "" : spread > 0 ? '<span class="pos">golden-cross alignment</span>' : '<span class="neg">death-cross alignment</span>')}
-      ${kpi("RSI (14)", num(rsi[n - 1], 0), ok(rsi[n - 1]) ? (rsi[n - 1] >= 70 ? "overbought" : rsi[n - 1] <= 30 ? "oversold" : "neutral") : "", "", "indicators")}
-      ${kpi("Momentum 12-1", pct(row.m121, 0), "", "Return from 12 months to 1 month ago", "momentum")}
-      ${kpi("Composite score", ok(row.sc) ? `${num(row.sc, 0)}/100` : "–", `<span class="sig-${esc(row.sig)}">${SIGNAL[row.sig] || "–"}</span>`)}
-    </div>
-    <div class="chart-title">${esc(sym)} · daily${err ? "" : ` · ${esc(px.source)}, loaded in your browser`}${fresh(pxSrc(px))}</div>
-    <div class="chart" id="u-chart" style="min-height:460px">${err ? errorBox(err) : '<div class="loading">Drawing the chart…</div>'}</div>
+    <div class="controls" style="margin-top:0" id="u-ind">${indicatorChipsHtml(ANY_BARS)}</div>
+    <div class="grid g5" id="u-tiles">${tiles(null)}</div>
+    <div class="chart-title" id="u-title">${esc(sym)} · daily</div>
+    <div class="chart" id="u-chart" style="min-height:460px"><div class="loading">Loading prices…</div></div>
     ${dqNote(row.dq)}
     <div id="why-note">${whyNote(row)}</div>
     <div class="grid g2">
@@ -1414,10 +1451,19 @@ async function viewStockUniverse(view, sym, row) {
     </div>`;
   bindAssetHeader(view, sym, "stock");
   if (row.why === undefined) screenerExtra().then(() => { const n = $("#why-note", view); if (n) n.innerHTML = whyNote(row); });
-  const draw = () => { toUrl(); if (!err) indicatorChart($("#u-chart"), ohlcv(px), [...U.span][0], { candles: true, height: 460, rangebreaks: row.a !== "c" }); };
+  let px = null;  // the browser-loaded daily bars, once they arrive
+  const draw = () => { toUrl(); if (px && !px.error && $("#u-chart")) indicatorChart($("#u-chart"), ohlcv(px), [...U.span][0], { candles: true, height: 460, rangebreaks: row.a !== "c" }); };
   bindChips(view, "uspan", U.span, false, draw);
   bindIndicatorChips(view, draw);
-  draw();
+  px = await pxLoad;
+  const ind = $("#u-ind", view);
+  if (!ind || !ind.isConnected) return;  // the visitor moved on
+  ind.innerHTML = indicatorChipsHtml(px.error ? { close: [] } : ohlcv(px));
+  bindIndicatorChips(ind, draw);
+  $("#u-tiles", view).innerHTML = tiles(px);
+  $("#u-title", view).innerHTML = `${esc(sym)} · daily${px.error ? "" : ` · ${esc(px.source)}, loaded in your browser`}${fresh(pxSrc(px))}`;
+  if (px.error) $("#u-chart", view).innerHTML = errorBox(px.error);
+  else draw();
 }
 
 /** A ticker outside the universe: suggestions, plus a live lookup when a Finnhub key is set. */

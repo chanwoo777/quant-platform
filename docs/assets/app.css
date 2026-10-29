@@ -572,7 +572,7 @@ button.dl:hover { color: var(--accent); border-color: var(--accent); }
 
 /* --- layout held steady while data arrives (no content jumping: CLS) ------------------------ */
 html.i18n-wait body { visibility: hidden; }
-main#view { min-height: calc(100vh - 56px); }
+main#view { min-height: calc(100vh - 56px); display: flow-root; }  /* a page's first margin stays inside, so the page doesn't shift when it renders */
 .reserve-watch { min-height: 118px; }
 .reserve-screener { min-height: 1100px; }
 .st-mini { min-height: 2.6em; }
@@ -630,3 +630,6 @@ math[display="block"] { display: block; max-width: 100%; overflow-x: auto; overf
 .pe-msg { flex: 1 1 220px; }
 .loading.small { padding: 14px 0; font-size: 0.86rem; }
 .loading-inline { color: var(--text-faint); }
+
+/* Live chart on phones: the price, change and badge wrap to a second line once they arrive, so it is kept from the start */
+@media (max-width: 640px) { .pc-title { min-height: 70px; align-content: flex-start; } }

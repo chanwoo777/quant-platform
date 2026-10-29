@@ -294,7 +294,7 @@
         </div>
         <div class="pc-toolbar">
           <div id="pc-search" style="width:160px">${searchBox("Symbol")}</div>
-          <div class="pc-group" id="pc-int"></div>
+          <div class="pc-group" id="pc-int">${FEED_INTERVALS[feed].map((i) => `<button type="button" class="chip${i === iv ? " on" : ""}" data-v="${i}">${LABEL[i] || i}</button>`).join("")}</div>
           <select id="pc-type" title="Chart type">${CHART_TYPES.map((t) => `<option${t === state.type ? " selected" : ""}>${t}</option>`).join("")}</select>
           <button class="btn" id="pc-ind" type="button" title="Indicators (/)">ƒx Indicators</button>
           <button class="btn" id="pc-books" type="button" title="Indicator sets of famous traders and investors">★ Investor playbooks</button>
@@ -343,7 +343,6 @@
       calendar: feed === "binance", expect: isIntraday(iv) ? 1 : 5 });
     current = pc;
     window.onRouteCleanup(() => { if (current) { current.destroy(); current = null; } });
-    $("#pc-int").innerHTML = FEED_INTERVALS[feed].map((i) => `<button type="button" class="chip${i === iv ? " on" : ""}" data-v="${i}">${LABEL[i] || i}</button>`).join("");
     const switchTo = (next) => { store.set(ivKey, next); NOW.params = { iv: next, type: state.type }; view(el, r.sym); };
     el.querySelectorAll("#pc-int .chip").forEach((b) => b.addEventListener("click", () => switchTo(b.dataset.v)));
     pc.onInterval = (next) => { if (FEED_INTERVALS[feed].includes(next)) switchTo(next); };

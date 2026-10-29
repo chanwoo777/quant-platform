@@ -15,8 +15,9 @@ visitor's browser instead (docs/assets/live.js, dailyHistory). Files written to 
                   table first draws (they were over half of the compressed screener)
   indices.json    the market-regime benchmark indices with returns and trend
   symbols.json    [symbol, name, class, market] for search and autocomplete
-  sym/<xx>.json   per symbol: fundamentals and risk statistics, in 256 buckets keyed by
-                  FNV-1a(symbol), so any ticker's page loads one small file
+  sym/<xx>.json   per symbol: its screener row (with sparkline and reason), fundamentals and risk
+                  statistics, in 256 buckets keyed by FNV-1a(symbol), so a ticker's page or the
+                  watchlist loads a few small files instead of the whole screener
   factors.json    daily Fama-French factors (FF3, momentum, FF5) for in-browser regressions
   market.json     regime and its stance history, FRED tiles, the 3-month T-bill rate,
                   watchlist movers, news
@@ -247,8 +248,10 @@ def export_global(out: Path, flags: dict[str, list[str]] | None = None) -> dict:
     info = scores.drop_duplicates("symbol").set_index("symbol")
     fetched = fundamentals_dates()
     buckets: dict[str, dict] = {}
+    row_of = {r[0]: dict(zip(SCREENER_COLS, r)) for r in rows}
+    row_of.update({i["s"]: i for i in indices if i["s"] not in row_of})
     for sym in list(scores.symbol) + [i["s"] for i in indices]:
-        entry: dict = {}
+        entry: dict = {"r": row_of[sym]} if sym in row_of else {}
         if sym in info.index:
             row = info.loc[sym]
             fields = {k: clean(row[col]) for k, col in INFO_FIELDS.items() if col in row.index}
