@@ -176,9 +176,16 @@ SCREENER_COLS = [
 ANALYST_REASON = re.compile(r"analysts [A-Z][A-Za-z]*(?: [A-Z][A-Za-z]*)* \(\d+(?:\.\d+)?\)")
 
 
+# The scoring module's reason heads are trading words; the site shows neutral ones (the signal codes are unchanged).
+NEUTRAL_HEADS = (("Buy candidate:", "Positive signal:"), ("Hold / watch:", "Neutral signal:"), ("Avoid:", "Negative signal:"),
+                 (" New buys paused:", " Positive labels paused:"))
+
+
 def public_reason(text, analysts) -> str | None:
     if not isinstance(text, str):
         return None
+    for old, new in NEUTRAL_HEADS:
+        text = text.replace(old, new)
     if pd.notna(analysts):
         return ANALYST_REASON.sub(f"analysts {analysts:.0f}/100", text)
     return re.sub(r"\s*;\s*([;.])", r"\1", ANALYST_REASON.sub("", text)).replace(": ;", ":").strip(" ;")
@@ -592,7 +599,7 @@ SEO_PAGES = {
     "live": ("Live chart", "A TradingView-style live chart for stocks, ETFs, indices and coins, with indicators, drawing tools and price alerts."),
     "methodology": ("Methodology", "How every score, signal and metric on the site is calculated, with the formula, the inputs, the limits and the code."),
     "status": ("Data status", "What the nightly job loaded, from where, how fresh it is, and what its data-quality checks found."),
-    "track-record": ("Signal track record", "How the BUY / HOLD / AVOID labels did over the next 5, 20 and 60 trading days, from an append-only log."),
+    "track-record": ("Signal track record", "How the positive / neutral / negative signal labels did over the next 5, 20 and 60 trading days, from an append-only log."),
     "changelog": ("Changelog", "Every feature and fix, from the repository's commit messages, with methodology changes highlighted."),
 }
 

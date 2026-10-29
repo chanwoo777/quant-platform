@@ -31,3 +31,20 @@ def test_no_other_disclaimer_wording():
         text = BLOCK.sub("", f.read_text(encoding="utf-8"))
         text = re.sub(r'<meta [^>]*>', "", text).replace(f'const DISCLAIMER = "{TEXT}";', "")
         assert not re.search(r"investment advice", text, re.I), f.name
+
+
+def test_no_trading_instructions_in_the_interface():
+    # The data keeps BUY / HOLD / AVOID as codes; the page shows Positive / Neutral / Negative and never tells anyone to trade.
+    banned = re.compile(r"▲ BUY|● HOLD|▼ AVOID|Buy candidate|BUY / HOLD / AVOID labels|\byou should\b|\bbuy now\b|\bsell now\b", re.I)
+    for f in [*DOCS.glob("*.html"), *(DOCS / "assets").glob("*.js")]:
+        if f.name.startswith("i18n."):
+            continue
+        hits = banned.findall(f.read_text(encoding="utf-8"))
+        assert not hits, (f.name, hits)
+
+
+def test_risk_and_delay_notes_are_shown():
+    app = (DOCS / "assets" / "app.js").read_text(encoding="utf-8")
+    assert app.count("${riskNote()}") >= 3 and "riskNote()" in (DOCS / "assets" / "trust.js").read_text(encoding="utf-8")
+    assert 'class="delay-note"' in app and 'class="delay-note"' in (DOCS / "assets" / "live.js").read_text(encoding="utf-8")
+    assert "not a trading signal" in (DOCS / "assets" / "quantum.js").read_text(encoding="utf-8")

@@ -39,7 +39,7 @@
       <div class="grid g4 st-more-links">
         ${[["#/global", "Global screener", "Every stock ≥ $1B, liquid ETF and top coin, with tonight's daily brief"],
            ["#/live/BTCUSDT", "Live chart", "A TradingView-style chart with indicators, drawing tools and price alerts"],
-           ["#/track-record", "Signal track record", "How the BUY / HOLD / AVOID labels did afterwards, logged live"],
+           ["#/track-record", "Signal track record", "How the positive / neutral / negative signal labels did afterwards, logged live"],
            ["#/methodology", "Methodology", "How every number is calculated, with the formula and the code"]].map(([h, t, d]) =>
           `<a class="card st-link" href="${h}"><b>${esc(t)}</b><span class="soft">${esc(d)}</span></a>`).join("")}
       </div>

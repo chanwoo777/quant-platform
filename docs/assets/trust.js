@@ -105,7 +105,7 @@
     const tonight = t.tonight || {};
     view.innerHTML = `
       <h1>Signal track record</h1>
-      <p class="soft">Every night the job appends that night's BUY / HOLD / AVOID labels to a log that is never rewritten, then measures what each label's names
+      <p class="soft">Every night the job appends that night's positive / neutral / negative signal labels to a log that is never rewritten, then measures what each label's names
         did over the next 5, 20 and 60 trading days against their market's index. The log started on <b>${esc(t.start || "–")}</b>: there is no backfilled
         history, so nothing here was computed with hindsight. ${SIGNAL_NOTE}</p>
       ${few ? `<div class="note dq-note"><b>Too few observations to judge.</b> At least one row below has fewer than ${min} signal dates whose horizon has passed.
@@ -130,14 +130,15 @@
           { h: "Hit rate", r: 1, f: (s) => (ok(per[s].hit_rate) ? `${num(100 * per[s].hit_rate, 0)}%` : "–") },
           { h: "Hit means", cls: "wrap-text", f: (s) => esc(per[s].hit_rule || (s === "AVOID" ? "underperformed its benchmark" : "beat its benchmark")) },
           { h: "Signal dates", f: (s) => (per[s].first ? `${esc(per[s].first)} to ${esc(per[s].last)}` : "none matured yet") },
-        ], SIG_ORDER)}`).join("")}
+        ], SIG_ORDER)}
+        ${riskNote()}`).join("")}
       <p class="caption">${esc(t.method || "")}</p>
       <h2>The log, day by day${fresh("track")}</h2>
       <p class="caption">Each day's file is written once and never changed. Its SHA-256 is recorded with the hash of the previous line, so editing any earlier day
         breaks the chain. The latest ${(t.published_days || []).length} days' signals (without prices) can be downloaded.</p>
       ${table([
-        { h: "Signal date", f: (d) => esc(d.date) }, { h: "BUY", r: 1, f: (d) => num(d.buy, 0) }, { h: "HOLD", r: 1, f: (d) => num(d.hold, 0) },
-        { h: "AVOID", r: 1, f: (d) => num(d.avoid, 0) }, { h: "Logged at", f: (d) => esc(String(d.logged_at || "").replace("T", " ").slice(0, 16)) },
+        { h: "Signal date", f: (d) => esc(d.date) }, { h: "Positive", r: 1, f: (d) => num(d.buy, 0) }, { h: "Neutral", r: 1, f: (d) => num(d.hold, 0) },
+        { h: "Negative", r: 1, f: (d) => num(d.avoid, 0) }, { h: "Logged at", f: (d) => esc(String(d.logged_at || "").replace("T", " ").slice(0, 16)) },
         { h: "SHA-256", f: (d) => `<code translate="no" title="${esc(d.sha256)}">${esc(String(d.sha256).slice(0, 12))}…</code>` },
         { h: "Signals", f: (d) => ((t.published_days || []).includes(d.date) ? `<a href="data/track/signals_${esc(d.date)}.csv" download>CSV</a>` : "–") },
       ], [...(t.days || [])].reverse(), { tall: true, empty: "Nothing logged yet." })}`;

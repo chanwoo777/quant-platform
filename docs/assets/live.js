@@ -129,7 +129,7 @@
       if (r.feed === "binance") {
         const res = await fetch(`${BINANCE_REST}/klines?symbol=${r.pair}&interval=${iv}&limit=1000`, { signal: timeoutSignal(15000) });
         if (res.status === 400) throw new Error(`Binance has no ${r.pair} pair`);
-        if (!res.ok) throw new Error(`Binance HTTP ${res.status}`);
+        if (!res.ok) { console.warn("Binance", res.status); throw new Error("Binance didn't return prices right now"); }
         return (await res.json()).map((k) => ({ t: Math.floor(k[0] / 1000), open: +k[1], high: +k[2], low: +k[3], close: +k[4], volume: +k[5] }));
       }
       const json = await getJSON(`${CNBC_CHART}${CNBC_RANGE[iv]}.json?symbol=${encodeURIComponent(r.cnbc)}`);
@@ -232,7 +232,8 @@
         status("live", "Live · CNBC · updates every 15 s");
       } catch (e) {
         wait = Math.min(wait * 2, 240000);
-        status("err", e.throttled ? `CNBC is throttling requests; retrying in ${Math.round(wait / 1000)} s` : `Update failed (${e.message}); retrying`);
+        if (!e.throttled) console.warn("CNBC update", e);
+        status("err", e.throttled ? `CNBC is throttling requests; retrying in ${Math.round(wait / 1000)} s` : "Update failed; retrying");
       }
       timer = setTimeout(tick, wait);
     };
@@ -318,6 +319,8 @@
           </div>
         </div>
         <p class="caption" id="pc-foot"></p>
+        <p class="delay-note" role="note">Data delay: quotes come straight from CNBC or Binance and can be delayed by the source (stock quotes often by 15 minutes
+          or more). Not for trading.</p>
         <div class="card pc-alerts" id="pc-alerts" data-sym="${esc(r.sym)}"></div>
         <div id="pc-watch" data-watch-panel="live"></div>
       </div>`;
@@ -329,7 +332,7 @@
       await loadScript(LWC_URL, "LightweightCharts");
       bars = await FEEDS.history(r, iv);
     } catch (e) {
-      const msg = e.throttled ? "CNBC is throttling requests right now; try again in a minute." : e.message;
+      const msg = e.throttled ? "CNBC is throttling requests right now; try again in a minute." : publicError(e.message);
       $("#pc-chart").innerHTML = `${errorBox(msg, () => view(el, r.sym))}${r.row ? `<br><a href="#/stock/${encodeURIComponent(r.sym)}">The stock page</a> still has its scores and returns.` : ""}</div>`;
       setStatus("err", msg);
       $("#pc-fresh").innerHTML = fresh({ provider: r.feed === "binance" ? "Binance" : "CNBC", label: "Live chart", error: msg });

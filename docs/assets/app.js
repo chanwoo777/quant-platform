@@ -82,8 +82,11 @@ function money(x, d = 0) {
 }
 const tone = (x) => (!ok(x) ? "" : x > 0 ? "pos" : x < 0 ? "neg" : "");
 const toneMark = { bullish: "▲ bullish", bearish: "▼ bearish", neutral: "● neutral" };
-const SIGNAL = { BUY: "▲ BUY", HOLD: "● HOLD", AVOID: "▼ AVOID", "N/A": "–" };
-const SIGNAL_NOTE = "BUY / HOLD / AVOID are mechanical labels from ranking past data against peers: not recommendations, and not predictions of returns.";
+// The data keeps its codes (BUY / HOLD / AVOID); the page shows neutral words, never an instruction to trade.
+const SIGNAL = { BUY: "▲ Positive", HOLD: "● Neutral", AVOID: "▼ Negative", "N/A": "–" };
+const SIGNAL_NOTE = "Positive / Neutral / Negative are mechanical signal labels from ranking past data against peers: not recommendations, and not predictions of returns.";
+const RISK_NOTE = "Scores and signals describe past data. They are not advice, and past performance does not predict future results.";
+const riskNote = () => `<p class="risk-note" role="note">${RISK_NOTE}</p>`;
 const CLASS_NAME = { s: "Stock", e: "ETF", c: "Crypto", i: "Index" };
 const signed = (x, d = 2) => `<span class="${tone(x)}">${pct(x, d)}</span>`;
 /** A small "?" link to a metric's section on the Methodology page. */
@@ -129,7 +132,17 @@ const retries = new Map();
 let retryId = 0;
 /** An error panel with a "Try again" button; `retry` re-runs just that panel (default: the whole page).
  * Failed downloads aren't cached (load, dailyHistory), so trying again really fetches again. */
+/** What a visitor sees for an error: our own readable messages pass through; anything with a file path, an
+ * HTTP status, a URL or a stack frame becomes a plain sentence, and the detail goes to the console. */
+function publicError(message) {
+  const s = String(message || "");
+  if (/timed? ?out|TimeoutError|aborted/i.test(s)) { console.warn(s); return "The request timed out. Try again in a moment."; }
+  if (/Failed to fetch|NetworkError|Load failed|ERR_[A-Z_]+/i.test(s)) { console.warn(s); return "Couldn't reach the data source. Check your connection and try again."; }
+  if (/HTTP \d{3}|\.json\b|\.js\b|https?:\/\/|\bat \S+ \(|[A-Za-z]:\\|\/[a-z_]+\/[a-z_]+\.py/i.test(s)) { console.warn(s); return "This data couldn't be loaded right now. Try again in a moment."; }
+  return s;
+}
 function errorBox(message, retry = null) {
+  message = publicError(message);
   const id = String(++retryId);
   retries.set(id, retry || (() => render()));
   if (retries.size > 200) retries.delete(retries.keys().next().value);
@@ -358,7 +371,7 @@ document.addEventListener("click", (e) => {
   const b = e.target.closest && e.target.closest("button.dl");
   if (!b) return;
   const el = b.parentElement.nextElementSibling;
-  if (b.hasAttribute("data-png")) downloadPng(el).catch((err) => toast(`Couldn't make the image: ${err.message}`));
+  if (b.hasAttribute("data-png")) downloadPng(el).catch((err) => { console.warn(err); toast("Couldn't make the image. Try again in a moment."); });
   else downloadPanel(el);
 });
 function watchPanels() {
@@ -783,6 +796,7 @@ async function viewGlobal(view) {
     <p class="caption">${counts.s.toLocaleString()} stocks ≥ $1B in 21 markets · ${counts.e.toLocaleString()} liquid US-listed ETFs ·
       ${counts.c.toLocaleString()} coins · scored ${esc(g.scored_at.slice(0, 16).replace("T", " "))} UTC. Click a row for its chart and the reasons behind its signal.
       ${SIGNAL_NOTE}</p>
+    <p class="delay-note" role="note">Data delay: prices are the last daily closes from the nightly export, so they can be a day or more old, and sources can revise them. Not for trading.</p>
     <div id="g-brief"></div>
     <div id="g-watch" class="reserve-watch" data-watch-panel="stock"><div class="card wl-panel"><div class="loading small">Loading your watchlist…</div></div></div>
     <h2>Market regimes ${mq("regimes-global")}${fresh("scores", "yahoo-prices")}</h2>
@@ -800,7 +814,7 @@ async function viewGlobal(view) {
   rest.innerHTML = `
     <div class="controls">
       <div class="control"><span class="label">Asset class</span>${chips("cls", [["s", "Stocks"], ["e", "ETFs"], ["c", "Crypto"]], G.classes)}</div>
-      <div class="control"><span class="label">Signal</span>${chips("sig", [["BUY", "BUY"], ["HOLD", "HOLD"], ["AVOID", "AVOID"]], G.signals)}</div>
+      <div class="control"><span class="label">Signal</span>${chips("sig", [["BUY", "Positive"], ["HOLD", "Neutral"], ["AVOID", "Negative"]], G.signals)}</div>
       <div class="control"><label for="g-market">Market</label><select id="g-market"><option value="">All markets</option>${markets.map((m) => `<option${m === G.market ? " selected" : ""}>${esc(m)}</option>`).join("")}</select></div>
       <div class="control"><label for="g-sector">Sector</label><select id="g-sector"><option value="">All sectors</option>${sectors.map((s) => `<option${s === G.sector ? " selected" : ""}>${esc(s)}</option>`).join("")}</select></div>
       <div class="control"><label for="g-q">Filter</label><input id="g-q" type="search" placeholder="Name or symbol" value="${esc(G.q)}"></div>
@@ -969,7 +983,7 @@ function drawGlobal() {
   const rows = filtered();
   const buy = rows.filter((r) => r.sig === "BUY").length, avoid = rows.filter((r) => r.sig === "AVOID").length;
   $("#g-kpis", view).innerHTML = kpi("Matching", rows.length.toLocaleString()) +
-    kpi("Buy candidates", buy.toLocaleString(), "", "Up-trend + composite ≥ 60 + market not in a Bear regime", "signal") +
+    kpi("Positive signals", buy.toLocaleString(), "", "Up-trend + composite ≥ 60 + market not in a Bear regime", "signal") +
     kpi("Avoid", avoid.toLocaleString(), "", "Down-trend + composite ≤ 40", "signal") +
     kpi("Unusual move today", rows.filter((r) => r.u).length.toLocaleString(), "", "≥ 8% (crypto 20%), or ≥ 3 robust σ and ≥ 2% (crypto 5%)", "unusual");
   view.querySelectorAll("#g-tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === G.tab));
@@ -1204,7 +1218,7 @@ async function viewMarkets(view) {
         ${kpi("Market regime", esc(reg.label), "", "S&P 500 trend (50/200-day MA, 20% drawdown rule) + VIX level", "market-regime")}
         ${kpi("Stance", esc(reg.stance), `<span class="badge ${stanceClass}">${esc(reg.stance)} · as of ${esc(reg.as_of)}</span>`, "From the 0-1 risk score: trend, volatility, credit, labour, curve, inflation", "stance")}
         ${kpi("Risk score", num(reg.risk_score, 2), "0 = benign · 1 = stressed", "Risk-On < 0.33, Risk-Off > 0.6", "risk-score")}
-      </div></div>
+      </div>${riskNote()}</div>
       <div class="card"><h2 class="h3">Why${fresh("deep-prices", "fred")}</h2><ul class="reasons">${(reg.reasons || []).map((r) => `<li>${esc(r)}</li>`).join("")}</ul></div>
     </div>
     <h2>Your watchlist${fresh("scores", "yahoo-prices")}</h2>
@@ -1374,6 +1388,7 @@ async function viewStockDeep(view, ticker) {
       ${kpi("Momentum 12-1", d.score ? pct(d.score.momentum_12_1, 0) : "–", "", "Return from 12 months to 1 month ago (Jegadeesh & Titman 1993)", "deep-scores")}
       ${kpi("Factor score", d.score ? `${num(d.score.composite, 0)}/100` : "–", d.score ? `rank ${d.score.rank} of ${d.score.of}` : "", "", "deep-scores")}
     </div>
+    ${riskNote()}
     <div class="chart-title" id="s-title" data-nofresh></div>
     <div class="chart" id="s-chart" style="min-height:640px"><div class="loading">Loading prices…</div></div>
     <p class="caption">Candles: blue up, red down. ▲ / ▼ / ● news markers = bullish / bearish / neutral FinBERT average of on-topic headlines,
@@ -1474,6 +1489,7 @@ async function viewStockUniverse(view, sym, row) {
     </div>
     <div class="controls" style="margin-top:0" id="u-ind">${indicatorChipsHtml(ANY_BARS)}</div>
     <div class="grid g5" id="u-tiles">${tiles(null)}</div>
+    ${riskNote()}
     <div class="chart-title" id="u-title">${esc(sym)} · daily</div>
     <div class="chart" id="u-chart" style="min-height:460px"><div class="loading">Loading prices…</div></div>
     ${dqNote(row.dq)}
@@ -1839,7 +1855,7 @@ const ROUTE_META = {
   live: ["Live chart", "{sym}: a TradingView-style live chart with indicators, drawing tools and price alerts."],
   methodology: ["Methodology", "How every score, signal and metric on the site is calculated, with the formula, the inputs, the limits and the code."],
   status: ["Data status", "What the nightly job loaded, from where, how fresh it is, and what its data-quality checks found."],
-  "track-record": ["Signal track record", "How the BUY / HOLD / AVOID labels did over the next 5, 20 and 60 trading days, from an append-only log."],
+  "track-record": ["Signal track record", "How the positive / neutral / negative signal labels did over the next 5, 20 and 60 trading days, from an append-only log."],
   changelog: ["Changelog", "Every feature and fix, from the repository's commit messages, with methodology changes highlighted."],
 };
 function setRouteMeta(route, arg) {
@@ -1903,8 +1919,7 @@ async function render() {
     view.innerHTML = `<h1>Data not available</h1>${e.dataPath
       ? `<div class="unavail"><span class="state red">● missing</span> <code>data/${esc(e.dataPath)}</code> isn't in the published site (${esc(e.message)}),
           so this page shows nothing rather than a partial chart. <a href="#/status">Data status</a> shows which nightly source or export step failed.</div>`
-      : errorBox(`This page couldn't load: ${e.message}`)}
-      ${e.dataPath ? errorBox(`data/${e.dataPath} could not be loaded.`) : ""}
+      : errorBox(e.dataPath ? "Part of tonight's data couldn't be loaded." : `This page couldn't load: ${e.message}`)}
       <p class="soft">The site is refreshed once a day; if this persists, the latest export may not have been published.</p>`;
   }
 }

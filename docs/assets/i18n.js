@@ -71,13 +71,15 @@
     const lead = s.match(/^\s*/)[0], trail = s.match(/\s*$/)[0];
     return lead + hit.replace(/\{(\d+)\}/g, (_, i) => localToken(tokens[+i] ?? "")) + trail;
   }
-  // The scorer's reasons ("Buy candidate: clause; clause; clause.") are translated clause by clause.
-  const WHY = /^(Buy candidate|Avoid|Hold \/ watch|Not enough data): (.*?)\.( New buys paused: (.+) is in a Bear regime\.)?$/;
+  // The scorer's reasons ("Positive signal: clause; clause; clause.") are translated clause by clause. The older
+  // heads ("Buy candidate", in briefs archived before the wording changed) read as the new ones.
+  const WHY = /^(Positive signal|Neutral signal|Negative signal|Buy candidate|Avoid|Hold \/ watch|Not enough data): (.*?)\.( (?:Positive labels|New buys) paused: (.+) is in a Bear regime\.)?$/;
+  const OLD_HEAD = { "Buy candidate": "Positive signal", "Hold / watch": "Neutral signal", Avoid: "Negative signal" };
   function translateSpecial(s) {
     const m = squash(s).trim().match(WHY);
     if (!m) return null;
-    const head = tText(m[1], "why"), clauses = m[2].split("; ").map((c) => tText(c, "why"));
-    return `${head}: ${clauses.join("; ")}.${m[3] ? " " + tText(`New buys paused: {market} is in a Bear regime.`, "why").replace("{market}", tText(m[4], "why")) : ""}`;
+    const head = tText(OLD_HEAD[m[1]] || m[1], "why"), clauses = m[2].split("; ").map((c) => tText(c, "why"));
+    return `${head}: ${clauses.join("; ")}.${m[3] ? " " + tText(`Positive labels paused: {market} is in a Bear regime.`, "why").replace("{market}", tText(m[4], "why")) : ""}`;
   }
 
   // --- the page: translate as it draws ----------------------------------------------------------------

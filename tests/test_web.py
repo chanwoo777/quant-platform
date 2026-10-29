@@ -65,7 +65,7 @@ def test_export_global_writes_screener_and_price_buckets(tmp_path, monkeypatch):
     assert extra["s"] == ["AAA", "BTC-USD"] and extra["sp"] == [[0, 50, 99], None]
     # Analyst ratings are licensed: no label column, and the reason names the calculated pillar instead.
     assert "lab" not in g["cols"] and rows[0]["an"] == 91
-    assert extra["why"][0] == "Buy candidate: analysts 91/100; trend 80/100."
+    assert extra["why"][0] == "Positive signal: analysts 91/100; trend 80/100."  # neutral head on the site
     assert g["regimes"][0]["market"] == "US" and g["counts"] == {"s": 1, "e": 0, "c": 1} and stats["head"]["counts"]["c"] == 1
     bucket = json.loads((tmp_path / "sym" / f"{export.bucket('AAA')}.json").read_text(encoding="utf-8"))
     # No price history is published (pages load it in the browser); every fundamental is NaN here, and
