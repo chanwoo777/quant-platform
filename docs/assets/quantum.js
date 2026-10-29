@@ -1141,7 +1141,7 @@
 
   // --- 11. Security note for investors ---------------------------------------------------------------------
   function security() {
-    const nist = (n, name) => `<a href="https://csrc.nist.gov/pubs/fips/${n}/final" target="_blank" rel="noopener">FIPS ${n}</a> (${name})`;
+    const nist = (n, name) => `<a href="https://csrc.nist.gov/pubs/fips/${n}/final" target="_blank" rel="noopener noreferrer">FIPS ${n}</a> (${name})`;
     return `<div class="card q-sec-card">
         <p>The one quantum algorithm with a clear, proven threat today is <b>Shor's</b>: a large error-corrected quantum computer could factor the numbers and
           solve the discrete logarithms that RSA and elliptic-curve cryptography rely on. That public-key encryption protects logins, transfers and data in
@@ -1150,7 +1150,7 @@
           so data that must stay secret for years is already exposed.</p>
         <p>In August 2024 NIST published the first post-quantum cryptography standards: ${nist(203, "ML-KEM, key encapsulation")}, ${nist(204, "ML-DSA, digital signatures")}
           and ${nist(205, "SLH-DSA, hash-based signatures")}. See NIST's
-          <a href="https://www.nist.gov/news-events/news/2024/08/nist-releases-first-3-finalized-post-quantum-encryption-standards" target="_blank" rel="noopener">announcement</a>.
+          <a href="https://www.nist.gov/news-events/news/2024/08/nist-releases-first-3-finalized-post-quantum-encryption-standards" target="_blank" rel="noopener noreferrer">announcement</a>.
           For investors, the practical step is to ask your broker and bank whether they have a plan to migrate to these standards.</p>
       </div>`;
   }
@@ -1205,7 +1205,7 @@
     return `<div class="q-two q-learn">
         <div><h3>Glossary</h3><dl class="q-gloss">${GLOSSARY.map(([t, d]) => `<dt>${esc(t)}</dt><dd>${esc(d)}</dd>`).join("")}</dl></div>
         <div><h3>A 9-week beginner path</h3><ol class="q-path">${PATH.map(([w, t, d]) => `<li><span class="badge info">${esc(w)}</span> <b>${esc(t)}.</b> ${esc(d)}</li>`).join("")}</ol>
-          <h3>References</h3><ul class="q-refs">${REFS.map(([who, title, url]) => `<li>${esc(who)}, <a href="${esc(url)}" target="_blank" rel="noopener">${esc(title)}</a></li>`).join("")}</ul></div>
+          <h3>References</h3><ul class="q-refs">${REFS.map(([who, title, url]) => `<li>${esc(who)}, <a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(title)}</a></li>`).join("")}</ul></div>
       </div>
       <p class="caption">${simTag()} applies to every quantum number on this page.</p>`;
   }

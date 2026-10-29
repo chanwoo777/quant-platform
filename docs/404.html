@@ -3,17 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://data-api.binance.vision wss://data-stream.binance.vision https://ts-api.cnbc.com https://quote.cnbc.com https://finnhub.io wss://ws.finnhub.io; manifest-src 'self'; worker-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'; upgrade-insecure-requests">
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <title>Free Quant Platform</title>
-<script>
-  // GitHub Pages serves this file for unknown paths. Turn /quant-platform/stock/AAPL into the
-  // app's hash route (#/stock/AAPL) so pretty links work on a static host.
-  (function () {
-    var base = "/quant-platform/";
-    var path = location.pathname.indexOf(base) === 0 ? location.pathname.slice(base.length) : "";
-    var route = /^(start|global|markets|stock|financials|compare|quantum|live|methodology|status|track-record|changelog)(\/[^/]+)?\/?$/.test(path) ? "#/" + path.replace(/\/$/, "") : "";
-    location.replace(base + route);
-  })();
-</script>
+<script src="/quant-platform/assets/redirect.js"></script>
 </head>
 <body><p>Redirecting… <a href="/quant-platform/">Open the dashboard</a></p>
 <div class="disclaimer" role="note"><b>Research and education only, not investment advice.</b> Data may be delayed or wrong. Past performance does not predict future results.</div></body>

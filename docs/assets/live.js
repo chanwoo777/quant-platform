@@ -13,6 +13,7 @@
 (function () {
   "use strict";
   const LWC_URL = "https://cdn.jsdelivr.net/npm/lightweight-charts@5.2.1/dist/lightweight-charts.standalone.production.js";
+  const LWC_SRI = "sha384-KkYqTZlM13Zya6fVUF3IGCBOQ1ehFeJVVgxaVvD/0MebineF9EI8Jkd3NnWNChqN";  // Subresource Integrity
   const BINANCE_REST = "https://data-api.binance.vision/api/v3";
   const BINANCE_WS = "wss://data-stream.binance.vision/stream?streams=";
   const CNBC_CHART = "https://ts-api.cnbc.com/harmony/app/charts/";
@@ -64,6 +65,7 @@
     if (!loaded[url]) {
       loaded[url] = new Promise((resolve, reject) => {
         const s = document.createElement("script");
+        if (url === LWC_URL) { s.integrity = LWC_SRI; s.crossOrigin = "anonymous"; }
         s.src = url; s.onload = resolve; s.onerror = () => { delete loaded[url]; reject(new Error(`Couldn't load ${new URL(url).host}`)); };
         document.head.appendChild(s);
       });
@@ -353,7 +355,7 @@
     const src = feed === "binance" ? "Binance public market data over WebSocket (no key)."
       : `CNBC's quote and chart service (unofficial, no key), polled every 15 s${r.us && FH.key() ? "; Finnhub trade ticks with your key on intraday intervals" : r.us ? "; add a free Finnhub key (⚙) for tick-by-tick updates" : ""}. Bars include pre- and post-market sessions where available.`;
     return `${src} Indicators are computed in your browser with TradingView's formulas and stay as you set them ${mq("live-studies")}. Drawings are saved per symbol in this browser.
-      Charting by <a href="https://www.tradingview.com/lightweight-charts/" target="_blank" rel="noopener">TradingView Lightweight Charts</a>.`;
+      Charting by <a href="https://www.tradingview.com/lightweight-charts/" target="_blank" rel="noopener noreferrer">TradingView Lightweight Charts</a>.`;
   }
   function setStatus(kind, text) {
     const s = $("#pc-status");

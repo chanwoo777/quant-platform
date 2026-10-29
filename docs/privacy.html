@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://data-api.binance.vision wss://data-stream.binance.vision https://ts-api.cnbc.com https://quote.cnbc.com https://finnhub.io wss://ws.finnhub.io; manifest-src 'self'; worker-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'; upgrade-insecure-requests">
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <title>Privacy and data sources · Free Quant Platform</title>
 <meta name="description" content="What the Free Quant Platform website stores in your browser, which services your browser contacts, and where every number on the site comes from.">
 <meta name="color-scheme" content="light dark">
@@ -12,9 +14,7 @@
 <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
 <link rel="manifest" href="site.webmanifest">
 <meta name="theme-color" content="#2a78d6">
-<script>
-  try { var t = localStorage.getItem("theme"); if (t) document.documentElement.setAttribute("data-theme", t); } catch (e) {}
-</script>
+<script src="assets/boot.js"></script>
 <link rel="stylesheet" href="assets/app.css">
 <style>
   .policy { max-width: 980px; }
@@ -54,7 +54,7 @@
       <a href="./#/global">Dashboard</a>
       <a href="about.html">About</a>
       <a href="privacy.html" class="on">Privacy and data</a>
-      <a href="https://github.com/chanwoo777/quant-platform" title="The full source code on GitHub">View the code</a>
+      <a href="https://github.com/chanwoo777/quant-platform" rel="noopener noreferrer" title="The full source code on GitHub">View the code</a>
     </nav>
     <button class="icon-btn lang-btn" id="lang" type="button" title="한국어 / English">한국어</button>
     <button class="icon-btn" id="theme" type="button" aria-label="Toggle dark mode" title="Toggle dark mode">
@@ -104,16 +104,16 @@
     <thead><tr><th>Service</th><th>When</th><th>What it receives</th></tr></thead>
     <tbody>
       <tr><td>GitHub Pages (chanwoo777.github.io)</td><td>Every visit: it hosts the site and its data files</td>
-        <td>The files you load. <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement" target="_blank" rel="noopener">GitHub privacy statement</a></td></tr>
+        <td>The files you load. <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement" target="_blank" rel="noopener noreferrer">GitHub privacy statement</a></td></tr>
       <tr><td>jsDelivr (cdn.jsdelivr.net)</td><td>Pages with charts: Plotly and TradingView Lightweight Charts load from it</td>
-        <td>The library files. <a href="https://www.jsdelivr.com/terms/privacy-policy-jsdelivr-net" target="_blank" rel="noopener">jsDelivr privacy policy</a></td></tr>
+        <td>The library files. <a href="https://www.jsdelivr.com/terms/privacy-policy-jsdelivr-net" target="_blank" rel="noopener noreferrer">jsDelivr privacy policy</a></td></tr>
       <tr><td>Binance public market data (data-api.binance.vision, data-stream.binance.vision)</td><td>Any chart or lab that shows a coin's price history</td>
-        <td>The symbol and interval you view. <a href="https://www.binance.com/en/privacy" target="_blank" rel="noopener">Binance privacy</a></td></tr>
+        <td>The symbol and interval you view. <a href="https://www.binance.com/en/privacy" target="_blank" rel="noopener noreferrer">Binance privacy</a></td></tr>
       <tr><td>CNBC quotes and charts (quote.cnbc.com, ts-api.cnbc.com)</td><td>Any chart or lab that shows a stock's, ETF's or index's price history,
         the Live page and price alerts (every 15 s while you have an armed alert)</td>
-        <td>The symbols you view. <a href="https://www.versantprivacy.com/privacy" target="_blank" rel="noopener">CNBC (Versant) privacy</a></td></tr>
+        <td>The symbols you view. <a href="https://www.versantprivacy.com/privacy" target="_blank" rel="noopener noreferrer">CNBC (Versant) privacy</a></td></tr>
       <tr><td>Finnhub (finnhub.io, ws.finnhub.io)</td><td>Only if you saved a key</td>
-        <td>Your key and the symbols you request. <a href="https://finnhub.io/privacy-policy" target="_blank" rel="noopener">Finnhub privacy policy</a></td></tr>
+        <td>Your key and the symbols you request. <a href="https://finnhub.io/privacy-policy" target="_blank" rel="noopener noreferrer">Finnhub privacy policy</a></td></tr>
       <tr><td>Sites you click through to</td><td>Only when you open a link (news, SEC filings, papers)</td><td>Whatever that site collects</td></tr>
     </tbody>
   </table></div>
@@ -129,26 +129,26 @@
       <tr><td>Yahoo Finance, through the open-source <code>yfinance</code> library</td><td>The latest closing price and company fundamentals. Daily
         prices and analyst ratings are used on the owner's computer to calculate returns, volatility, scores, percentiles and signals; only those
         calculated numbers are published, not the price history or any analyst rating.</td>
-        <td><a href="https://legal.yahoo.com/us/en/yahoo/terms/otos/index.html" target="_blank" rel="noopener">Yahoo terms of service</a>, which allow personal use.
+        <td><a href="https://legal.yahoo.com/us/en/yahoo/terms/otos/index.html" target="_blank" rel="noopener noreferrer">Yahoo terms of service</a>, which allow personal use.
           Publishing these fields is the owner's choice; rights holders can ask for removal (see the end of this page).</td></tr>
       <tr><td>FRED, Federal Reserve Bank of St. Louis</td><td>Interest rates (including the 3-month T-bill yield on the Quantum page), inflation, jobs and credit spreads</td>
-        <td><a href="https://fred.stlouisfed.org/legal/" target="_blank" rel="noopener">FRED legal notices</a>; some series carry their own copyright notes</td></tr>
+        <td><a href="https://fred.stlouisfed.org/legal/" target="_blank" rel="noopener noreferrer">FRED legal notices</a>; some series carry their own copyright notes</td></tr>
       <tr><td>SEC EDGAR</td><td>Financial statements from 10-K and 10-Q filings</td>
-        <td>Public filings, collected under the SEC's <a href="https://www.sec.gov/search-filings/edgar-search-assistance/accessing-edgar-data" target="_blank" rel="noopener">fair-access rules</a></td></tr>
+        <td>Public filings, collected under the SEC's <a href="https://www.sec.gov/search-filings/edgar-search-assistance/accessing-edgar-data" target="_blank" rel="noopener noreferrer">fair-access rules</a></td></tr>
       <tr><td>Kenneth R. French Data Library</td><td>Fama-French factor returns</td>
-        <td><a href="https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html" target="_blank" rel="noopener">Data Library</a>, credited here</td></tr>
+        <td><a href="https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html" target="_blank" rel="noopener noreferrer">Data Library</a>, credited here</td></tr>
       <tr><td>CoinGecko</td><td>Which 250 coins are covered, by market value</td>
-        <td>Data provided by <a href="https://www.coingecko.com/en/api" target="_blank" rel="noopener">CoinGecko</a></td></tr>
+        <td>Data provided by <a href="https://www.coingecko.com/en/api" target="_blank" rel="noopener noreferrer">CoinGecko</a></td></tr>
       <tr><td>Nasdaq Trader symbol directories</td><td>The list of US-listed ETFs</td>
-        <td><a href="https://www.nasdaqtrader.com/trader.aspx?id=symboldirdefs" target="_blank" rel="noopener">Symbol directory definitions</a></td></tr>
+        <td><a href="https://www.nasdaqtrader.com/trader.aspx?id=symboldirdefs" target="_blank" rel="noopener noreferrer">Symbol directory definitions</a></td></tr>
       <tr><td>News RSS feeds (Google News, Yahoo Finance, CNBC, MarketWatch)</td><td>Headlines with links; tone scored by the FinBERT model</td>
-        <td>Only headlines and links are shown; no article text is republished. Model: <a href="https://huggingface.co/ProsusAI/finbert" target="_blank" rel="noopener">ProsusAI/finbert</a></td></tr>
+        <td>Only headlines and links are shown; no article text is republished. Model: <a href="https://huggingface.co/ProsusAI/finbert" target="_blank" rel="noopener noreferrer">ProsusAI/finbert</a></td></tr>
       <tr><td>This project</td><td>Scores, signals, regimes, indicators, factor regressions and the quantum simulations</td>
-        <td>Calculated from the sources above. Code under the <a href="https://github.com/chanwoo777/quant-platform/blob/main/LICENSE">MIT license</a></td></tr>
+        <td>Calculated from the sources above. Code under the <a href="https://github.com/chanwoo777/quant-platform/blob/main/LICENSE" rel="noopener noreferrer">MIT license</a></td></tr>
     </tbody>
   </table></div>
-  <p class="caption">Software: <a href="https://github.com/plotly/plotly.js" target="_blank" rel="noopener">Plotly.js</a> (MIT) draws the charts;
-    <a href="https://github.com/tradingview/lightweight-charts" target="_blank" rel="noopener">TradingView Lightweight Charts</a> (Apache 2.0) draws the live chart,
+  <p class="caption">Software: <a href="https://github.com/plotly/plotly.js" target="_blank" rel="noopener noreferrer">Plotly.js</a> (MIT) draws the charts;
+    <a href="https://github.com/tradingview/lightweight-charts" target="_blank" rel="noopener noreferrer">TradingView Lightweight Charts</a> (Apache 2.0) draws the live chart,
     which shows TradingView's attribution logo as its license asks; the nightly quantum simulations use Qiskit (Apache 2.0) on the owner's computer.</p>
 
   <h2>What this site is not</h2>
@@ -160,44 +160,17 @@
   </ul>
 
   <h2>Questions and removal requests</h2>
-  <p>Open an issue on <a href="https://github.com/chanwoo777/quant-platform/issues">GitHub</a>. To report a security problem privately, follow the
-    <a href="https://github.com/chanwoo777/quant-platform/blob/main/SECURITY.md">security policy</a>.</p>
+  <p>Open an issue on <a href="https://github.com/chanwoo777/quant-platform/issues" rel="noopener noreferrer">GitHub</a>. To report a security problem privately, follow the
+    <a href="https://github.com/chanwoo777/quant-platform/blob/main/SECURITY.md" rel="noopener noreferrer">security policy</a>.</p>
 </main>
 
 <footer class="site">
   <div class="wrap">
     <div class="disclaimer" role="note"><b>Research and education only, not investment advice.</b> Data may be delayed or wrong. Past performance does not predict future results.</div>
-    <div><a href="./#/global">Dashboard</a> · <a href="about.html">About this project</a> · <a href="./#/methodology">Methodology</a> · <a href="./#/status">Data status</a> · <a href="https://github.com/chanwoo777/quant-platform/issues/new/choose" rel="noopener">Suggest a feature / report a bug</a> · <a href="https://github.com/chanwoo777/quant-platform">View the code on GitHub</a></div>
+    <div><a href="./#/global">Dashboard</a> · <a href="about.html">About this project</a> · <a href="./#/methodology">Methodology</a> · <a href="./#/status">Data status</a> · <a href="https://github.com/chanwoo777/quant-platform/issues/new/choose" rel="noopener noreferrer">Suggest a feature / report a bug</a> · <a href="https://github.com/chanwoo777/quant-platform" rel="noopener noreferrer">View the code on GitHub</a></div>
   </div>
 </footer>
 
-<script>
-  (function () {
-    var root = document.documentElement;
-    document.getElementById("theme").addEventListener("click", function () {
-      var t = root.getAttribute("data-theme");
-      var dark = t ? t === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
-      root.setAttribute("data-theme", dark ? "light" : "dark");
-      try { localStorage.setItem("theme", dark ? "light" : "dark"); } catch (e) {}
-    });
-    // Remove only this site's keys: other github.io project sites of the same account share this storage.
-    var KEYS = ["theme", "watchlist", "saved", "ticker", "stockIndicators", "finnhubKey", "liveSymbol", "pc:type", "pc:studies", "pc:legendFolded",
-      "q:opt", "q:risk", "q:pf", "q:circuit", "compare", "alerts"];
-    var PREFIXES = ["pc:interval:", "pc:draw:"];
-    document.getElementById("clear").addEventListener("click", function () {
-      var n = 0;
-      try {
-        for (var i = localStorage.length - 1; i >= 0; i--) {
-          var k = localStorage.key(i);
-          if (KEYS.indexOf(k) >= 0 || PREFIXES.some(function (p) { return k.indexOf(p) === 0; })) { localStorage.removeItem(k); n++; }
-        }
-        if (sessionStorage.getItem("finnhubKey") !== null) { sessionStorage.removeItem("finnhubKey"); n++; }
-        document.getElementById("clear-msg").textContent = n ? "Removed " + n + " saved item" + (n > 1 ? "s" : "") + "." : "Nothing was saved.";
-      } catch (e) {
-        document.getElementById("clear-msg").textContent = "Your browser blocked access to its storage, so there was nothing to clear.";
-      }
-    });
-  })();
-</script>
+<script src="assets/page.js"></script>
 </body>
 </html>

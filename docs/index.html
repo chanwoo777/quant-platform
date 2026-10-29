@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://data-api.binance.vision wss://data-stream.binance.vision https://ts-api.cnbc.com https://quote.cnbc.com https://finnhub.io wss://ws.finnhub.io; manifest-src 'self'; worker-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'; upgrade-insecure-requests">
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <title>Free Quant Platform</title>
 <meta name="description" content="Live research dashboard: a worldwide screener of stocks, ETFs and coins, market regimes, stock deep dives, SEC financials, Fama-French analysis, live charts and a beginner's guide to quantum finance, updated daily from free data. Not investment advice.">
 <meta property="og:title" content="Free Quant Platform">
@@ -27,9 +29,7 @@
 <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
 <link rel="manifest" href="site.webmanifest">
 <meta name="theme-color" content="#2a78d6">
-<script>
-  try { var t = localStorage.getItem("theme"); if (t) document.documentElement.setAttribute("data-theme", t); } catch (e) {}
-</script>
+<script src="assets/boot.js"></script>
 <link rel="stylesheet" href="assets/app.css">
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <script src="assets/i18n.js" defer></script>
@@ -38,7 +38,7 @@
 <script src="assets/app.js" defer></script>
 </head>
 <body>
-<a class="skip" href="#view" onclick="event.preventDefault();document.getElementById('view').focus();">Skip to content</a>
+<a class="skip" href="#view">Skip to content</a>
 <header class="top">
   <div class="wrap bar">
     <a class="brand" href="#/global" aria-label="Free Quant Platform home">
@@ -56,7 +56,7 @@
       <a href="#/live" data-route="live">Live</a>
       <a href="#/methodology" data-route="methodology">Methodology</a>
       <a href="about.html">About</a>
-      <a href="https://github.com/chanwoo777/quant-platform" title="The full source code on GitHub">View the code</a>
+      <a href="https://github.com/chanwoo777/quant-platform" rel="noopener noreferrer" title="The full source code on GitHub">View the code</a>
     </nav>
     <div class="hsearch" id="hsearch"></div>
     <span class="asof" id="asof"></span>
@@ -82,7 +82,7 @@
       (Yahoo Finance, SEC EDGAR, FRED, CoinGecko, Fama-French). Charts load prices in your browser from CNBC and, for coins, Binance;
       neither needs a key.</p>
     <h3>Finnhub (optional, free)</h3>
-    <p class="soft">With a free <a href="https://finnhub.io/register" target="_blank" rel="noopener">Finnhub API key</a> you also get
+    <p class="soft">With a free <a href="https://finnhub.io/register" target="_blank" rel="noopener noreferrer">Finnhub API key</a> you also get
       real-time US stock prices in <b>Live</b>, live quotes, analyst recommendation trends and reported financial statements in
       <b>Financials</b>, and a lookup for US tickers outside the universe.</p>
     <div class="key-warn" role="note"><b>This is a credential.</b> An API key works like a password for your Finnhub account. Paste only a free
@@ -107,7 +107,7 @@
   <div class="wrap">
     <div class="disclaimer" role="note"><b>Research and education only, not investment advice.</b> Data may be delayed or wrong. Past performance does not predict future results.</div>
     <div>Data: Yahoo Finance (latest closes and fundamentals), FRED, SEC EDGAR, CoinGecko, Nasdaq Trader, Kenneth R. French Data Library, news RSS with FinBERT; charts load prices in your browser from CNBC and Binance. Updated once a day after the US close; prices may be delayed or revised.</div>
-    <div><a href="about.html">About this project</a> · <a href="#/methodology">Methodology</a> · <a href="#/status">Data status</a> · <a href="#/track-record">Signal track record</a> · <a href="#/changelog">Changelog</a> · <a href="https://github.com/chanwoo777/quant-platform/issues/new/choose" rel="noopener">Suggest a feature / report a bug</a> · <a href="privacy.html">Privacy and data sources</a> · <a href="https://github.com/chanwoo777/quant-platform">View the code on GitHub</a></div>
+    <div><a href="about.html">About this project</a> · <a href="#/methodology">Methodology</a> · <a href="#/status">Data status</a> · <a href="#/track-record">Signal track record</a> · <a href="#/changelog">Changelog</a> · <a href="https://github.com/chanwoo777/quant-platform/issues/new/choose" rel="noopener noreferrer">Suggest a feature / report a bug</a> · <a href="privacy.html">Privacy and data sources</a> · <a href="https://github.com/chanwoo777/quant-platform" rel="noopener noreferrer">View the code on GitHub</a></div>
   </div>
 </footer>
 </body>

@@ -29,12 +29,15 @@ const dataVersion = () => load("meta.json").then((m) => String(m.generated_at ||
 // index.html loads only the core (i18n, util, quant, app); each route's script and Plotly come on demand.
 const ASSET_V = (document.querySelector('meta[name="asset-version"]') || {}).content || "";
 const PLOTLY_URL = "https://cdn.jsdelivr.net/npm/plotly.js-finance-dist-min@2.35.2/plotly-finance.min.js";
+// Subresource Integrity: the browser refuses the file if jsDelivr ever serves different bytes for this version.
+const PLOTLY_SRI = "sha384-KsNgLhXFbcwGkJtsvDe7JYwiZXVXe8STH+79eXVSy1QAvMAsVtRF+Y4lkr1lwRut";
 const MODULES = { live: "live.js", quantum: "quantum.js", research: "research.js", methodology: "methodology.js", trust: "trust.js", start: "start.js" };
 const scripts = new Map();
-function needScript(src, label) {
+function needScript(src, label, integrity) {
   if (!scripts.has(src)) {
     scripts.set(src, new Promise((done, fail) => {
       const s = Object.assign(document.createElement("script"), { src, async: true });
+      if (integrity) { s.integrity = integrity; s.crossOrigin = "anonymous"; }
       s.onload = done;
       s.onerror = () => { scripts.delete(src); s.remove(); fail(new Error(`${label} couldn't load; check your connection`)); };
       document.head.appendChild(s);
@@ -43,7 +46,7 @@ function needScript(src, label) {
   return scripts.get(src);
 }
 const need = (...names) => Promise.all(names.map((n) => needScript(`assets/${MODULES[n]}${ASSET_V ? `?v=${ASSET_V}` : ""}`, MODULES[n])));
-const needPlotly = () => (window.Plotly ? Promise.resolve() : needScript(PLOTLY_URL, "The chart library (cdn.jsdelivr.net)"));
+const needPlotly = () => (window.Plotly ? Promise.resolve() : needScript(PLOTLY_URL, "The chart library (cdn.jsdelivr.net)", PLOTLY_SRI));
 const store = {
   get(k, fallback = null) { try { const v = localStorage.getItem(k); return v === null ? fallback : JSON.parse(v); } catch (e) { return fallback; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* private mode: keep in memory only */ } },
@@ -126,6 +129,10 @@ function errorBox(message, retry = null) {
   return `<div class="panel-error" role="alert"><span class="pe-icon" aria-hidden="true">!</span><span class="pe-msg">${esc(message)}</span>
     <button type="button" class="btn q-small" data-retry="${id}">Try again</button></div>`;
 }
+document.addEventListener("click", (e) => {  // the skip link moves focus to the page, not the URL
+  const skip = e.target.closest && e.target.closest("a.skip");
+  if (skip) { e.preventDefault(); $("#view").focus(); }
+});
 document.addEventListener("click", (e) => {
   const b = e.target.closest && e.target.closest("[data-retry]");
   if (!b || !retries.has(b.dataset.retry)) return;
@@ -365,7 +372,7 @@ function dqNote(dq) {
   const review = codes.length === 1 && codes[0] === "outlier";
   return `<div class="note ${review ? "" : "dq-note"}"><b>${review ? "Flagged for review" : "Data check failed"}:</b> tonight's checks found ${esc(codes.map((c) => DQ_LABEL[c] || c).join("; "))}
     in this symbol's price series. ${review ? "The move may be real; it is listed for review." : "Scores and returns from it may be wrong."} <a href="#/status">Data status</a> ·
-    <a href="${esc(issueLink("data_error.yml", { link: location.href }))}" target="_blank" rel="noopener">Report a data error</a></div>`;
+    <a href="${esc(issueLink("data_error.yml", { link: location.href }))}" target="_blank" rel="noopener noreferrer">Report a data error</a></div>`;
 }
 
 // --- theme and charts -----------------------------------------------------------------------------

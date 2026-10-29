@@ -153,14 +153,14 @@
     const entry = (e) => `<li class="cl-item${e.methodology ? " cl-method" : ""}"><span class="badge ${e.type === "fix" ? "warn" : "info"}">${esc(e.type)}</span>
       ${e.methodology ? '<span class="badge bad" title="Changes how a number on the site is calculated">methodology</span>' : ""}
       ${e.breaking ? '<span class="badge bad">breaking</span>' : ""}<b translate="no">${esc(e.title)}</b> <span class="muted">${esc(e.date)} ·
-      <a href="${esc(e.url)}" target="_blank" rel="noopener"><code>${esc(e.short)}</code></a>${e.scope ? ` · ${esc(e.scope)}` : ""}</span>
+      <a href="${esc(e.url)}" target="_blank" rel="noopener noreferrer"><code>${esc(e.short)}</code></a>${e.scope ? ` · ${esc(e.scope)}` : ""}</span>
       ${e.body ? `<div class="soft" translate="no">${esc(e.body)}</div>` : ""}${e.method_files && e.method_files.length ? `<div class="muted">Calculation files: ${e.method_files.map((f) => `<code>${esc(f)}</code>`).join(", ")}</div>` : ""}</li>`;
     view.innerHTML = `
       <h1>Changelog</h1>
       <p class="soft">Generated from the repository's commit messages: every commit tagged <code>feat:</code> or <code>fix:</code>
-        (<a href="https://www.conventionalcommits.org/" target="_blank" rel="noopener">Conventional Commits</a>). Commits that change how a number is calculated are
+        (<a href="https://www.conventionalcommits.org/" target="_blank" rel="noopener noreferrer">Conventional Commits</a>). Commits that change how a number is calculated are
         marked <span class="badge bad">methodology</span>; read those with the <a href="#/methodology">Methodology</a> page. Untagged commits, mostly before this page existed,
-        are in the <a href="${esc(c.repo)}/commits" target="_blank" rel="noopener">full history</a>.${c.stale_reason ? ` <span class="neg">Git wasn't available tonight; this is the last good changelog.</span>` : ""}</p>
+        are in the <a href="${esc(c.repo)}/commits" target="_blank" rel="noopener noreferrer">full history</a>.${c.stale_reason ? ` <span class="neg">Git wasn't available tonight; this is the last good changelog.</span>` : ""}</p>
       <div class="grid g3">${kpi("Entries", entries.length.toLocaleString(), "feat and fix commits")}${kpi("Methodology changes", method.length.toLocaleString(), "highlighted below")}
         ${kpi("Latest", esc(entries.length ? entries[0].date : "–"), entries.length ? raw(entries[0].title.slice(0, 60)) : "")}</div>
       ${method.length ? `<h2>Methodology changes${badge}</h2><ul class="cl-list">${method.map(entry).join("")}</ul>` : ""}

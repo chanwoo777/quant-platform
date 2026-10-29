@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://data-api.binance.vision wss://data-stream.binance.vision https://ts-api.cnbc.com https://quote.cnbc.com https://finnhub.io wss://ws.finnhub.io; manifest-src 'self'; worker-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'; upgrade-insecure-requests">
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <title>About · Free Quant Platform</title>
 <meta name="description" content="Stock, ETF and crypto research built only on free data: yfinance, FRED, SEC EDGAR, news with FinBERT and the Fama-French library, plus a beginner's guide to quantum finance. Research only, not investment advice.">
 <meta property="og:title" content="Free Quant Platform">
@@ -16,6 +18,7 @@
 <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
 <link rel="manifest" href="site.webmanifest">
 <meta name="theme-color" content="#2a78d6">
+<script src="assets/boot.js"></script>
 <style>
   html.i18n-wait body { visibility: hidden; }
   .disclaimer { padding: 8px 12px; border-left: 3px solid #c98500; background: rgba(201,133,0,0.12); border-radius: 0 6px 6px 0; }
@@ -381,38 +384,12 @@ python -m quant.web.publish            <span class="c"># export the website and 
 
 <footer>
   <div class="wrap">
-    <div>Free Quant Platform · <a href="https://github.com/chanwoo777/quant-platform">View the code on GitHub</a> · <a href="./#/methodology">Methodology</a> · <a href="./#/status">Data status</a> · <a href="https://github.com/chanwoo777/quant-platform/issues/new/choose" rel="noopener">Suggest a feature / report a bug</a> · <a href="privacy.html">Privacy and data sources</a> · MIT license</div>
+    <div>Free Quant Platform · <a href="https://github.com/chanwoo777/quant-platform" rel="noopener noreferrer">View the code on GitHub</a> · <a href="./#/methodology">Methodology</a> · <a href="./#/status">Data status</a> · <a href="https://github.com/chanwoo777/quant-platform/issues/new/choose" rel="noopener noreferrer">Suggest a feature / report a bug</a> · <a href="privacy.html">Privacy and data sources</a> · MIT license</div>
     <div>Market data comes from Yahoo Finance, FRED, SEC EDGAR, CoinGecko, Nasdaq Trader and the Kenneth R. French Data Library, each under its own terms. Screenshots show sample data from a local run.</div>
     <div class="disclaimer" role="note"><b>Research and education only, not investment advice.</b> Data may be delayed or wrong. Past performance does not predict future results.</div>
   </div>
 </footer>
 
-<script>
-  // Theme toggle: follows the system until the visitor picks one.
-  (function () {
-    var root = document.documentElement;
-    try { var saved = localStorage.getItem("theme"); if (saved) root.setAttribute("data-theme", saved); } catch (e) {}
-    document.querySelector(".theme-toggle").addEventListener("click", function () {
-      var dark = root.getAttribute("data-theme")
-        ? root.getAttribute("data-theme") === "dark"
-        : window.matchMedia("(prefers-color-scheme: dark)").matches;
-      var next = dark ? "light" : "dark";
-      root.setAttribute("data-theme", next);
-      try { localStorage.setItem("theme", next); } catch (e) {}
-    });
-  })();
-  // Copy buttons on code blocks (comments are left out).
-  document.querySelectorAll(".code").forEach(function (block) {
-    var button = block.querySelector(".copy");
-    button.addEventListener("click", function () {
-      var text = block.querySelector("code").innerText.split("\n")
-        .map(function (line) { return line.replace(/\s+#.*$/, ""); }).join("\n");
-      navigator.clipboard.writeText(text).then(function () {
-        button.textContent = "Copied";
-        setTimeout(function () { button.textContent = "Copy"; }, 1500);
-      });
-    });
-  });
-</script>
+<script src="assets/page.js"></script>
 </body>
 </html>

@@ -44,7 +44,7 @@
           `<a class="card st-link" href="${h}"><b>${esc(t)}</b><span class="soft">${esc(d)}</span></a>`).join("")}
       </div>
       <p class="soft st-feedback">Found something wrong, or want a feature for your class or project?
-        <a href="https://github.com/chanwoo777/quant-platform/issues/new/choose" target="_blank" rel="noopener">Suggest a feature or report a bug on GitHub</a>: there are forms for bugs, data errors and ideas.</p>
+        <a href="https://github.com/chanwoo777/quant-platform/issues/new/choose" target="_blank" rel="noopener noreferrer">Suggest a feature or report a bug on GitHub</a>: there are forms for bugs, data errors and ideas.</p>
       <p class="caption">This page opens first on your first visit; after that the site starts on Global. It's always under <b>Start</b> in the menu.
         ${SIGNAL_NOTE}</p>`;
     const box = el.querySelector("#st-mini");
