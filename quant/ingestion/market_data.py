@@ -167,6 +167,44 @@ def update_daily(session: Session, ticker: str, history_period: str = "10y") -> 
     return store_bars(session, ticker, "1d", bars)
 
 
+def daily_from_intraday(session: Session, ticker: str, exchange_tz: str = "America/New_York",
+                        last_bar: str = "15:45", now: datetime | None = None) -> int:
+    """Store a stand-in daily bar for the latest complete session when Yahoo hasn't posted the official one.
+
+    Yahoo can post a US stock's daily bar hours after the close (on 29 October it appeared between 20:50 and
+    21:00 New York, while the index bars were there at 16:30), but its 15-minute bars arrive with the session.
+    When the newest 15-minute session is complete (its last bar starts at ``last_bar`` exchange time and that
+    bar has ended) and is newer than the newest daily bar, its open, high, low, close and volume become that
+    day's daily bar, with adj_close = close. The next run re-fetches the last week of daily bars and the
+    official bar overwrites this one (upsert); history_rebased ignores the latest stored bar, so the small
+    difference from the closing auction doesn't trigger a re-download. Returns the rows written (0 or 1).
+    """
+    intraday = load_bars(session, ticker, "15m")
+    if intraday.empty:
+        return 0
+    local = pd.DatetimeIndex(intraday.index).tz_localize("UTC").tz_convert(exchange_tz)
+    day = local[-1].normalize()
+    today = intraday[local.normalize() == day]
+    tlocal = local[local.normalize() == day]
+    if tlocal[-1].strftime("%H:%M") != last_bar:
+        return 0  # the session isn't finished (or is a half day without the usual last bar)
+    now_utc = pd.Timestamp(now) if now is not None else pd.Timestamp.now(tz="UTC")  # a naive `now` is UTC
+    now_local = (now_utc.tz_localize("UTC") if now_utc.tzinfo is None else now_utc).tz_convert(exchange_tz)
+    if now_local < tlocal[-1] + pd.Timedelta(minutes=15):
+        return 0
+    last_daily = last_bar_time(session, ticker, "1d")
+    session_day = day.tz_localize(None).to_pydatetime()
+    if last_daily is not None and last_daily >= session_day:
+        return 0
+    bar = pd.DataFrame([{
+        "timestamp": pd.Timestamp(session_day), "open": float(today["open"].iloc[0]), "high": float(today["high"].max()),
+        "low": float(today["low"].min()), "close": float(today["close"].iloc[-1]), "adj_close": float(today["close"].iloc[-1]),
+        "volume": float(today["volume"].fillna(0).sum()),
+    }])
+    log.info("%s: daily bar for %s built from %d 15-minute bars (Yahoo hasn't posted it yet)", ticker, f"{session_day:%Y-%m-%d}", len(today))
+    return store_bars(session, ticker, "1d", bar)
+
+
 def update_intraday(session: Session, ticker: str, interval: str = "15m", period: str = "30d") -> int:
     bars = fetch_history(ticker, interval, period=period)
     return store_bars(session, ticker, interval, bars)

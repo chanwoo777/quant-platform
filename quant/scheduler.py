@@ -76,14 +76,17 @@ def daily_cycle(sizing: str = "vol_parity", universe: bool = True, publish_site:
 
 def catch_up_daily(tickers: list[str]) -> None:
     """Fetch the deep-tier daily bars once more just before publishing. Yahoo can post a stock's daily bar
-    later than its index's (on 29 October the 28th was there for ^GSPC but not for AAPL at 21:30 New York), and
-    the universe refresh in between takes ~40 minutes, so this second look usually finds it. Idempotent."""
+    hours after its index's (on 29 and 30 October, after 20:45 New York), so a ticker still missing the latest
+    complete session gets a stand-in bar from its 15-minute bars (market_data.daily_from_intraday), which the
+    official bar replaces on the next run. This runs after the paper bot, which only ever trades official bars."""
     try:
-        from quant.ingestion.market_data import update_daily
+        from quant.ingestion.market_data import daily_from_intraday, update_daily
 
         with session_scope(init_db()) as session:
             rows = sum(update_daily(session, t, get_settings().daily_history_period) for t in dict.fromkeys(tickers))
-        log.info("deep-tier daily bars re-checked before publishing: %d rows", rows)
+            filled = [t for t in dict.fromkeys(tickers) if daily_from_intraday(session, t)]
+        log.info("deep-tier daily bars re-checked before publishing: %d rows%s", rows,
+                 f"; built from 15-minute bars for {', '.join(filled)}" if filled else "")
     except Exception:
         log.exception("deep-tier daily catch-up failed")
 

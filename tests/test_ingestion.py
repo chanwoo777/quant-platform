@@ -344,3 +344,37 @@ def test_lexicon_scorer_direction():
     assert pos.label == "positive" and pos.score > 0
     assert neg.label == "negative" and neg.score < 0
     assert neu.label == "neutral"
+
+
+def _session_15m(day: str, closes: list[float]) -> pd.DataFrame:
+    """15-minute bars of one New York session (09:30 to 15:45 starts), stored as naive UTC like the pipeline does."""
+    starts = pd.date_range(f"{day} 09:30", f"{day} 15:45", freq="15min", tz="America/New_York")[: len(closes)]
+    return pd.DataFrame({"timestamp": starts.tz_convert("UTC").tz_localize(None), "open": closes, "high": [c + 1 for c in closes],
+                         "low": [c - 1 for c in closes], "close": closes, "adj_close": closes, "volume": [100] * len(closes)})
+
+
+def test_daily_bar_built_from_15m_until_yahoo_posts_it(engine):
+    from quant.ingestion.market_data import daily_from_intraday, load_bars, store_bars
+    closes = [100.0 + i for i in range(26)]  # a full session: 26 bars, last one starts 15:45
+    with session_scope(engine) as s:
+        store_bars(s, "AAPL", "1d", pd.DataFrame([{"timestamp": pd.Timestamp("2026-10-28"), "open": 1, "high": 1, "low": 1,
+                                                    "close": 99.0, "adj_close": 99.0, "volume": 1}]))
+        store_bars(s, "AAPL", "15m", _session_15m("2026-10-29", closes))
+        assert daily_from_intraday(s, "AAPL", now=pd.Timestamp("2026-10-29 19:55", tz="UTC")) == 0  # 15:55 New York: still trading
+        assert daily_from_intraday(s, "AAPL", now=pd.Timestamp("2026-10-30 00:45", tz="UTC")) == 1  # 20:45 New York
+        assert daily_from_intraday(s, "AAPL", now=pd.Timestamp("2026-10-30 00:50", tz="UTC")) == 0  # already there
+    with session_scope(engine) as s:
+        bar = load_bars(s, "AAPL", "1d").loc[pd.Timestamp("2026-10-29")]
+        assert (bar.open, bar.high, bar.low, bar.close, bar.adj_close, bar.volume) == (100.0, 126.0, 99.0, 125.0, 125.0, 2600)
+        # the official bar arrives on the next run and replaces the stand-in
+        store_bars(s, "AAPL", "1d", pd.DataFrame([{"timestamp": pd.Timestamp("2026-10-29"), "open": 100, "high": 126.5, "low": 99,
+                                                    "close": 125.3, "adj_close": 125.3, "volume": 3000}]))
+    with session_scope(engine) as s:
+        assert load_bars(s, "AAPL", "1d").loc[pd.Timestamp("2026-10-29")].close == 125.3
+
+
+def test_no_daily_bar_from_an_unfinished_session(engine):
+    from quant.ingestion.market_data import daily_from_intraday, store_bars
+    with session_scope(engine) as s:
+        store_bars(s, "AAPL", "15m", _session_15m("2026-10-29", [100.0] * 20))  # stops at 14:15
+        assert daily_from_intraday(s, "AAPL", now=pd.Timestamp("2026-10-30 03:00", tz="UTC")) == 0
