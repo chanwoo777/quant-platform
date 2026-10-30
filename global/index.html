@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<base href="../">
+<meta name="asset-version" content="202610300112">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://data-api.binance.vision wss://data-stream.binance.vision https://ts-api.cnbc.com https://quote.cnbc.com https://finnhub.io wss://ws.finnhub.io; manifest-src 'self'; worker-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'; upgrade-insecure-requests">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>Global stock screener · Free Quant Platform</title>
+<meta name="description" content="Screen about 11,000 stocks, ETFs and coins in 21 markets by trend, momentum, value, quality and risk, with tonight&#x27;s daily brief.">
+<meta property="og:title" content="Global stock screener · Free Quant Platform">
+<meta property="og:description" content="Screen about 11,000 stocks, ETFs and coins in 21 markets by trend, momentum, value, quality and risk, with tonight&#x27;s daily brief.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://chanwoo777.github.io/quant-platform/global/">
+<meta property="og:site_name" content="Free Quant Platform">
+<meta property="og:image" content="https://chanwoo777.github.io/quant-platform/assets/og-preview.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Free Quant Platform: screen, compare and stress-test stocks">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Free Quant Platform">
+<meta name="twitter:description" content="Screen ~11,000 stocks, ETFs and coins worldwide, compare them side by side, and learn how quantum algorithms apply to investing. Free, updated daily.">
+<meta name="twitter:image" content="https://chanwoo777.github.io/quant-platform/assets/og-preview.png">
+<link rel="canonical" href="https://chanwoo777.github.io/quant-platform/global/">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="favicon.ico" sizes="48x48">
+<link rel="icon" href="assets/icons/icon.svg" type="image/svg+xml">
+<link rel="icon" href="assets/icons/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+<link rel="manifest" href="site.webmanifest">
+<meta name="theme-color" content="#2a78d6">
+<script src="assets/boot.js?v=202610300112"></script>
+<link rel="stylesheet" href="assets/app.css?v=202610300112">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<script src="assets/i18n.js?v=202610300112" defer></script>
+<script src="assets/quant.js?v=202610300112" defer></script>
+<script src="assets/util.js?v=202610300112" defer></script>
+<script src="assets/app.js?v=202610300112" defer></script>
+</head>
+<body>
+<a class="skip" href="#view">Skip to content</a>
+<header class="top">
+  <div class="wrap bar">
+    <a class="brand" href="#/global" aria-label="Free Quant Platform home">
+      <svg width="24" height="24" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#2a78d6"/><path d="M6 22l6-7 5 4 9-11" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>Free Quant Platform</span>
+    </a>
+    <nav class="tabs" aria-label="Pages">
+      <a href="#/start" data-route="start">Start</a>
+      <a href="#/global" data-route="global">Global</a>
+      <a href="#/markets" data-route="markets">Markets</a>
+      <a href="#/stock" data-route="stock">Stock</a>
+      <a href="#/financials" data-route="financials">Financials</a>
+      <a href="#/compare" data-route="compare">Compare</a>
+      <a href="#/quantum" data-route="quantum">Quantum</a>
+      <a href="#/live" data-route="live">Live</a>
+      <a href="#/methodology" data-route="methodology">Methodology</a>
+      <a href="about.html">About</a>
+      <a href="https://github.com/chanwoo777/quant-platform" rel="noopener noreferrer" title="The full source code on GitHub">View the code</a>
+    </nav>
+    <div class="hsearch" id="hsearch"></div>
+    <span class="asof" id="asof"></span>
+    <button class="icon-btn" id="share" type="button" aria-label="Copy a link to this view" title="Copy a link to this exact view">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
+    </button>
+    <button class="icon-btn" id="settings" type="button" aria-label="Data source settings" title="Data source settings">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+    </button>
+    <button class="icon-btn lang-btn" id="lang" type="button" title="한국어 / English">한국어</button>
+    <button class="icon-btn" id="theme" type="button" aria-label="Toggle dark mode" title="Toggle dark mode">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+    </button>
+  </div>
+</header>
+
+<main class="wrap" id="view" tabindex="-1"><div class="loading">Loading…</div></main>
+
+<div class="modal-back" id="settings-back">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <h2 id="settings-title">Data sources</h2>
+    <p class="soft">The site works without any key. Scores, fundamentals and analytics come from the platform's nightly export
+      (Yahoo Finance, SEC EDGAR, FRED, CoinGecko, Fama-French). Charts load prices in your browser from CNBC and, for coins, Binance;
+      neither needs a key.</p>
+    <h3>Finnhub (optional, free)</h3>
+    <p class="soft">With a free <a href="https://finnhub.io/register" target="_blank" rel="noopener noreferrer">Finnhub API key</a> you also get
+      real-time US stock prices in <b>Live</b>, live quotes, analyst recommendation trends and reported financial statements in
+      <b>Financials</b>, and a lookup for US tickers outside the universe.</p>
+    <div class="key-warn" role="note"><b>This is a credential.</b> An API key works like a password for your Finnhub account. Paste only a free
+      Finnhub API key here, never a password or payment details. The site has no server: the key stays in this browser and is sent only to
+      finnhub.io. Unless you tick the box below, it is forgotten when you close this tab. <a href="privacy.html">Privacy</a></div>
+    <label for="fh-key" class="soft">Finnhub API key</label>
+    <input id="fh-key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your Finnhub key">
+    <label class="toggle"><input type="checkbox" id="fh-remember"> Remember on this device (not on a shared computer)</label>
+    <div class="row">
+      <button class="btn primary" id="fh-save" type="button">Save and test</button>
+      <button class="btn" id="fh-remove" type="button">Remove key</button>
+      <button class="btn" id="settings-close" type="button" style="margin-left:auto">Close</button>
+    </div>
+    <p class="caption" id="fh-status"></p>
+  </div>
+</div>
+
+<div class="drawer-back" id="drawer-back"></div>
+<aside class="drawer" id="drawer" aria-label="Details" aria-hidden="true"></aside>
+
+<footer class="site">
+  <div class="wrap">
+    <div class="disclaimer" role="note"><b>Research and education only, not investment advice.</b> Data may be delayed or wrong. Past performance does not predict future results.</div>
+    <div>Data: Yahoo Finance (latest closes and fundamentals), FRED, SEC EDGAR, CoinGecko, Nasdaq Trader, Kenneth R. French Data Library, news RSS with FinBERT; charts load prices in your browser from CNBC and Binance. Updated once a day after the US close; prices may be delayed or revised.</div>
+    <div><a href="about.html">About this project</a> · <a href="#/methodology">Methodology</a> · <a href="#/status">Data status</a> · <a href="#/track-record">Signal track record</a> · <a href="#/changelog">Changelog</a> · <a href="https://github.com/chanwoo777/quant-platform/issues/new/choose" rel="noopener noreferrer">Suggest a feature / report a bug</a> · <a href="privacy.html">Privacy and data sources</a> · <a href="https://github.com/chanwoo777/quant-platform" rel="noopener noreferrer">View the code on GitHub</a>
+      · <button type="button" class="linklike" data-clear-data>Clear my saved data</button></div>
+  </div>
+</footer>
+</body>
+</html>
