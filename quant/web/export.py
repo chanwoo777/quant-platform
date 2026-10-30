@@ -498,7 +498,9 @@ def export_research(out: Path, c) -> int:
 
 # --- quantum simulations ------------------------------------------------------------------------------
 
-QUANTUM_TIMEOUT = 300  # seconds; the simulations take about 2.5 minutes on the PC that publishes
+# Seconds. The simulations take 2.5 minutes on an idle PC but ran four times slower on 29 October (8+ minutes),
+# so the old 5-minute limit kept the previous day's results; 20 minutes leaves room for a busy or throttled machine.
+QUANTUM_TIMEOUT = 1200
 
 
 def export_quantum(out: Path, keep: Path | None = None, timeout: int = QUANTUM_TIMEOUT, run: bool = True) -> int:
