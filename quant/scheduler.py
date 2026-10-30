@@ -58,6 +58,7 @@ def daily_cycle(sizing: str = "vol_parity", universe: bool = True, publish_site:
     deep, tradable = _deep_tier()
     settings = dataclasses.replace(get_settings(), equities=tuple(deep))
     log.info("daily cycle: ingesting data for %d deep-tier names", len(deep))
+    heal_yfinance_cache()
     print_summary(run_pipeline(settings))
     with session_scope(init_db()) as session:
         days = bot.run_live(session, tradable, bot.BotParams(sizing=sizing))
@@ -74,21 +75,60 @@ def daily_cycle(sizing: str = "vol_parity", universe: bool = True, publish_site:
         site_publish()
 
 
+def heal_yfinance_cache() -> None:
+    """yfinance keeps a small SQLite cache of ticker time zones (py-yfinance/tkr-tz.db). On 30 October it was
+    corrupt (written by two processes at once, or cut off by sleep), and every lookup through it failed with
+    "database disk image is malformed". It is only a cache, so a damaged copy is removed and yfinance rebuilds it."""
+    import sqlite3
+    from pathlib import Path
+
+    try:
+        import yfinance.cache as yfc
+
+        folder = Path(yfc._TzDBManager.get_location())
+    except Exception:
+        return
+    for db in (folder / "tkr-tz.db", folder / "cookies.db"):
+        if not db.exists():
+            continue
+        con = None
+        try:
+            con = sqlite3.connect(db)
+            ok = con.execute("pragma integrity_check").fetchone()[0] == "ok"
+        except sqlite3.DatabaseError:
+            ok = False
+        finally:
+            if con is not None:
+                con.close()  # sqlite3's context manager doesn't close, and Windows can't delete an open file
+        if not ok:
+            db.unlink(missing_ok=True)
+            log.warning("removed a corrupt yfinance cache (%s); it will be rebuilt", db.name)
+
+
 def catch_up_daily(tickers: list[str]) -> None:
     """Fetch the deep-tier daily bars once more just before publishing. Yahoo can post a stock's daily bar
     hours after its index's (on 29 and 30 October, after 20:45 New York), so a ticker still missing the latest
     complete session gets a stand-in bar from its 15-minute bars (market_data.daily_from_intraday), which the
     official bar replaces on the next run. This runs after the paper bot, which only ever trades official bars."""
-    try:
-        from quant.ingestion.market_data import daily_from_intraday, update_daily
+    from quant.ingestion.market_data import daily_from_intraday, update_daily
 
-        with session_scope(init_db()) as session:
-            rows = sum(update_daily(session, t, get_settings().daily_history_period) for t in dict.fromkeys(tickers))
-            filled = [t for t in dict.fromkeys(tickers) if daily_from_intraday(session, t)]
-        log.info("deep-tier daily bars re-checked before publishing: %d rows%s", rows,
-                 f"; built from 15-minute bars for {', '.join(filled)}" if filled else "")
-    except Exception:
-        log.exception("deep-tier daily catch-up failed")
+    engine, rows, filled, failed = init_db(), 0, [], []
+    for t in dict.fromkeys(tickers):  # one ticker's failure (Yahoo, its local cache) doesn't stop the others
+        try:
+            with session_scope(engine) as session:
+                rows += update_daily(session, t, get_settings().daily_history_period)
+        except Exception as exc:
+            failed.append(f"{t} ({type(exc).__name__})")
+        try:
+            with session_scope(engine) as session:
+                if daily_from_intraday(session, t):
+                    filled.append(t)
+        except Exception as exc:
+            failed.append(f"{t} stand-in ({type(exc).__name__})")
+    log.info("deep-tier daily bars re-checked before publishing: %d rows%s", rows,
+             f"; built from 15-minute bars for {', '.join(filled)}" if filled else "")
+    if failed:
+        log.warning("deep-tier daily catch-up failed for %s", ", ".join(failed))
 
 
 def universe_refresh() -> None:

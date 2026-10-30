@@ -33,6 +33,7 @@ def test_daily_cycle_catches_up_daily_bars_before_publishing(monkeypatch):
     monkeypatch.setattr(scheduler, "print_summary", lambda results: None)
     monkeypatch.setattr(scheduler.bot, "run_live", lambda *a, **k: [])
     monkeypatch.setattr(scheduler, "init_db", lambda: None)
+    monkeypatch.setattr(scheduler, "heal_yfinance_cache", lambda: None)
 
     class _Session:
         def __enter__(self): return None
@@ -44,3 +45,16 @@ def test_daily_cycle_catches_up_daily_bars_before_publishing(monkeypatch):
     monkeypatch.setattr(scheduler, "site_publish", lambda: order.append("publish"))
     scheduler.daily_cycle(publish_site=True)
     assert order == ["universe", ("catch_up", "AAPL"), "publish"]
+
+
+def test_corrupt_yfinance_cache_is_removed(tmp_path, monkeypatch):
+    import yfinance.cache as yfc
+
+    bad, good = tmp_path / "tkr-tz.db", tmp_path / "cookies.db"
+    bad.write_bytes(b"SQLite format 3\x00" + b"\xff" * 4000)  # a header and garbage: not a usable database
+    import sqlite3
+    with sqlite3.connect(good) as con:
+        con.execute("create table t (x)")
+    monkeypatch.setattr(yfc._TzDBManager, "get_location", classmethod(lambda cls: str(tmp_path)))
+    scheduler.heal_yfinance_cache()
+    assert not bad.exists() and good.exists()
