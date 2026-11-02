@@ -391,7 +391,7 @@ def export_deep(out: Path, c) -> dict:
             except Exception:
                 log.exception("rolling betas failed for %s %s", t, model)
         doc = {
-            "ticker": t, "name": info.get("name") or t, "sic": info.get("sic_description"),
+            "ticker": t, "name": info.get("name") or t, "sic": info.get("sic_description"), "sic_code": info.get("sic"),
             "exchange": info.get("exchange"), "cik": info.get("cik"),
             "snapshot": {k: snap.get(k) for k in ("date", "close", "sma_50", "sma_200", "rsi_14", "readings")},
             "score": None if row is None else {"composite": row["composite"], "rank": row["rank"],

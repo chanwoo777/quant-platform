@@ -18,6 +18,8 @@ The Windows task "QuantPlatform refresh" runs --refresh every 3 hours: news (wit
 Bing fallback) and the deep tier's daily and 15-minute bars (with the CNBC fallback), then the site
 is republished without the universe refresh, the quantum simulations or the signal log, which stay
 in the nightly cycle. A lock file keeps the two jobs from running at the same time.
+The same refresh also runs on GitHub's servers every 3 hours (.github/workflows/refresh.yml,
+quant/web/cloud_refresh.py), so the site updates while this computer is off; the Windows task is optional.
   Sat 10:00           weekly backtest refresh (dashboard history and Kelly statistics)
 
 Everything is idempotent. On market holidays there is no new session, so the bot

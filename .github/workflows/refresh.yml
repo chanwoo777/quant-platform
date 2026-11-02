@@ -1,0 +1,65 @@
+# Every 3 hours, on GitHub's servers: fresh headlines and deep-tier prices for the published site, so it keeps
+# updating while the laptop that runs the nightly cycle is off (quant/web/cloud_refresh.py). Yahoo -> CNBC for
+# prices, RSS -> Bing News for headlines, FinBERT -> lexicon for sentiment. The job patches the files already on
+# the gh-pages branch and commits on top; the nightly cycle's force-push replaces them with a full build. If the
+# nightly push lands while this job runs, the push here is rejected and the next run picks up from it.
+name: Refresh news and prices
+
+on:
+  schedule:
+    - cron: "17 */3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write  # push to gh-pages; the token is handed only to the push step
+
+concurrency:
+  group: site-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    if: github.repository == 'chanwoo777/quant-platform'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: gh-pages
+          path: site
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-lock.txt
+
+      - name: Install dependencies
+        # The same pinned versions as CI, with the CPU build of torch for FinBERT.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -c requirements-lock.txt --extra-index-url https://download.pytorch.org/whl/cpu
+
+      - name: Refresh headlines and prices
+        env:
+          DATA_DIR: ${{ runner.temp }}/quant-data
+        run: python -m quant.web.cloud_refresh --site site
+
+      - name: Publish
+        env:
+          TOKEN: ${{ github.token }}
+        working-directory: site
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A data
+          if git diff --cached --quiet; then echo "nothing changed"; exit 0; fi
+          git commit -q -m "data: refresh headlines and prices ($(date -u +%Y-%m-%dT%H:%MZ))"
+          git push "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:gh-pages
