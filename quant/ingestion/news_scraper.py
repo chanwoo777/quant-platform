@@ -56,6 +56,8 @@ MARKET_FEEDS = {
     "marketwatch": "https://feeds.content.dowjones.io/public/rss/mw_topstories",
 }
 FEED_PUBLISHERS = {"yahoo_finance": "Yahoo Finance", "cnbc": "CNBC", "marketwatch": "MarketWatch"}
+# Fallback when a ticker's feeds (or all the market feeds) fail or come back empty: Bing News search RSS (no key).
+BING_NEWS_URL = "https://www.bing.com/news/search?q={query}&format=rss&qft=interval%3d%227%22"
 
 _WS_RE = re.compile(r"\s+")
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9 ]+")
@@ -89,7 +91,7 @@ def parse_feed(
     for entry in parsed.entries[:max_items]:
         title = clean_html(entry.get("title"))
         source_tag = entry.get("source") or {}
-        publisher = source_tag.get("title") or FEED_PUBLISHERS.get(source)
+        publisher = source_tag.get("title") or entry.get("news_source") or FEED_PUBLISHERS.get(source)
         # Google News appends " - Publisher" to every headline.
         if publisher and title.endswith(f" - {publisher}"):
             title = title[: -len(publisher) - 3].rstrip()
@@ -117,12 +119,23 @@ def parse_feed(
                 "publisher": publisher,
                 "title": title,
                 "summary": summary[:1000] if summary else None,
-                "url": entry.get("link", ""),
+                "url": unwrap_link(entry.get("link", "")),
                 "published_at": published,
                 "fetched_at": now,
             }
         )
     return articles
+
+
+def unwrap_link(url: str) -> str:
+    """Bing wraps every article link in a bing.com/news/apiclick redirect; keep the article's own address."""
+    if "bing.com/news/apiclick" in url:
+        from urllib.parse import parse_qs, urlparse
+
+        target = parse_qs(urlparse(url).query).get("url", [""])[0]
+        if target.startswith(("http://", "https://")):
+            return target
+    return url
 
 
 def fetch_feed(session: requests.Session, url: str, timeout: float) -> bytes | None:
@@ -161,11 +174,29 @@ def collect_news(
         jobs += [(src, tmpl.format(days=lookback_days), None) for src, tmpl in MARKET_FEEDS.items()]
 
     by_key: dict[str, dict] = {}
+    found: dict[str | None, int] = {}  # ticker (None = market-wide) -> articles collected
     for source, url, ticker in jobs:
         content = fetch_feed(session, url, timeout)
         if content:
             for article in parse_feed(content, source, ticker, now, lookback):
                 by_key.setdefault(article["article_key"], article)  # first feed wins
+                found[ticker] = found.get(ticker, 0) + 1
+        time.sleep(pause)
+
+    # Another way to search: anything that came back empty (feeds down, throttled or changed) asks Bing News.
+    retry = [t for t in tickers if not found.get(t)] + ([None] if include_market and not found.get(None) else [])
+    for ticker in retry:
+        if ticker is None:
+            query = "stock market"
+        elif ticker in names:
+            query = f'"{clean_company_name(names[ticker]) or names[ticker]}"'
+        else:
+            query = f"{ticker} stock"
+        content = fetch_feed(session, BING_NEWS_URL.format(query=quote_plus(query)), timeout)
+        got = 0
+        for article in parse_feed(content, "bing_news", ticker, now, lookback) if content else []:
+            got += by_key.setdefault(article["article_key"], article) is article
+        log.info("news fallback (Bing) for %s: %d headlines", ticker or "the market", got)
         time.sleep(pause)
     return list(by_key.values())
 

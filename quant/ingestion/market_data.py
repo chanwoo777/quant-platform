@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -155,15 +156,91 @@ def history_rebased(session: Session, ticker: str, fresh: pd.DataFrame, toleranc
     return False
 
 
-def update_daily(session: Session, ticker: str, history_period: str = "10y") -> int:
-    last = last_bar_time(session, ticker, "1d")
+# --- fallback for daily bars: CNBC's chart API (the same one the website's charts use) --------------------
+# No key; about two years of daily bars for US stocks, ETFs and the main indices. Its closes aren't adjusted for
+# dividends, so adj_close = close; the next Yahoo download overwrites these rows (the last week is re-fetched) and,
+# if older ones differ, history_rebased triggers a clean re-download.
+CNBC_CHART_URL = "https://ts-api.cnbc.com/harmony/app/charts/{range}.json?symbol={symbol}"
+CNBC_INDEX = {"^GSPC": ".SPX", "^IXIC": ".IXIC", "^DJI": ".DJI", "^RUT": ".RUT", "^VIX": ".VIX"}
+YAHOO_TRIP = 3  # consecutive Yahoo failures after which the rest of this run goes straight to the fallback
+_yahoo = {"fails": 0}
+
+
+def cnbc_symbol(ticker: str) -> str | None:
+    """CNBC's symbol for a ticker it carries daily bars for (US listings and the main indices), else None."""
+    if ticker in CNBC_INDEX:
+        return CNBC_INDEX[ticker]
+    if re.fullmatch(r"[A-Z][A-Z0-9]{0,5}(-[A-Z])?", ticker):
+        return ticker.replace("-", ".")
+    return None
+
+
+def parse_cnbc_bars(doc: dict) -> pd.DataFrame:
+    rows = []
+    for b in ((doc or {}).get("barData") or {}).get("priceBars") or []:
+        try:
+            day = pd.Timestamp(str(b["tradeTime"])[:8])
+            o, h, lo, c = (float(b[k]) for k in ("open", "high", "low", "close"))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if c > 0:
+            rows.append({"timestamp": day, "open": o, "high": h, "low": lo, "close": c, "adj_close": c, "volume": float(b.get("volume") or 0)})
+    if not rows:
+        return pd.DataFrame(columns=BAR_COLUMNS)
+    out = pd.DataFrame(rows).drop_duplicates("timestamp", keep="last").sort_values("timestamp")
+    return out[BAR_COLUMNS].reset_index(drop=True)
+
+
+def fetch_cnbc_daily(ticker: str, span: str = "1Y", timeout: float = 20.0) -> pd.DataFrame:
+    """Daily bars from CNBC (``span`` "1Y" returns about two years). Empty when CNBC doesn't carry the ticker."""
+    import requests
+
+    symbol = cnbc_symbol(ticker)
+    if symbol is None:
+        return pd.DataFrame(columns=BAR_COLUMNS)
+    resp = requests.get(CNBC_CHART_URL.format(range=span, symbol=symbol), timeout=timeout,
+                        headers={"User-Agent": "Mozilla/5.0 (Free Quant Platform research)"})
+    resp.raise_for_status()
+    return parse_cnbc_bars(resp.json())
+
+
+def _daily_from_yahoo(session: Session, ticker: str, history_period: str, last: datetime | None) -> pd.DataFrame:
     if last is None:
+        return fetch_history(ticker, "1d", period=history_period)
+    bars = fetch_history(ticker, "1d", start=last - DAILY_REFRESH_OVERLAP)
+    if history_rebased(session, ticker, bars):
+        log.info("%s: split/dividend rescaled past prices; re-downloading full history", ticker)
         bars = fetch_history(ticker, "1d", period=history_period)
-    else:
-        bars = fetch_history(ticker, "1d", start=last - DAILY_REFRESH_OVERLAP)
-        if history_rebased(session, ticker, bars):
-            log.info("%s: split/dividend rescaled past prices; re-downloading full history", ticker)
-            bars = fetch_history(ticker, "1d", period=history_period)
+    return bars
+
+
+def update_daily(session: Session, ticker: str, history_period: str = "10y") -> int:
+    """Daily bars from Yahoo; when Yahoo fails or returns nothing, from CNBC instead (see CNBC_CHART_URL)."""
+    last = last_bar_time(session, ticker, "1d")
+    bars, problem = pd.DataFrame(columns=BAR_COLUMNS), None
+    if _yahoo["fails"] < YAHOO_TRIP:
+        try:
+            bars = _daily_from_yahoo(session, ticker, history_period, last)
+            if not bars.empty:
+                _yahoo["fails"] = 0
+        except Exception as exc:  # yfinance raises a zoo of exception types
+            problem = f"{type(exc).__name__}: {exc}"
+            _yahoo["fails"] += 1
+            if _yahoo["fails"] == YAHOO_TRIP:
+                log.warning("Yahoo failed %d times in a row; the rest of this run uses CNBC for daily bars", YAHOO_TRIP)
+    if bars.empty:
+        try:
+            alt = fetch_cnbc_daily(ticker)
+        except Exception as exc:
+            alt = pd.DataFrame(columns=BAR_COLUMNS)
+            problem = f"{problem or 'Yahoo returned no rows'}; CNBC: {type(exc).__name__}: {exc}"
+        if last is not None and not alt.empty:
+            alt = alt[alt["timestamp"] >= pd.Timestamp(last - DAILY_REFRESH_OVERLAP)]
+        if not alt.empty:
+            log.info("%s: daily bars from CNBC (%s)", ticker, problem or "Yahoo returned no rows")
+            return store_bars(session, ticker, "1d", alt)
+        if problem:
+            raise RuntimeError(f"{ticker}: no daily bars from Yahoo or CNBC ({problem})")
     return store_bars(session, ticker, "1d", bars)
 
 
@@ -322,7 +399,7 @@ def update_daily_batch(engine, tickers: list[str], history_period: str = "10y", 
     result.dormant = sum(1 for t in tickers if t in last) - len(active)
     result.no_data = [t for t in tickers if t not in last and t not in fresh]
 
-    def run(chunk: list[str], **kwargs) -> None:
+    def run(chunk: list[str], depth: int = 0, **kwargs) -> None:
         try:
             frames = download_daily(chunk, **kwargs)
             if kwargs.get("start") is not None:
@@ -343,6 +420,13 @@ def update_daily_batch(engine, tickers: list[str], history_period: str = "10y", 
                     known_missing.pop(t, None)
             log.info("prices (batch): %d/%d tickers with data", len(frames), len(chunk))
         except Exception as exc:
+            if depth < 2 and len(chunk) > 1:  # a timeout or throttle on a big request: try smaller ones
+                log.warning("batch %s..%s failed (%s); retrying as two smaller batches", chunk[0], chunk[-1], exc)
+                time.sleep(5 * (depth + 1))
+                half = len(chunk) // 2
+                run(chunk[:half], depth + 1, **kwargs)
+                run(chunk[half:], depth + 1, **kwargs)
+                return
             result.errors.append(f"batch {chunk[0]}..{chunk[-1]}: {type(exc).__name__}: {exc}")
             log.error("batch %s..%s failed: %s", chunk[0], chunk[-1], exc)
 

@@ -83,13 +83,15 @@ def check_calculations(repo: Path = ROOT) -> None:
     log.info("calculation tests passed: %s", summary)
 
 
-def run(export: bool = True, site_dir: Path | None = None) -> str:
+def run(export: bool = True, site_dir: Path | None = None, quantum: bool = True, track_log: bool = True) -> str:
+    """quantum=False / track_log=False: the intraday refresh republishes the last simulations and doesn't
+    append to the signal log (both stay once a night)."""
     from quant.config import get_settings
 
     site_dir = site_dir or get_settings().data_dir / "site"
     check_calculations()
     if export:
-        stats = build(site_dir)
+        stats = build(site_dir, quantum=quantum, track_log=track_log)
         log.info("site exported in %ss", stats["seconds"])
     return publish(site_dir)
 

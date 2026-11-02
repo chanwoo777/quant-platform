@@ -26,7 +26,7 @@ def test_gate_failure_blocks_the_publish(monkeypatch):
         publish.check_calculations()
 
 
-def test_daily_cycle_catches_up_daily_bars_before_publishing(monkeypatch):
+def test_daily_cycle_catches_up_daily_bars_before_publishing(tmp_data, monkeypatch):
     order = []
     monkeypatch.setattr(scheduler, "_deep_tier", lambda: (["AAPL"], ["AAPL"]))
     monkeypatch.setattr(scheduler, "run_pipeline", lambda settings: [])
@@ -58,3 +58,41 @@ def test_corrupt_yfinance_cache_is_removed(tmp_path, monkeypatch):
     monkeypatch.setattr(yfc._TzDBManager, "get_location", classmethod(lambda cls: str(tmp_path)))
     scheduler.heal_yfinance_cache()
     assert not bad.exists() and good.exists()
+
+
+@pytest.fixture
+def tmp_data(tmp_path, monkeypatch):
+    import dataclasses
+
+    settings = dataclasses.replace(scheduler.get_settings(), data_dir=tmp_path)
+    monkeypatch.setattr(scheduler, "get_settings", lambda: settings)
+    return tmp_path
+
+
+def test_job_lock_is_exclusive_and_recovers_from_a_crash(tmp_data):
+    import os
+    import time
+
+    with scheduler.job_lock("nightly") as first:
+        assert first and (tmp_data / "logs" / "job.lock").exists()
+        with scheduler.job_lock("refresh") as second:
+            assert second is False  # the refresh skips while the nightly cycle runs
+    assert not (tmp_data / "logs" / "job.lock").exists()
+    stale = tmp_data / "logs" / "job.lock"
+    stale.write_text("nightly 123 crashed")
+    old = time.time() - scheduler.LOCK_STALE - 60
+    os.utime(stale, (old, old))
+    with scheduler.job_lock("refresh") as got:
+        assert got
+
+
+def test_refresh_updates_news_and_prices_then_republishes_without_nightly_steps(tmp_data, monkeypatch):
+    seen = []
+    monkeypatch.setattr(scheduler, "heal_yfinance_cache", lambda: seen.append("heal"))
+    monkeypatch.setattr(scheduler, "_deep_tier", lambda: (["AAPL"], ["AAPL"]))
+    monkeypatch.setattr(scheduler, "run_pipeline", lambda settings, steps: seen.append(tuple(steps)) or [])
+    monkeypatch.setattr(scheduler, "print_summary", lambda results: None)
+    monkeypatch.setattr(scheduler, "catch_up_daily", lambda tickers: seen.append("catch_up"))
+    monkeypatch.setattr(scheduler, "site_publish", lambda **kw: seen.append(kw))
+    scheduler.refresh_cycle()
+    assert seen == ["heal", ("prices", "news"), "catch_up", {"quantum": False, "track_log": False}]

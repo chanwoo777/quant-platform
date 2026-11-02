@@ -11,6 +11,13 @@ Jobs (US/Eastern):
                       universe refresh (~30 min; skip with --no-universe); with --publish-site,
                       the static website is exported and pushed to GitHub Pages (~2 min)
   Mon-Fri 08:00-20:00 news refresh every 2 hours (headlines, FinBERT, relevance)
+
+    python -m quant.scheduler --refresh     # headlines + deep-tier prices, then republish the site
+
+The Windows task "QuantPlatform refresh" runs --refresh every 3 hours: news (with FinBERT and the
+Bing fallback) and the deep tier's daily and 15-minute bars (with the CNBC fallback), then the site
+is republished without the universe refresh, the quantum simulations or the signal log, which stay
+in the nightly cycle. A lock file keeps the two jobs from running at the same time.
   Sat 10:00           weekly backtest refresh (dashboard history and Kelly statistics)
 
 Everything is idempotent. On market holidays there is no new session, so the bot
@@ -24,7 +31,10 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import logging
+import os
 import sys
+import time
+from contextlib import contextmanager
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from zoneinfo import ZoneInfo
@@ -55,6 +65,13 @@ def _deep_tier() -> tuple[list[str], list[str]]:
 
 
 def daily_cycle(sizing: str = "vol_parity", universe: bool = True, publish_site: bool = False) -> None:
+    with job_lock("nightly", wait=45 * 60) as got:  # a refresh in progress finishes first
+        if not got:
+            log.warning("daily cycle: another job still holds the lock after 45 minutes; running anyway")
+        _daily_cycle(sizing, universe, publish_site)
+
+
+def _daily_cycle(sizing: str, universe: bool, publish_site: bool) -> None:
     deep, tradable = _deep_tier()
     settings = dataclasses.replace(get_settings(), equities=tuple(deep))
     log.info("daily cycle: ingesting data for %d deep-tier names", len(deep))
@@ -142,14 +159,63 @@ def universe_refresh() -> None:
         log.exception("universe refresh failed")
 
 
-def site_publish() -> None:
+def site_publish(quantum: bool = True, track_log: bool = True) -> None:
     """Export the dashboard data and push the static site to the gh-pages branch."""
     try:
         from quant.web.publish import run as publish
 
-        log.info("website published: %s", publish())
+        log.info("website published: %s", publish(quantum=quantum, track_log=track_log))
     except Exception:
         log.exception("website publish failed")
+
+
+LOCK_STALE = 4 * 3600  # seconds; a lock older than this is left over from a crash or a power cut
+
+
+@contextmanager
+def job_lock(name: str, wait: float = 0.0, poll: float = 30.0):
+    """One job at a time (nightly cycle or refresh): both use yfinance's cache, the database and the gh-pages
+    push. Yields True when the lock was taken, False when another job still holds it after `wait` seconds."""
+    lock = get_settings().data_dir / "logs" / "job.lock"
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + wait
+    while True:
+        try:
+            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, f"{name} {os.getpid()} {datetime.now():%Y-%m-%d %H:%M}".encode())
+            os.close(fd)
+            break
+        except FileExistsError:
+            try:
+                if time.time() - lock.stat().st_mtime > LOCK_STALE:
+                    log.warning("removing a stale job lock (%s)", lock.read_text(errors="replace"))
+                    lock.unlink(missing_ok=True)
+                    continue
+            except FileNotFoundError:
+                continue
+            if time.monotonic() >= deadline:
+                yield False
+                return
+            time.sleep(poll)
+    try:
+        yield True
+    finally:
+        lock.unlink(missing_ok=True)
+
+
+def refresh_cycle() -> None:
+    """Every few hours: headlines and the deep tier's prices, then the site. Skipped while another job runs."""
+    with job_lock("refresh") as got:
+        if not got:
+            log.info("refresh skipped: the nightly cycle (or another refresh) is running")
+            return
+        heal_yfinance_cache()
+        deep, _ = _deep_tier()
+        settings = dataclasses.replace(get_settings(), equities=tuple(deep))
+        log.info("refresh: news and prices for %d deep-tier names", len(deep))
+        print_summary(run_pipeline(settings, steps=("prices", "news")))
+        catch_up_daily([*deep, *settings.indices])
+        site_publish(quantum=False, track_log=False)
 
 
 def news_refresh() -> None:
@@ -221,8 +287,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--sizing", choices=("vol_parity", "kelly"), default="vol_parity")
     parser.add_argument("--no-universe", action="store_true", help="skip the global universe refresh")
     parser.add_argument("--publish-site", action="store_true", help="after the daily cycle, publish the GitHub Pages site")
+    parser.add_argument("--refresh", action="store_true", help="refresh headlines and deep-tier prices, republish the site, exit")
     args = parser.parse_args(argv)
     _configure_logging()
+
+    if args.refresh:
+        try:
+            refresh_cycle()
+        except Exception:
+            log.exception("refresh failed")
+            return 1
+        return 0
 
     if args.run_now:
         try:
