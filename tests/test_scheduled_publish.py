@@ -21,9 +21,32 @@ def test_gate_runs_tests_with_their_own_stdin(monkeypatch):
 
 
 def test_gate_failure_blocks_the_publish(monkeypatch):
-    monkeypatch.setattr(publish.subprocess, "run", lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, stdout="1 failed\n", stderr=""))
+    calls = []
+
+    def failing(cmd, **kw):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 1, stdout="1 failed\n", stderr="")
+
+    monkeypatch.setattr(publish.subprocess, "run", failing)
     with pytest.raises(RuntimeError, match="not published"):
         publish.check_calculations()
+    assert len(calls) == 2  # repeated once before giving up
+
+
+def test_gate_retries_a_one_off_failure(monkeypatch):
+    codes = iter([1, 0])  # e.g. a Node.js process killed once
+    monkeypatch.setattr(publish.subprocess, "run",
+                        lambda cmd, **kw: subprocess.CompletedProcess(cmd, next(codes), stdout="55 passed\n", stderr=""))
+    publish.check_calculations()
+
+
+def test_gate_runs_under_the_console_python(tmp_path):
+    """pythonw (the scheduled task) can't give the Node.js tests a console; python.exe beside it can."""
+    (tmp_path / "pythonw.exe").touch()
+    (tmp_path / "python.exe").touch()
+    assert publish.console_python(str(tmp_path / "pythonw.exe")) == str(tmp_path / "python.exe")
+    assert publish.console_python(str(tmp_path / "python.exe")) == str(tmp_path / "python.exe")
+    assert publish.console_python("/usr/bin/python3") == "/usr/bin/python3"
 
 
 def test_daily_cycle_catches_up_daily_bars_before_publishing(tmp_data, monkeypatch):

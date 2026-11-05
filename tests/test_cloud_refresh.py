@@ -81,9 +81,15 @@ def read(site, name):
     return json.loads((site / "data" / name).read_text(encoding="utf-8"))
 
 
+BRIEF = {"generated_at": "2026-11-02T11:00:00+00:00", "author": "Claude (scheduled research agent)", "skipped": [],
+         "sectors": [{"sector": "Energy", "summary": "Oil slipped.", "items": [{"title": "Oil falls", "src": "Example",
+                                                                                 "url": "https://example.com/oil", "date": None}]}]}
+
+
 def test_refresh_patches_prices_and_news_and_leaves_the_rest(site, monkeypatch):
     monkeypatch.setattr(cr, "fetch_prices", lambda engine, tickers: {"AAPL": bars()})  # MSFT failed on both sources
     monkeypatch.setattr(cr, "fetch_news", lambda engine, deep: fake_news())
+    monkeypatch.setattr(cr.digest, "from_branch", lambda repo, now: BRIEF)
     result = cr.refresh(site, now=datetime(2026, 11, 2, 12, 0, tzinfo=timezone.utc))
     assert result["prices"] == "1/2 tickers" and result["headlines"] == 2
 
@@ -105,6 +111,16 @@ def test_refresh_patches_prices_and_news_and_leaves_the_rest(site, monkeypatch):
     status = {s["id"]: s for s in read(site, "status.json")["sources"]}
     assert status["news"]["last_success"] == meta["generated_at"]
     assert status["deep-prices"]["last_success"] is None  # only 1 of 2 tickers refreshed
+    assert read(site, "sector-news.json") == BRIEF and result["digest"].startswith("1 sectors")
+
+
+def test_a_rejected_digest_keeps_the_published_one(site, monkeypatch):
+    (site / "data" / "sector-news.json").write_text(json.dumps(BRIEF), encoding="utf-8")
+    monkeypatch.setattr(cr, "fetch_prices", lambda engine, tickers: {"AAPL": bars()})
+    monkeypatch.setattr(cr, "fetch_news", lambda engine, deep: fake_news())
+    monkeypatch.setattr(cr.digest, "from_branch", lambda repo, now: (_ for _ in ()).throw(cr.digest.DigestError("older than 36 hours")))
+    result = cr.refresh(site, now=datetime(2026, 11, 2, 12, 0, tzinfo=timezone.utc))
+    assert read(site, "sector-news.json") == BRIEF and "older than 36 hours" in result["digest"]
 
 
 def test_refresh_fails_loudly_when_nothing_could_be_fetched(site, monkeypatch):

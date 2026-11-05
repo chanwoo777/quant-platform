@@ -1,4 +1,5 @@
-# Every 3 hours, on GitHub's servers: fresh headlines and deep-tier prices for the published site, so it keeps
+# Every 30 minutes, on GitHub's servers: fresh headlines, deep-tier prices and the research agent's sector news
+# digest (quant/web/digest.py, read from the claude/news-digest branch as data) for the published site, so it keeps
 # updating while the laptop that runs the nightly cycle is off (quant/web/cloud_refresh.py). Yahoo -> CNBC for
 # prices, RSS -> Bing News for headlines, FinBERT -> lexicon for sentiment. The job patches the files already on
 # the gh-pages branch and commits on top; the nightly cycle's force-push replaces them with a full build. If the
@@ -7,7 +8,9 @@ name: Refresh news and prices
 
 on:
   schedule:
-    - cron: "17 */3 * * *"
+    # GitHub delays scheduled runs and drops some when it's busy (the 3-hourly schedule ran about 3 times a day),
+    # so it asks every 30 minutes, away from the top of the hour; a run takes about 3 minutes.
+    - cron: "7,37 * * * *"
   workflow_dispatch:
 
 permissions:

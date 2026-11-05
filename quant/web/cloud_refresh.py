@@ -9,6 +9,7 @@ laptop that runs the nightly cycle is off. It starts from the files already publ
   market.json     watchlist movers and headlines
   meta.json       generated_at (browsers refetch the data), prices_as_of, latest_headline_et
   status.json     the news and deep-tier price sources' dates
+  sector-news.json  the latest sector news digest from the research agent (quant/web/digest.py)
 
 Everything else (the screener, fundamentals, factors, research, quantum, the track record) stays as the
 nightly cycle published it. Each source has a second way in: daily bars from CNBC when Yahoo fails
@@ -29,7 +30,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from quant.web.export import _news_markers, _tone, sig, write
+from quant.web import digest
+from quant.web.export import ROOT, _news_markers, _tone, sig, write
 
 log = logging.getLogger("quant.web.refresh")
 
@@ -233,7 +235,15 @@ def refresh(site: Path, now: dt.datetime | None = None) -> dict:
             src.update(last_success=stamp, as_of=meta["prices_as_of"])
     write(data / "status.json", status)
 
-    result = {"prices": f"{len(bars)}/{len(tickers)} tickers", "prices_as_of": meta["prices_as_of"],
+    try:  # the research agent's digest; when it's missing or fails a check, the published one stays
+        brief = digest.from_branch(ROOT, now)
+        write(data / "sector-news.json", brief)
+        brief_note = f"{len(brief['sectors'])} sectors written {brief['generated_at']}"
+    except Exception as exc:
+        brief_note = f"not updated ({type(exc).__name__}: {str(exc)[:200]})"
+        log.warning("sector news digest %s", brief_note)
+
+    result = {"prices": f"{len(bars)}/{len(tickers)} tickers", "prices_as_of": meta["prices_as_of"], "digest": brief_note,
               "headlines": None if news is None else int(len(news)), "generated_at": stamp}
     log.info("refresh done: %s", result)
     return result

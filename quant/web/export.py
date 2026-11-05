@@ -29,6 +29,7 @@ visitor's browser instead (docs/assets/live.js, dailyHistory). Files written to 
   track.json      the signal track record: forward returns of the append-only signal log (quant/web/track.py),
                   with track/signals_<date>.csv for the latest days
   briefs.json     the rule-based daily brief, the latest 30 (quant/web/brief.py)
+  sector-news.json  the research agent's sector news digest, when there is a fresh one (quant/web/digest.py)
   changelog.json  feat: and fix: commits from the git history, methodology changes marked (quant/web/changelog.py)
   status.json     per source: last successful run, data date, rows, missing tickers, stale series,
                   outliers and the quality checks (quant/web/status.py, quant/web/quality.py)
@@ -605,6 +606,18 @@ SEO_PAGES = {
 }
 
 
+def export_digest(out: Path) -> int | None:
+    """The research agent's latest digest from the claude/news-digest branch. Missing or failing its checks is
+    normal before the agent's first run, so it's logged, not a failed step; the 3-hourly refresh retries."""
+    from quant.web import digest
+
+    try:
+        return write(out / "sector-news.json", digest.from_branch(ROOT))
+    except Exception as exc:
+        log.warning("sector news digest left out (%s: %s)", type(exc).__name__, str(exc)[:200])
+        return None
+
+
 def write_route_pages(site_dir: Path, today: str | None = None) -> list[str]:
     """The static entry pages, sitemap.xml and robots.txt. Returns the URLs in the sitemap."""
     import html as htmlmod
@@ -694,6 +707,7 @@ def build(site_dir: Path | None = None, quantum: bool = True, track_log: bool = 
     step("quantum", lambda: export_quantum(out, run=quantum))
     track_stats = step("track", lambda: export_track(out, data_dir, append=track_log))
     step("brief", lambda: export_brief(out, data_dir, c))
+    step("digest", lambda: export_digest(out))
     step("changelog", lambda: write(out / "changelog.json", changelog.build(ROOT, data_dir / "changelog.json")))
 
     def meta():

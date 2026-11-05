@@ -1238,7 +1238,8 @@ async function viewMarkets(view) {
     <p class="caption">Prices load in your browser from CNBC: daily bars for two years, weekly bars for ten (indicator lengths then count weeks).</p>
     <h2>Economic indicators (FRED) ${mq("fred-tiles")}${fresh("fred")}</h2>
     <div class="grid g5" id="m-fred">${tiles}</div>
-    <h2>Breaking news${fresh("news")}</h2><div class="controls" style="margin-top:0">${chips("scope", [["All", "All"], ["Watchlist", "Watchlist"], ["Market-wide", "Market-wide"]], M.scope, false)}</div><div id="m-news"></div>`;
+    <h2>Breaking news${fresh("news")}</h2><div class="controls" style="margin-top:0">${chips("scope", [["All", "All"], ["Watchlist", "Watchlist"], ["Market-wide", "Market-wide"]], M.scope, false)}</div><div id="m-news"></div>
+    <h2 data-nofresh>Sector news brief</h2><div id="m-brief"><div class="loading small">Loading the sector news brief…</div></div>`;
 
   const drawSpx = async () => {
     toUrl();
@@ -1283,6 +1284,7 @@ async function viewMarkets(view) {
   bindIndicatorChips(view, drawSpx);
   bindChips(view, "scope", M.scope, false, drawNews);
   drawNews();
+  load("sector-news.json").then(drawSectorNews, () => drawSectorNews(null));
   drawWatchlist().then(() => { if (screener) screenerExtra().then(() => drawWatchlist()); });  // bucket rows carry sparklines already
   spx = await spxLoad;
   const ind = $("#m-ind", view), badge = $("#m-px-fresh", view);
@@ -1292,6 +1294,24 @@ async function viewMarkets(view) {
   badge.innerHTML = fresh(pxSrc(spx), "deep-prices");
   if (spx.error) $("#m-spx", view).innerHTML = errorBox(spx.error);
   else drawSpx();
+}
+
+/** The research agent's sector digest (data/sector-news.json, checked by quant/web/digest.py before it's
+ * published): plain-text summaries with https links. Hidden once it is two days old. */
+const BRIEF_MAX_HOURS = 48;
+function drawSectorNews(b, now = Date.now()) {
+  const el = $("#m-brief");
+  if (!el) return;
+  const written = b ? Date.parse(b.generated_at) : NaN;
+  if (!b || !Array.isArray(b.sectors) || !b.sectors.length || !(now - written < BRIEF_MAX_HOURS * 36e5)) {
+    el.innerHTML = '<p class="caption">No recent sector news brief. It is written about every 3 hours; this panel stays empty when the latest is more than two days old.</p>';
+    return;
+  }
+  const stamp = new Date(written).toISOString().slice(0, 16).replace("T", " ");
+  el.innerHTML = `<div class="grid g2">${b.sectors.map((s) => `<div class="card"><h3 class="h3">${esc(tr(s.sector))}</h3>
+      <p>${raw(s.summary)}</p>
+      <ul class="reasons">${s.items.map((i) => `<li>${link(i.url, i.title, true)} <span class="muted">· ${raw(i.src)}${i.date ? ` · ${esc(i.date)}` : ""}</span></li>`).join("")}</ul></div>`).join("")}</div>
+    <p class="caption">Written by an AI research agent (Claude) from public news, about every 3 hours; this one at <b>${esc(stamp)} UTC</b>. Summaries can be wrong or incomplete, so check the linked articles.</p>`;
 }
 
 async function drawWatchlist() {

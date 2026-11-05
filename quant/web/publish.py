@@ -69,18 +69,31 @@ CALCULATION_TESTS = ("tests/test_calculations.py", "tests/test_research_js.py", 
                      "tests/test_site_js.py", "tests/test_quant_models.py", "tests/test_track.py")
 
 
-def check_calculations(repo: Path = ROOT) -> None:
-    """Run the calculation tests; raise (and publish nothing) if any fails.
+def console_python(exe: str = sys.executable) -> str:
+    """python.exe next to pythonw.exe. The scheduled task runs pythonw, a windowless program: CREATE_NO_WINDOW
+    doesn't give it a console, so the Node.js tests it starts either couldn't inherit console handles
+    (OSError WinError 50, 29 October and 4 November) or got a console of their own that was closed under them
+    (exit 0xC000013A, 5 November). python.exe with CREATE_NO_WINDOW gets a hidden console its children share."""
+    path = Path(exe)
+    console = path.with_name("python.exe")
+    return str(console) if path.name.lower() == "pythonw.exe" and console.exists() else exe
 
-    stdin is /dev/null: the scheduled task runs under pythonw, which has no console handles, and the Node.js
-    tests' subprocesses failed to inherit them (OSError WinError 50), which blocked the 29 October publish."""
+
+def check_calculations(repo: Path = ROOT, attempts: int = 2) -> None:
+    """Run the calculation tests; raise (and publish nothing) if any fails. A failed run is repeated once, so
+    a one-off glitch in starting the test processes doesn't cost a day's publish; a real calculation error
+    fails both runs."""
     flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-    done = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", *CALCULATION_TESTS], cwd=repo,
-                          stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding="utf-8", errors="replace", creationflags=flags)
-    summary = (done.stdout.strip().splitlines() or ["no output"])[-1]
-    if done.returncode:
-        raise RuntimeError(f"calculation tests failed, so the site was not published: {summary}\n{done.stdout[-3000:]}")
-    log.info("calculation tests passed: %s", summary)
+    for attempt in range(1, attempts + 1):
+        done = subprocess.run([console_python(), "-m", "pytest", "-q", "-p", "no:cacheprovider", *CALCULATION_TESTS],
+                              cwd=repo, stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", creationflags=flags)
+        summary = (done.stdout.strip().splitlines() or ["no output"])[-1]
+        if not done.returncode:
+            log.info("calculation tests passed: %s", summary)
+            return
+        log.warning("calculation tests failed (attempt %d of %d): %s", attempt, attempts, summary)
+    raise RuntimeError(f"calculation tests failed, so the site was not published: {summary}\n{done.stdout[-3000:]}")
 
 
 def run(export: bool = True, site_dir: Path | None = None, quantum: bool = True, track_log: bool = True) -> str:
