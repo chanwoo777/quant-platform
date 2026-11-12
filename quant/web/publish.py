@@ -66,7 +66,7 @@ def publish(site_dir: Path, repo: Path = ROOT, branch: str = BRANCH) -> str:
 # The deploy gate: these must pass before anything is pushed, so a broken calculation never reaches the
 # live site (the same files run in GitHub Actions on every push).
 CALCULATION_TESTS = ("tests/test_calculations.py", "tests/test_research_js.py", "tests/test_quantum_js.py",
-                     "tests/test_site_js.py", "tests/test_quant_models.py", "tests/test_track.py")
+                     "tests/test_site_js.py", "tests/test_lab_js.py", "tests/test_quant_models.py", "tests/test_track.py")
 
 
 def console_python(exe: str = sys.executable) -> str:
