@@ -34,7 +34,8 @@ const ASSET_V = (document.querySelector('meta[name="asset-version"]') || {}).con
 const PLOTLY_URL = "https://cdn.jsdelivr.net/npm/plotly.js-finance-dist-min@2.35.2/plotly-finance.min.js";
 // Subresource Integrity: the browser refuses the file if jsDelivr ever serves different bytes for this version.
 const PLOTLY_SRI = "sha384-KsNgLhXFbcwGkJtsvDe7JYwiZXVXe8STH+79eXVSy1QAvMAsVtRF+Y4lkr1lwRut";
-const MODULES = { live: "live.js", quantum: "quantum.js", research: "research.js", methodology: "methodology.js", trust: "trust.js", start: "start.js" };
+const MODULES = { live: "live.js", quantum: "quantum.js", research: "research.js", methodology: "methodology.js", trust: "trust.js", start: "start.js",
+  pairs: "pairs.js", portfolio: "portfolio.js", credit: "credit.js" };
 const scripts = new Map();
 function needScript(src, label, integrity) {
   if (!scripts.has(src)) {
@@ -76,10 +77,11 @@ function num(x, d = 2, sign = false) {
 }
 function money(x, d = 0) {
   if (!ok(x)) return "–";
+  const sign = x < 0 ? "−" : "", a = Math.abs(x);  // −$3,840, not $-3,840
   for (const [u, v] of [["T", 1e12], ["B", 1e9], ["M", 1e6]]) {
-    if (Math.abs(x) >= v) return minus("$" + (x / v).toFixed(Math.max(d, 1)) + u);
+    if (a >= v) return sign + "$" + (a / v).toFixed(Math.max(d, 1)) + u;
   }
-  return minus("$" + x.toLocaleString("en-US", { maximumFractionDigits: d }));
+  return sign + "$" + a.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
 }
 const tone = (x) => (!ok(x) ? "" : x > 0 ? "pos" : x < 0 ? "neg" : "");
 const toneMark = { bullish: "▲ bullish", bearish: "▼ bearish", neutral: "● neutral" };
@@ -241,7 +243,8 @@ function fresh(...parts) {
 }
 // Each route's default source, given to any panel heading the view didn't label itself (null: no data panels).
 const PAGE_SOURCES = { global: ["scores"], markets: ["deep-prices"], stock: ["scores"], financials: ["yahoo-fundamentals"], compare: ["scores"],
-  quantum: [{ provider: "Simulated in your browser", live: true }], start: null, "track-record": ["track"], live: null, methodology: null, status: null, changelog: null };
+  quantum: [{ provider: "Simulated in your browser", live: true }], pairs: [{ provider: "Backtested in your browser", live: true }],
+  portfolio: [{ provider: "Live quotes in your browser", live: true }], credit: null, start: null, "track-record": ["track"], live: null, methodology: null, status: null, changelog: null };
 let pageSources = null;
 /** Give every h2 and chart title in the view (and the drawer) a badge, unless it has one or opts out (data-nofresh). */
 function decorate(root) {
@@ -1863,7 +1866,10 @@ const ROUTES = { global: viewGlobal, markets: viewMarkets, stock: viewStock, fin
   changelog: async (view, arg) => { await need("trust"); return window.TRUST.changelog(view, arg); },
   "track-record": async (view, arg) => { await need("trust"); return window.TRUST.trackRecord(view, arg); },
   quantum: async (view, arg) => { await need("research", "quantum"); return window.QUANTUM.view(view, arg); },  // the portfolio lab uses research.js's correlation panel
-  live: async (view, arg) => { await need("live"); return window.LIVE.view(view, arg); } };
+  live: async (view, arg) => { await need("live"); return window.LIVE.view(view, arg); },
+  pairs: async (view, arg) => { await need("pairs"); return window.PAIRS.view(view, arg); },
+  portfolio: async (view, arg) => { await need("portfolio"); return window.PORTFOLIO.view(view, arg); },
+  credit: async (view, arg) => { await need("credit"); return window.CREDIT.view(view, arg); } };
 const MOVED = { bot: "#/global", privacy: "privacy.html" };  // retired routes: old links land somewhere useful
 // Each page's title and description (quant/web/export.py writes the same ones into the static entry pages
 // /global/, /markets/, ... that search engines index). {sym} is the ticker or tickers in the address.
@@ -1876,6 +1882,9 @@ const ROUTE_META = {
   compare: ["Compare", "{sym} side by side: returns, risk, Sharpe and Sortino, factor exposures, margins and correlation."],
   quantum: ["Quantum computing for investors", "How quantum algorithms work, from zero, and what they could do for option pricing, risk and portfolios, next to the classical methods."],
   live: ["Live chart", "{sym}: a TradingView-style live chart with indicators, drawing tools and price alerts."],
+  pairs: ["Pairs trading lab", "{sym}: a walk-forward pairs-trading backtest (distance or cointegration) against buy and hold."],
+  portfolio: ["Portfolio tracker", "Log your holdings and see their live value, profit and loss, allocation, sector exposure and risk, saved only in your browser."],
+  credit: ["Credit analysis", "Korean companies' OpenDART statements turned into leverage, interest cover, EBITDA margin and debt / EBITDA, an indicative grade and a five-year trend."],
   methodology: ["Methodology", "How every score, signal and metric on the site is calculated, with the formula, the inputs, the limits and the code."],
   status: ["Data status", "What the nightly job loaded, from where, how fresh it is, and what its data-quality checks found."],
   "track-record": ["Signal track record", "How the positive / neutral / negative signal labels did over the next 5, 20 and 60 trading days, from an append-only log."],

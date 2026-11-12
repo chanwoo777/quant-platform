@@ -41,7 +41,7 @@
   // What a link may carry: the keys the pages write, values without markup characters, and a route
   // argument made of ticker characters. Anything else is dropped and reported as `rejected`.
   const HASH_KEYS = new Set(["tab", "cls", "sig", "mkt", "sec", "q", "min", "cap", "unu", "sort", "dir", "page", "hm", "brief", "span", "news",
-    "ind", "layers", "model", "iv", "type", "years", "cw", "co", "sym", "days", "kind", "win", "n", "syms", "w", "look", "amt", "pick", "lam", "K", "ql"]);
+    "ind", "layers", "model", "iv", "type", "years", "cw", "co", "sym", "days", "kind", "win", "n", "syms", "w", "look", "amt", "pick", "lam", "K", "ql", "en", "ex", "st", "c"]);
   const HASH_VALUE = /^[\p{L}\p{N} .,^=_:&'()/+-]{0,300}$/u;
   const HASH_ARG = /^[A-Za-z0-9.^=_,-]{1,300}$/;
   const HASH_ROUTE = /^[a-z-]{0,20}$/;

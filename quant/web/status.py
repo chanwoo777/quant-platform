@@ -273,5 +273,16 @@ def collect(data_dir: Path, deep_tickers: list[str], today: dt.date | None = Non
     b.add("news", "Headlines with FinBERT sentiment", "News RSS feeds", 1, news, feeds="deep,market")
     b.add("coingecko", "Coin list", "CoinGecko", 1, coins, calendar=True, feeds="global")
     b.add("quantum", "Quantum simulations", "Qiskit simulator (nightly job)", 1, quantum, feeds="quantum")
+
+    def dart():
+        doc = json.loads(dart_file.read_text(encoding="utf-8"))
+        return {"rows": len(doc.get("companies", [])), "as_of": (doc.get("fetched_at") or "")[:10] or None, "last_success": doc.get("fetched_at"),
+                "latest_fiscal_year": doc.get("latest_year"), "missing": _sample(set(doc.get("missing", []))),
+                "error": "; ".join(doc.get("errors", [])[:3]) or None,
+                "note": "Annual reports change once a year; the latest year is re-read monthly.", "file": "data/cache/dart/credit.json"}
+
+    dart_file = data_dir / "cache" / "dart" / "credit.json"
+    if dart_file.exists():  # only once a DART key has been set up (quant/ingestion/opendart.py)
+        b.add("dart", "Financial statements, Korean listings", "OpenDART (FSS)", 35, dart, feeds="credit")
     b.flags = {s: sorted(c) for s, c in flags.items()}
     return b

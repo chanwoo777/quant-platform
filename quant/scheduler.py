@@ -89,6 +89,7 @@ def _daily_cycle(sizing: str, universe: bool, publish_site: bool) -> None:
             log.info("  %s %g %s @ %.2f [%s] %s", f.side, f.shares, f.ticker, f.price, f.reason, f.rationale)
     if universe:
         universe_refresh()
+    credit_refresh()
     catch_up_daily([*deep, *settings.indices])
     if publish_site:
         site_publish()
@@ -159,6 +160,20 @@ def universe_refresh() -> None:
             (log.info if ok else log.error)("universe %s: %s (%.0fs)", step, detail, secs)
     except Exception:
         log.exception("universe refresh failed")
+
+
+def credit_refresh() -> None:
+    """Korean listings' annual statements from OpenDART for the Credit page; skipped without DART_API_KEY."""
+    try:
+        from quant.ingestion import opendart
+
+        if not opendart.api_key():
+            log.info("credit: DART_API_KEY not set, so the Credit page keeps its last data")
+            return
+        doc = opendart.refresh()
+        log.info("credit: %d companies from OpenDART (%d calls)", len(doc["companies"]), doc["calls"])
+    except Exception:
+        log.exception("credit refresh failed")
 
 
 def site_publish(quantum: bool = True, track_log: bool = True) -> None:

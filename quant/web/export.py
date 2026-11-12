@@ -29,6 +29,8 @@ visitor's browser instead (docs/assets/live.js, dailyHistory). Files written to 
   track.json      the signal track record: forward returns of the append-only signal log (quant/web/track.py),
                   with track/signals_<date>.csv for the latest days
   briefs.json     the rule-based daily brief, the latest 30 (quant/web/brief.py)
+  credit/index.json, credit/<code>.json  Korean listings' annual figures from OpenDART for the Credit page; the
+                  ratios and the indicative grade are computed in the browser (Q.creditRatios / Q.creditScore)
   sector-news.json  the research agent's sector news digest, when there is a fresh one (quant/web/digest.py)
   changelog.json  feat: and fix: commits from the git history, methodology changes marked (quant/web/changelog.py)
   status.json     per source: last successful run, data date, rows, missing tickers, stale series,
@@ -598,12 +600,40 @@ SEO_PAGES = {
     "markets": ("Market overview", "The market regime, risk score and stance, the S&P 500 shaded by regime, FRED economic indicators and breaking news."),
     "compare": ("Compare", "Two to five tickers side by side: returns, risk, Sharpe and Sortino, factor exposures, margins and correlation."),
     "quantum": ("Quantum computing for investors", "How quantum algorithms work, from zero, and what they could do for option pricing, risk and portfolios, next to the classical methods."),
+    "pairs": ("Pairs trading lab", "Backtest a pairs trade on any two stocks: the distance method from Gatev, Goetzmann and Rouwenhorst or a cointegration z-score, walk-forward, against buy and hold."),
+    "portfolio": ("Portfolio tracker", "Log your holdings and see their live value, profit and loss, allocation, sector exposure and risk, saved only in your browser."),
+    "credit": ("Credit analysis", "Korean companies' OpenDART statements turned into leverage, interest cover, EBITDA margin and debt / EBITDA, an indicative grade and a five-year trend."),
     "live": ("Live chart", "A TradingView-style live chart for stocks, ETFs, indices and coins, with indicators, drawing tools and price alerts."),
     "methodology": ("Methodology", "How every score, signal and metric on the site is calculated, with the formula, the inputs, the limits and the code."),
     "status": ("Data status", "What the nightly job loaded, from where, how fresh it is, and what its data-quality checks found."),
     "track-record": ("Signal track record", "How the positive / neutral / negative signal labels did over the next 5, 20 and 60 trading days, from an append-only log."),
     "changelog": ("Changelog", "Every feature and fix, from the repository's commit messages, with methodology changes highlighted."),
 }
+
+
+CREDIT_FIELDS = ("revenue", "op_income", "net_income", "da", "ebitda", "interest", "interest_basis", "debt", "cash", "equity",
+                 "assets", "liabilities", "current_assets", "current_liabilities", "cfo", "fs")
+
+
+def export_credit(out: Path, data_dir: Path) -> dict | None:
+    """credit/index.json (every company with its latest two years, for search and the grade distribution) and
+    credit/<stock code>.json (all years and the report links). None when OpenDART hasn't been set up."""
+    path = data_dir / "cache" / "dart" / "credit.json"
+    if not path.exists():
+        return None
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    folder = out / "credit"
+    shutil.rmtree(folder, ignore_errors=True)
+    index, size = [], 0
+    for c in doc.get("companies", []):
+        years = [{"year": y["year"], **{k: y.get(k) for k in CREDIT_FIELDS}} for y in c["years"]][-5:]
+        if not years:
+            continue
+        size += write(folder / f"{c['stock_code']}.json", {"ticker": c["ticker"], "code": c["stock_code"], "name": c["name"],
+                                                        "name_en": c["name_en"], "years": years, "reports": c.get("reports", {})})
+        index.append({"t": c["ticker"], "c": c["stock_code"], "n": c["name"], "e": c["name_en"], "y": years[-2:]})
+    size += write(folder / "index.json", {"fetched_at": doc.get("fetched_at"), "latest_year": doc.get("latest_year"), "companies": index})
+    return {"companies": len(index), "bytes": size}
 
 
 def export_digest(out: Path) -> int | None:
@@ -707,6 +737,7 @@ def build(site_dir: Path | None = None, quantum: bool = True, track_log: bool = 
     step("quantum", lambda: export_quantum(out, run=quantum))
     track_stats = step("track", lambda: export_track(out, data_dir, append=track_log))
     step("brief", lambda: export_brief(out, data_dir, c))
+    step("credit", lambda: export_credit(out, data_dir))
     step("digest", lambda: export_digest(out))
     step("changelog", lambda: write(out / "changelog.json", changelog.build(ROOT, data_dir / "changelog.json")))
 

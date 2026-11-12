@@ -931,6 +931,21 @@
     }
     return out;
   }
+  /** US dollars per unit of each currency, from CNBC's FX quotes ("KRW=" is USD/KRW, "EUR=" is EUR/USD: the pair's
+   * name says which way round). GBp (pence) is a hundredth of GBP. A currency CNBC doesn't quote is left out. */
+  async function fxRates(currencies) {
+    const out = { USD: 1 }, want = [...new Set(currencies.map((c) => (c === "GBp" ? "GBP" : c)).filter((c) => /^[A-Z]{3}$/.test(c) && c !== "USD"))];
+    if (want.length) {
+      const list = (((await getJSON(CNBC_QUOTE + encodeURIComponent(want.map((c) => `${c}=`).join("|")))).FormattedQuoteResult || {}).FormattedQuote || []);
+      for (const q of list) {
+        const cur = String(q.symbol || "").replace("=", ""), last = parseFloat(String(q.last ?? "").replace(/,/g, ""));
+        if (q.code !== 0 || !Number.isFinite(last) || last <= 0) continue;
+        out[cur] = String(q.name || "").startsWith(`${cur}/USD`) ? last : 1 / last;
+      }
+    }
+    if (out.GBP) out.GBp = out.GBP / 100;
+    return out;
+  }
   async function checkAlerts() {
     const list = alertList(), armed = list.filter((a) => a.state === "armed");
     if (!armed.length) { stopAlerts(); renderAlerts(); return; }
@@ -1022,5 +1037,5 @@
   // Alerts keep running on every page of the site while the tab is open.
   if (document.readyState === "loading") window.addEventListener("DOMContentLoaded", startAlerts); else startAlerts();
 
-  window.LIVE = { view, dailyHistory, checkAlerts };
+  window.LIVE = { view, dailyHistory, checkAlerts, quotes: fetchQuotes, fxRates };
 })();

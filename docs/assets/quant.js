@@ -889,13 +889,250 @@
     return alert.kind === "up" ? move >= v : alert.kind === "down" ? move <= -v : null;
   }
 
+  // --- pairs trading (Pairs page) ------------------------------------------------------------
+  // Gatev, Goetzmann & Rouwenhorst (2006), as in the Lecture 7 notebooks: pick pairs whose normalised
+  // prices moved together in a formation window, then trade the gap in the next window. The
+  // cointegration variant (Engle & Granger 1987) trades the z-score of the log-price spread instead.
+  /** Augmented Dickey-Fuller t-statistic with a constant: dy_t = a + g*y_{t-1} + sum phi_i*dy_{t-i} + e. */
+  function adf(y, lags = 1) {
+    const dy = [];
+    for (let t = 1; t < y.length; t++) dy.push(y[t] - y[t - 1]);
+    const Y = [], X = [];
+    for (let t = lags; t < dy.length; t++) {
+      Y.push(dy[t]);
+      X.push([1, y[t], ...Array.from({ length: lags }, (_, i) => dy[t - 1 - i])]);
+    }
+    if (Y.length < lags + 10) return { stat: NaN, n: Y.length, lags };
+    const fit = ols(Y, X, { hac: false });
+    return { stat: fit.t[1], gamma: fit.coef[1], n: Y.length, lags };
+  }
+  // MacKinnon (2010) asymptotic critical values for the Engle-Granger test with two series and a constant.
+  const EG_CRITICAL = { 1: -3.8977, 5: -3.3377, 10: -3.0462 };
+  function egVerdict(stat) {
+    if (!isNum(stat)) return "n/a";
+    return stat < EG_CRITICAL[1] ? "cointegrated at 1%" : stat < EG_CRITICAL[5] ? "cointegrated at 5%"
+      : stat < EG_CRITICAL[10] ? "cointegrated at 10%" : "not cointegrated";
+  }
+  /** Bars for a deviation of the spread to halve: ds_t = a + b*s_{t-1}, half-life = -ln 2 / ln(1 + b). */
+  function halfLife(s) {
+    const Y = [], X = [];
+    for (let t = 1; t < s.length; t++) { Y.push(s[t] - s[t - 1]); X.push([1, s[t - 1]]); }
+    if (Y.length < 10) return NaN;
+    const b = ols(Y, X, { hac: false }).coef[1];
+    return b < 0 && b > -1 ? -Math.LN2 / Math.log(1 + b) : NaN;
+  }
+  /** Sum of squared differences of two price series normalised to 1 at index i0 (Lecture 7, part 1). */
+  function pairSse(a, b, i0 = 0, i1 = a.length) {
+    let s = 0;
+    for (let i = i0; i < i1; i++) s += (a[i] / a[i0] - b[i] / b[i0]) ** 2;
+    return s;
+  }
+  /** Engle-Granger step 1 on log prices over [i0, i1): log a = alpha + beta * log b + e. */
+  function hedgeRatio(a, b, i0, i1) {
+    const y = [], X = [];
+    for (let i = i0; i < i1; i++) { y.push(Math.log(a[i])); X.push([1, Math.log(b[i])]); }
+    const fit = ols(y, X, { hac: false });
+    return { alpha: fit.coef[0], beta: fit.coef[1], resid: fit.resid };
+  }
+  /** Every pair of `names` ranked by SSE over [i0, i1), with return correlation and the Engle-Granger statistic. */
+  function findPairs(names, prices, i0, i1) {
+    const out = [];
+    for (let i = 0; i < names.length; i++) for (let j = i + 1; j < names.length; j++) {
+      const a = prices[i], b = prices[j];
+      const ra = returns(a.slice(i0, i1)).slice(1), rb = returns(b.slice(i0, i1)).slice(1);
+      let eg = NaN;
+      try { eg = adf(hedgeRatio(a, b, i0, i1).resid, 1).stat; } catch (e) { /* flat series */ }
+      out.push({ a: names[i], b: names[j], sse: pairSse(a, b, i0, i1), rho: covariance(ra, rb) / (std(ra) * std(rb)), eg });
+    }
+    return out.sort((x, y) => x.sse - y.sse);
+  }
+
+  /** Walk-forward pairs backtest on two aligned price series. Each window: estimate on `formation` bars,
+   * trade the next `trading` bars, close anything open at the window's end, then roll forward by `trading`.
+   * method "distance" (Lecture 7): spread = difference of prices normalised at the trading start; open when it
+   * passes entry x sigma (sigma: the formation spread's standard deviation), close when it comes back inside
+   * exit x sigma; P&L per trade = (long now - long at entry) + (short at entry - short now) in those normalised
+   * units, compounded trade to trade, as the notebook's buy_sell_price does.
+   * method "coint": z-score of the formation-window log-price residual; legs of 1 (A) and beta (B) in value;
+   * P&L from the entry prices. stop: close when |gap| passes stop x sigma (or |z| > stop). cost: bps per unit of
+   * value traded, charged on opening and closing both legs. rf: per-bar risk-free rate for the Sharpe ratio. */
+  function pairsBacktest(dates, a, b, opts = {}) {
+    const o = Object.assign({ method: "distance", formation: 252, trading: 126, entry: 2, exit: 0, stop: null, cost: 0, rf: null, ppy: TD }, opts);
+    const n = Math.min(a.length, b.length), c = o.cost / 1e4;
+    const out = { dates: [], equity: [], position: [], spread: [], upper: [], lower: [], exitUp: [], exitDown: [], trades: [], windows: [] };
+    let eq = 1;
+    for (let start = 0; start + o.formation < n - 1; start += o.trading) {
+      const f1 = start + o.formation, t1 = Math.min(f1 + o.trading, n);
+      const w = { formStart: dates[start], tradeStart: dates[f1], tradeEnd: dates[t1 - 1], sse: pairSse(a, b, start, f1) };
+      let gap, scale;
+      const fit = hedgeRatio(a, b, start, f1);
+      w.eg = adf(fit.resid, 1).stat;
+      if (o.method === "coint") {
+        const mu = mean(fit.resid), sd = std(fit.resid);
+        Object.assign(w, { alpha: fit.alpha, beta: fit.beta, mu, sd, halfLife: halfLife(fit.resid) });
+        gap = (i) => (Math.log(a[i]) - fit.alpha - fit.beta * Math.log(b[i]) - mu) / sd;
+        scale = 1;
+      } else {
+        const fs = [];
+        for (let i = start; i < f1; i++) fs.push(a[i] / a[start] - b[i] / b[start]);
+        w.sigma = std(fs);
+        w.halfLife = halfLife(fs);
+        gap = (i) => a[i] / a[f1] - b[i] / b[f1];
+        scale = w.sigma;
+      }
+      let side = 0, entry = null;  // side +1: long A / short B; -1: short A / long B
+      const legsB = o.method === "coint" ? Math.abs(w.beta) : 1;
+      const value = (i) => {
+        if (!side) return 0;
+        if (o.method === "coint") return side * ((a[i] / entry.a - 1) - w.beta * (b[i] / entry.b - 1));
+        const na = a[i] / a[f1], nb = b[i] / b[f1];
+        return side > 0 ? (na - entry.na) + (entry.nb - nb) : (nb - entry.nb) + (entry.na - na);
+      };
+      for (let i = f1; i < t1; i++) {
+        const g = gap(i), last = i === t1 - 1;
+        if (side) {
+          const back = side < 0 ? g < o.exit * scale : g > -o.exit * scale;
+          const stopped = isNum(o.stop) && Math.abs(g) > o.stop * scale;
+          if (back || stopped || last) {
+            const r = value(i);
+            eq = entry.eq * (1 + r) * (1 - c * (1 + legsB));
+            out.trades.push({ open: entry.date, close: dates[i], side: side > 0 ? "long A / short B" : "short A / long B",
+              bars: i - entry.i, ret: eq / entry.eq0 - 1, reason: back ? "converged" : stopped ? "stop" : "window end" });
+            side = 0; entry = null;
+          } else eq = entry.eq * (1 + value(i));
+        } else if (!last && Math.abs(g) > o.entry * scale) {
+          side = g > 0 ? -1 : 1;
+          const eq0 = eq;
+          eq *= 1 - c * (1 + legsB);
+          entry = { i, date: dates[i], a: a[i], b: b[i], na: a[i] / a[f1], nb: b[i] / b[f1], eq, eq0 };
+        }
+        out.dates.push(dates[i]); out.equity.push(eq); out.position.push(side);
+        out.spread.push(g); out.upper.push(o.entry * scale); out.lower.push(-o.entry * scale);
+        out.exitUp.push(o.exit * scale); out.exitDown.push(-o.exit * scale);
+      }
+      out.windows.push(w);
+    }
+    if (!out.dates.length) return Object.assign(out, { stats: null, bh: null });
+    const i0 = o.formation;  // the first trading bar; the windows run on from it without gaps
+    const bhA = out.dates.map((_, k) => a[i0 + k] / a[i0]), bhB = out.dates.map((_, k) => b[i0 + k] / b[i0]);
+    out.bh = { a: bhA, b: bhB, mix: bhA.map((x, k) => (x + bhB[k]) / 2) };
+    const rf = o.rf ? o.rf.slice(i0 + 1, i0 + out.dates.length) : null;
+    out.stats = { strategy: seriesStats(out.equity, rf, o.ppy), a: seriesStats(bhA, rf, o.ppy), b: seriesStats(bhB, rf, o.ppy),
+      mix: seriesStats(out.bh.mix, rf, o.ppy) };
+    const tr = out.trades;
+    Object.assign(out.stats.strategy, { trades: tr.length, winRate: tr.length ? tr.filter((t) => t.ret > 0).length / tr.length : NaN,
+      avgBars: tr.length ? mean(tr.map((t) => t.bars)) : NaN, exposure: mean(out.position.map((p) => (p ? 1 : 0))) });
+    return out;
+  }
+  /** Total return, CAGR, volatility, Sharpe, Sortino and maximum drawdown of a value series. */
+  function seriesStats(values, rf, ppy = TD) {
+    const r = returns(values).slice(1);
+    const s = r.length > 2 ? riskStats(r, { rf: rf && rf.length === r.length ? rf : null, ppy }) : { vol: NaN, sharpe: NaN, sortino: NaN };
+    const total = values[values.length - 1] / values[0] - 1;
+    return { total, cagr: r.length ? (1 + total) ** (ppy / r.length) - 1 : NaN, vol: s.vol, sharpe: s.sharpe, sortino: s.sortino, mdd: maxDrawdown(values) };
+  }
+  /** Sharpe ratio for each entry x exit pair (exit < entry), for the sensitivity grid. */
+  function pairsGrid(dates, a, b, opts, entries, exits) {
+    return entries.map((en) => exits.map((ex) => (ex >= en ? NaN : (pairsBacktest(dates, a, b, Object.assign({}, opts, { entry: en, exit: ex })).stats || { strategy: {} }).strategy.sharpe)));
+  }
+
+  // --- credit scorecard (Credit page) --------------------------------------------------------
+  // An indicative, model-implied grade from five ratios, each mapped to a letter band and weighted. The bands
+  // follow the shape of the rating agencies' published ratio medians for industrial companies; they are not
+  // any agency's methodology and the result is not a credit rating.
+  const CREDIT_GRADES = ["AAA", "AA", "A", "BBB", "BB", "B", "CCC"];
+  const CREDIT_FACTORS = [
+    { id: "debt_ebitda", label: "Debt / EBITDA", weight: 0.30, low: true, cuts: [1, 1.5, 2, 3, 4, 5], fmt: "x" },
+    { id: "coverage", label: "EBITDA / interest", weight: 0.25, low: false, cuts: [25, 15, 10, 6, 3, 1.5], fmt: "x" },
+    { id: "debt_capital", label: "Debt / (debt + equity)", weight: 0.15, low: true, cuts: [0.15, 0.25, 0.35, 0.45, 0.55, 0.70], fmt: "%" },
+    { id: "ebitda_margin", label: "EBITDA margin", weight: 0.15, low: false, cuts: [0.30, 0.25, 0.18, 0.12, 0.08, 0.04], fmt: "%" },
+    { id: "cfo_debt", label: "Operating cash flow / debt", weight: 0.15, low: false, cuts: [1, 0.6, 0.4, 0.25, 0.15, 0.05], fmt: "%" },
+  ];
+  const SMALL_REVENUE_KRW = 1e11;  // under 100 billion won of revenue: one notch lower for scale
+  /** Ratios from one year's figures (any currency): debt = borrowings + bonds + lease liabilities. */
+  function creditRatios(f) {
+    const ebitda = isNum(f.ebitda) ? f.ebitda : f.op_income, debt = isNum(f.debt) ? f.debt : NaN;
+    const div = (x, y) => (isNum(x) && isNum(y) && y !== 0 ? x / y : NaN);
+    return {
+      ebitda, debt, net_debt: debt - (isNum(f.cash) ? f.cash : 0),
+      debt_ebitda: debt === 0 ? 0 : isNum(ebitda) && ebitda <= 0 ? Infinity : div(debt, ebitda),
+      net_debt_ebitda: isNum(ebitda) && ebitda > 0 ? (debt - (f.cash || 0)) / ebitda : NaN,
+      coverage: f.interest === 0 ? Infinity : div(ebitda, f.interest),
+      ebitda_margin: div(ebitda, f.revenue),
+      debt_capital: isNum(f.equity) && f.equity <= 0 ? 1 : div(debt, debt + f.equity),
+      debt_equity: div(debt, f.equity),
+      cfo_debt: debt === 0 ? Infinity : div(f.cfo, debt),
+      current_ratio: div(f.current_assets, f.current_liabilities),
+    };
+  }
+  /** Grade number 1 (AAA) to 7 (CCC) for one factor's value. */
+  function factorGrade(factor, v) {
+    if (v === Infinity) return factor.low ? 7 : 1;
+    if (v === -Infinity) return factor.low ? 1 : 7;
+    if (!isNum(v)) return null;
+    for (let g = 0; g < factor.cuts.length; g++) if (factor.low ? v < factor.cuts[g] : v > factor.cuts[g]) return g + 1;
+    return 7;
+  }
+  /** The weighted grade: AAA/AA+/.../CCC, with each factor's band. revenueKrw adds the small-company notch. */
+  function creditScore(ratios, { revenueKrw = null } = {}) {
+    const parts = CREDIT_FACTORS.map((f) => ({ id: f.id, label: f.label, weight: f.weight, value: ratios[f.id], grade: factorGrade(f, ratios[f.id]) }));
+    const used = parts.filter((p) => p.grade !== null);
+    if (used.length < 3) return { score: NaN, grade: "n/a", parts, missing: parts.filter((p) => p.grade === null).map((p) => p.id) };
+    const w = sum(used.map((p) => p.weight));
+    let score = sum(used.map((p) => p.weight * p.grade)) / w;
+    const small = isNum(revenueKrw) && revenueKrw < SMALL_REVENUE_KRW;
+    if (small) score = Math.min(7, score + 1 / 3);
+    return { score, grade: gradeLabel(score), parts, small, missing: parts.filter((p) => p.grade === null).map((p) => p.id) };
+  }
+  /** Score to notch: 1.0 AAA, 1.67 AA+, 2.0 AA, 2.33 AA-, 2.67 A+, ... 6.67 CCC+, 7.0 CCC (AAA has no modifiers). */
+  function gradeLabel(score) {
+    if (!isNum(score)) return "n/a";
+    const notch = Math.round((score - 1) * 3);  // 0 = AAA, 3 = AA, 6 = A, ... 18 = CCC
+    if (notch <= 0) return "AAA";
+    if (notch === 1) return "AA+";
+    if (notch >= 18) return "CCC";
+    const letter = Math.round(notch / 3), mod = notch - 3 * letter;
+    return CREDIT_GRADES[letter] + (mod < 0 ? "+" : mod > 0 ? "-" : "");
+  }
+
+  // --- portfolio (Portfolio page) ------------------------------------------------------------
+  /** Holdings {sym, qty, cost, price, prev, fx (USD per unit of the quote currency), group fields} ->
+   * value, P&L and weight per holding (in USD) and the totals. */
+  function portfolioSummary(holdings) {
+    const rows = holdings.map((h) => {
+      const fx = isNum(h.fx) ? h.fx : NaN, value = isNum(h.price) ? h.qty * h.price * fx : NaN, basis = isNum(h.cost) ? h.qty * h.cost * fx : NaN;
+      return Object.assign({}, h, { value, basis, pnl: value - basis, pnlPct: basis ? value / basis - 1 : NaN,
+        day: isNum(h.prev) && h.prev > 0 ? h.qty * (h.price - h.prev) * fx : NaN, dayPct: isNum(h.prev) && h.prev > 0 ? h.price / h.prev - 1 : NaN });
+    });
+    const priced = rows.filter((r) => isNum(r.value)), total = sum(priced.map((r) => r.value));
+    rows.forEach((r) => { r.weight = isNum(r.value) && total ? r.value / total : NaN; });
+    const basis = sum(priced.filter((r) => isNum(r.basis)).map((r) => r.basis)), withDay = priced.filter((r) => isNum(r.day));
+    const day = sum(withDay.map((r) => r.day)), prevTotal = sum(withDay.map((r) => r.value - r.day));
+    return { rows, total, basis, pnl: sum(priced.filter((r) => isNum(r.basis)).map((r) => r.pnl)), pnlPct: basis ? sum(priced.filter((r) => isNum(r.basis)).map((r) => r.value)) / basis - 1 : NaN,
+      day, dayPct: prevTotal ? day / prevTotal : NaN, unpriced: rows.length - priced.length,
+      hhi: sum(priced.map((r) => r.weight ** 2)), largest: priced.reduce((m, r) => (r.weight > (m ? m.weight : -1) ? r : m), null) };
+  }
+  /** Weights summed by a field (sector, class, market, currency), largest first. */
+  function exposure(rows, field) {
+    const m = new Map();
+    for (const r of rows) if (isNum(r.weight)) m.set(r[field] || "Other", (m.get(r[field] || "Other") || 0) + r.weight);
+    return [...m.entries()].map(([key, weight]) => ({ key, weight })).sort((x, y) => y.weight - x.weight);
+  }
+  /** The value of today's quantities over past dates (USD at today's exchange rates), from aligned closes. */
+  function portfolioHistory(closes, qtys, fx) {
+    return closes[0].map((_, t) => sum(closes.map((c, k) => c[t] * qtys[k] * fx[k])));
+  }
+
   const Q = { TD, isNum, mean, std, variance, covariance, invert, ols, returns, sma, rollingStd, rsi, bollinger, align,
     weekKey, weeklyFactors, riskStats, maxDrawdown, valueAt, shiftIso, returnSince, correlationMatrix, clusterOrder, pairStats,
     squarify, groupMoves, alertHit,
     ema, rma, highest, lowest, trueRange, atr, macd, stoch, stochastic, stochRsi, dmi, supertrend, psar, ichimoku, vwap, obv,
     INDICATORS, indicatorFits, wma, hma, vwma, maOf, source, keltner, donchian, willr, cci, roc, mfi, rangeByTime, pivots, anchoredVwap,
     STUDIES, studyFits, PLAYBOOKS,
-    MODELS, FACTOR_LABELS, factorRegression, rollingExposures };
+    MODELS, FACTOR_LABELS, factorRegression, rollingExposures,
+    adf, EG_CRITICAL, egVerdict, halfLife, pairSse, hedgeRatio, findPairs, pairsBacktest, seriesStats, pairsGrid,
+    CREDIT_GRADES, CREDIT_FACTORS, SMALL_REVENUE_KRW, creditRatios, factorGrade, creditScore, gradeLabel,
+    portfolioSummary, exposure, portfolioHistory };
   if (typeof module !== "undefined" && module.exports) module.exports = Q;
   else root.Q = Q;
 })(typeof window !== "undefined" ? window : globalThis);
