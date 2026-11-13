@@ -96,7 +96,7 @@ setuptools==84.1.0
 shellingham==1.5.4
 six==1.17.0
 sortedcontainers==2.4.0
-soupsieve==3.0.3
+soupsieve==4.0.0
 SQLAlchemy==2.1.5
 starlette==1.9.0
 statsmodels==0.15.0
