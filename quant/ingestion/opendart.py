@@ -34,6 +34,7 @@ log = logging.getLogger(__name__)
 CORP_CODE_URL = "https://opendart.fss.or.kr/api/corpCode.xml"
 STATEMENTS_URL = "https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json"
 REPORT_URL = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo={}"
+XBRL_URL = "https://opendart.fss.or.kr/api/fnlttXbrl.xml"  # the report's XBRL files (zip), notes included
 ANNUAL = "11011"  # reprt_code of the annual business report (사업보고서)
 LATEST_REFRESH = timedelta(days=30)
 NO_DATA, RATE_LIMIT = "013", "020"
@@ -173,6 +174,52 @@ def _sum_da(rows: list[dict], col: str) -> float | None:
     return sum(v for _, v in custom) if custom else None
 
 
+# Depreciation and amortisation from the XBRL notes, for the many filers whose cash flow statement shows only a total
+# "adjustments" line. A total concept wins; else the parts (each concept once); else the expense lines.
+XI, XDI = "{http://www.xbrl.org/2003/instance}", "{http://xbrl.org/2006/xbrldi}"
+DA_TOTALS = ("DepreciationAndAmortisationExpense", "AdjustmentsForDepreciationAndAmortisationExpense")
+DA_PARTS = ("DepreciationPropertyPlantAndEquipment", "DepreciationRightofuseAssets", "DepreciationInvestmentProperty",
+            "AmortisationIntangibleAssetsOtherThanGoodwill")
+DA_EXPENSES = (("DepreciationExpense", "AmortisationExpense"), ("AdjustmentsForDepreciationExpense", "AdjustmentsForAmortisationExpense"))
+FS_AXIS, FS_MEMBER = "ConsolidatedAndSeparateFinancialStatementsAxis", {"CFS": "ConsolidatedMember", "OFS": "SeparateMember"}
+
+
+def parse_xbrl_da(xml: bytes, fs: str) -> dict[int, float]:
+    """{fiscal year: D&A} from an XBRL instance: facts for a whole year, with no dimension other than the
+    consolidated / separate axis set to the statements used (fs "CFS" or "OFS")."""
+    root = ElementTree.fromstring(xml)
+    ok_ctx = {}
+    for c in root.iter(XI + "context"):
+        p = c.find(XI + "period")
+        start, end = p.findtext(XI + "startDate"), p.findtext(XI + "endDate")
+        if not start or not end:
+            continue
+        days = (datetime.fromisoformat(end) - datetime.fromisoformat(start)).days
+        dims = {m.get("dimension", "").split(":")[-1]: (m.text or "").strip().split(":")[-1] for m in c.iter(XDI + "explicitMember")}
+        if 350 <= days <= 380 and all(k == FS_AXIS and v == FS_MEMBER[fs] for k, v in dims.items()):
+            ok_ctx[c.get("id")] = int(end[:4])
+    facts: dict[int, dict[str, float]] = {}
+    for el in root:
+        name, year = el.tag.split("}")[-1], ok_ctx.get(el.get("contextRef"))
+        if year is None or not el.text:
+            continue
+        try:
+            facts.setdefault(year, {}).setdefault(name, abs(float(el.text)))
+        except ValueError:
+            continue
+    out = {}
+    for year, f in facts.items():
+        total = next((f[t] for t in DA_TOTALS if t in f), None)
+        if total is None and "DepreciationPropertyPlantAndEquipment" in f:
+            total = sum(f[p] for p in DA_PARTS if p in f)
+        for dep, amort in DA_EXPENSES:
+            if total is None and dep in f:
+                total = f[dep] + f.get(amort, 0.0)
+        if total:
+            out[year] = total
+    return out
+
+
 def extract(rows: list[dict], year: int) -> dict[int, dict]:
     """{fiscal year: figures} for the three years in one annual report's rows."""
     out = {}
@@ -182,6 +229,7 @@ def extract(rows: list[dict], year: int) -> dict[int, dict]:
             continue
         f["debt"], f["debt_basis"] = _sum_debt(rows, col)
         f["da"] = _sum_da(rows, col)
+        f["da_basis"] = "cash flow statement" if f["da"] is not None else None
         f["ebitda"] = f["op_income"] + f["da"] if f["op_income"] is not None and f["da"] is not None else None
         for basis, key in (("interest paid", "interest_paid"), ("interest expense", "interest_expense"), ("finance costs", "finance_costs")):
             if f[key] is not None:
@@ -247,6 +295,26 @@ class Client:
         path.write_text("{}", encoding="utf-8")  # not filed: remembered, re-asked with the latest year's refresh
         return None
 
+    def xbrl_da(self, rcept_no: str, fs: str) -> dict[int, float]:
+        """D&A by fiscal year from one report's XBRL notes, cached (a filed report doesn't change)."""
+        path = self.cache / f"xbrl_{rcept_no}_{fs}.json"
+        if path.exists():
+            return {int(k): v for k, v in json.loads(path.read_text(encoding="utf-8")).items()}
+        resp = self.get(XBRL_URL, rcept_no=rcept_no, reprt_code=ANNUAL)
+        out = {}
+        if resp.content.startswith(b"PK"):
+            with zipfile.ZipFile(io.BytesIO(resp.content)) as z:
+                inst = next((n for n in z.namelist() if n.endswith(".xbrl")), None)
+                if inst:
+                    try:
+                        out = parse_xbrl_da(z.read(inst), fs)
+                    except ElementTree.ParseError:
+                        log.warning("XBRL for report %s could not be parsed", rcept_no)
+        elif RATE_LIMIT.encode() in resp.content[:300]:
+            raise DartError("OpenDART's daily request limit was reached; the rest waits for tomorrow")
+        path.write_text(json.dumps(out), encoding="utf-8")
+        return out
+
 
 def latest_year(today: datetime | None = None) -> int:
     """The newest fiscal year whose annual report should be filed: reports are due by the end of March."""
@@ -267,10 +335,45 @@ def company_years(client: Client, corp_code: str, today: datetime | None = None)
             report_year = y - 1
         if not doc:
             continue
-        reports[report_year] = {"fs": doc["fs"], "url": REPORT_URL.format(doc["rcept_no"]) if doc.get("rcept_no") else None}
+        reports[report_year] = {"fs": doc["fs"], "url": REPORT_URL.format(doc["rcept_no"]) if doc.get("rcept_no") else None,
+                                "rcept_no": doc.get("rcept_no")}
         for fy, figs in extract(doc["rows"], report_year).items():
             years.setdefault(fy, dict(figs, fs=doc["fs"]))
-    return years, reports
+    fill_da_from_notes(client, corp_code, years, reports)
+    return years, {k: {"fs": v["fs"], "url": v["url"]} for k, v in reports.items()}
+
+
+def fill_da_from_notes(client: Client, corp_code: str, years: dict[int, dict], reports: dict) -> None:
+    """For the five years shown, D&A (and so EBITDA) from the XBRL notes where the cash flow statement has none.
+    A report's XBRL covers its year and the one before, so the reports for the latest year, the year before it and
+    three years before cover all five."""
+    shown = sorted(years)[-5:]
+    need = [fy for fy in shown if years[fy].get("da") is None and years[fy].get("op_income") is not None]
+    if not need or not reports:
+        return
+    latest = max(reports)
+    for ry in (latest, latest - 1, latest - 3):
+        if not any(fy in (ry, ry - 1) for fy in need):
+            continue
+        if ry in reports:
+            rno, fs = reports[ry]["rcept_no"], reports[ry]["fs"]
+        else:
+            doc = client.report(corp_code, ry) or {}
+            rno, fs = doc.get("rcept_no"), doc.get("fs")
+        if not rno:
+            continue
+        try:
+            found = client.xbrl_da(rno, fs)
+        except DartError:
+            raise
+        except Exception as exc:  # a malformed download costs this company its notes D&A, nothing more
+            log.warning("XBRL D&A for %s report %s failed: %s", corp_code, ry, exc)
+            continue
+        for fy in need:
+            f = years[fy]
+            if f.get("da") is None and fy in found and f["fs"] == fs:
+                f["da"], f["da_basis"] = found[fy], "notes (XBRL)"
+                f["ebitda"] = f["op_income"] + f["da"]
 
 
 def korean_tickers() -> dict[str, str]:

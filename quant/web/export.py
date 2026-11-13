@@ -611,7 +611,7 @@ SEO_PAGES = {
 }
 
 
-CREDIT_FIELDS = ("revenue", "op_income", "net_income", "da", "ebitda", "interest", "interest_basis", "debt", "debt_basis", "cash", "equity",
+CREDIT_FIELDS = ("revenue", "op_income", "net_income", "da", "da_basis", "ebitda", "interest", "interest_basis", "debt", "debt_basis", "cash", "equity",
                  "assets", "liabilities", "current_assets", "current_liabilities", "cfo", "fs")
 
 

@@ -151,3 +151,70 @@ def test_financial_liabilities_stand_in_when_borrowings_arent_itemised():
     y = opendart.extract(rows, 2025)[2025]
     assert y["debt"] == 100 and y["debt_basis"] == "financial liabilities"
     assert opendart.extract(ROWS, 2025)[2025]["debt_basis"] == "borrowings, bonds and leases"
+
+
+XBRL = b"""<?xml version="1.0" encoding="UTF-8"?>
+<xbrli:xbrl xmlns:xbrli="http://www.xbrl.org/2003/instance" xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:ifrs-full="https://xbrl.ifrs.org/taxonomy/2023-03-23/ifrs-full">
+  <xbrli:context id="C25"><xbrli:entity><xbrli:identifier scheme="x">1</xbrli:identifier><xbrli:segment>
+    <xbrldi:explicitMember dimension="ifrs-full:ConsolidatedAndSeparateFinancialStatementsAxis">ifrs-full:ConsolidatedMember</xbrldi:explicitMember></xbrli:segment></xbrli:entity>
+    <xbrli:period><xbrli:startDate>2025-01-01</xbrli:startDate><xbrli:endDate>2025-12-31</xbrli:endDate></xbrli:period></xbrli:context>
+  <xbrli:context id="S25"><xbrli:entity><xbrli:identifier scheme="x">1</xbrli:identifier><xbrli:segment>
+    <xbrldi:explicitMember dimension="ifrs-full:ConsolidatedAndSeparateFinancialStatementsAxis">ifrs-full:SeparateMember</xbrldi:explicitMember></xbrli:segment></xbrli:entity>
+    <xbrli:period><xbrli:startDate>2025-01-01</xbrli:startDate><xbrli:endDate>2025-12-31</xbrli:endDate></xbrli:period></xbrli:context>
+  <xbrli:context id="P24"><xbrli:entity><xbrli:identifier scheme="x">1</xbrli:identifier></xbrli:entity>
+    <xbrli:period><xbrli:startDate>2024-01-01</xbrli:startDate><xbrli:endDate>2024-12-31</xbrli:endDate></xbrli:period></xbrli:context>
+  <xbrli:context id="Q25"><xbrli:entity><xbrli:identifier scheme="x">1</xbrli:identifier></xbrli:entity>
+    <xbrli:period><xbrli:startDate>2025-10-01</xbrli:startDate><xbrli:endDate>2025-12-31</xbrli:endDate></xbrli:period></xbrli:context>
+  <xbrli:context id="M25"><xbrli:entity><xbrli:identifier scheme="x">1</xbrli:identifier><xbrli:segment>
+    <xbrldi:explicitMember dimension="ifrs-full:ClassesOfPropertyPlantAndEquipmentAxis">ifrs-full:MachineryMember</xbrldi:explicitMember></xbrli:segment></xbrli:entity>
+    <xbrli:period><xbrli:startDate>2025-01-01</xbrli:startDate><xbrli:endDate>2025-12-31</xbrli:endDate></xbrli:period></xbrli:context>
+  <ifrs-full:DepreciationPropertyPlantAndEquipment contextRef="C25" decimals="-6">400</ifrs-full:DepreciationPropertyPlantAndEquipment>
+  <ifrs-full:DepreciationRightofuseAssets contextRef="C25" decimals="-6">30</ifrs-full:DepreciationRightofuseAssets>
+  <ifrs-full:AmortisationIntangibleAssetsOtherThanGoodwill contextRef="C25" decimals="-6">20</ifrs-full:AmortisationIntangibleAssetsOtherThanGoodwill>
+  <ifrs-full:DepreciationExpense contextRef="C25" decimals="-6">400</ifrs-full:DepreciationExpense>
+  <ifrs-full:DepreciationPropertyPlantAndEquipment contextRef="M25" decimals="-6">150</ifrs-full:DepreciationPropertyPlantAndEquipment>
+  <ifrs-full:DepreciationPropertyPlantAndEquipment contextRef="Q25" decimals="-6">100</ifrs-full:DepreciationPropertyPlantAndEquipment>
+  <ifrs-full:DepreciationExpense contextRef="S25" decimals="-6">300</ifrs-full:DepreciationExpense>
+  <ifrs-full:AmortisationExpense contextRef="S25" decimals="-6">10</ifrs-full:AmortisationExpense>
+  <ifrs-full:DepreciationAndAmortisationExpense contextRef="P24" decimals="-6">-380</ifrs-full:DepreciationAndAmortisationExpense>
+</xbrli:xbrl>"""
+
+
+def test_xbrl_notes_give_depreciation_and_amortisation():
+    # consolidated 2025: the parts once each (not the per-class or quarterly facts, not DepreciationExpense on top);
+    # 2024 has no dimension at all and a total concept; separate statements use their own member
+    assert opendart.parse_xbrl_da(XBRL, "CFS") == {2025: 450, 2024: 380}
+    assert opendart.parse_xbrl_da(XBRL, "OFS") == {2025: 310, 2024: 380}
+
+
+def test_missing_cash_flow_da_is_filled_from_the_notes(tmp_path, monkeypatch):
+    rows = [r for r in ROWS if "상각비" not in r["account_nm"]]  # a cash flow statement with no D&A lines
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("entity_2025-12-31.xbrl", XBRL)
+    calls = []
+
+    class Session(FakeSession):
+        def get(self, url, params=None, timeout=None):
+            if url == opendart.XBRL_URL:
+                calls.append(params["rcept_no"])
+                resp = __import__("requests").Response()
+                resp.status_code, resp._content = 200, buf.getvalue()
+                return resp
+            resp = super().get(url, params, timeout)
+            if url == opendart.STATEMENTS_URL and b'"000"' in resp.content:
+                resp._content = json.dumps({"status": "000", "list": rows}).encode()
+            return resp
+
+    monkeypatch.setattr(opendart, "api_key", lambda: "a" * 40)
+    monkeypatch.setattr(opendart.time, "sleep", lambda s: None)
+    monkeypatch.setattr(opendart.requests, "Session", lambda: Session())
+    doc = opendart.refresh(tmp_path, {"005930": "005930.KS"}, today=datetime(2026, 11, 13))
+    years = {y["year"]: y for y in doc["companies"][0]["years"]}
+    # the fixture's statements are separate (OFS), so the separate-member facts apply
+    assert years[2025]["da"] == 310 and years[2025]["da_basis"] == "notes (XBRL)" and years[2025]["ebitda"] == 1200 + 310
+    assert years[2024]["da"] == 380 and years[2024]["ebitda"] == 900 + 380
+    assert years[2023]["da"] is None and years[2023]["ebitda"] is None  # its report's notes weren't in the fixture
+    n = len(calls)
+    opendart.refresh(tmp_path, {"005930": "005930.KS"}, today=datetime(2026, 11, 13))
+    assert len(calls) == n  # notes are cached per report

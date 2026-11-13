@@ -112,7 +112,8 @@
         ${kpi(`Indicative grade, FY${last.y.year}`, badge(last.s.grade), `score ${num(last.s.score, 2)} on 1 (AAA) to 7 (CCC)`, "Weighted scorecard of five ratios; not a credit rating", "credit-scorecard")}
         ${kpi("Debt / EBITDA", ratioText("debt_ebitda", last.r.debt_ebitda), `net of cash: ${ok(last.r.net_debt_ebitda) ? num(last.r.net_debt_ebitda, 1) + "x" : "–"}`)}
         ${kpi("EBITDA / interest", ratioText("coverage", last.r.coverage), last.y.interest_basis ? `interest: ${esc(last.y.interest_basis)}` : "")}
-        ${kpi("EBITDA margin", ratioText("ebitda_margin", last.r.ebitda_margin), `EBITDA ${won(last.r.ebitda)}`)}
+        ${kpi("EBITDA margin", ratioText("ebitda_margin", last.r.ebitda_margin), `EBITDA ${won(last.r.ebitda)}`,
+          last.y.da_basis ? `Depreciation and amortisation from the ${last.y.da_basis === "notes (XBRL)" ? "notes to the financial statements (XBRL)" : "cash flow statement"}` : "")}
         ${kpi("Debt / (debt + equity)", ratioText("debt_capital", last.r.debt_capital), `debt ${won(last.r.debt)}`)}
       </div>
       ${financial(last.y) ? '<p class="risk-note" role="note">A bank, insurer or broker: deposits, policy reserves and client money make these industrial ratios meaningless, so no grade is shown. The figures below are as filed.</p>' : ""}
@@ -134,11 +135,12 @@
       <div id="cr-years">${table([
         { h: "", f: (x) => `<b>${esc(x.label)}</b>` }, ...years.map((y) => ({ h: `FY${y.y.year}`, r: 1, f: (x) => x.f(y) }))],
       [{ label: "Grade", f: (y) => badge(y.s.grade) }, { label: "Revenue", f: (y) => won(y.y.revenue) }, { label: "Operating income", f: (y) => won(y.y.op_income) },
-        { label: "EBITDA", f: (y) => won(y.r.ebitda) }, { label: "Interest", f: (y) => won(y.y.interest) }, { label: "Debt", f: (y) => won(y.r.debt) },
+        { label: "EBITDA", f: (y) => won(y.r.ebitda) + (ok(y.y.da) || financial(y.y) ? "" : "*") }, { label: "Interest", f: (y) => won(y.y.interest) }, { label: "Debt", f: (y) => won(y.r.debt) },
         { label: "Cash", f: (y) => won(y.y.cash) }, { label: "Equity", f: (y) => won(y.y.equity) }, { label: "Operating cash flow", f: (y) => won(y.y.cfo) },
         ...Q.CREDIT_FACTORS.map((f) => ({ label: f.label, f: (y) => ratioText(f.id, y.r[f.id]) })),
         { label: "Current ratio", f: (y) => (ok(y.r.current_ratio) ? `${num(y.r.current_ratio, 2)}x` : "–") }])}</div>
-      <p class="caption">${report && report.url ? `Source: ${link(report.url, "the latest annual report on DART")}. ` : ""}Amounts in won. Each report also restates the two years before it; the newest report's figures are used.</p>
+      <p class="caption">${report && report.url ? `Source: ${link(report.url, "the latest annual report on DART")}. ` : ""}Amounts in won. Each report also restates the two years before it; the newest report's figures are used.
+        Depreciation and amortisation come from the cash flow statement or, failing that, the XBRL notes.${years.some((y) => !ok(y.y.da) && !financial(y.y)) ? " * EBITDA is operating income for that year: no depreciation figure was filed in a form that can be read (DART tags the notes from fiscal 2023 onwards)." : ""}</p>
       <h2>Peers${fresh(src)}</h2><div id="cr-peers"></div>`;
     $("#st-out", root) && bindStress(root, last.y);
     const x = years.map((y) => `FY${y.y.year}`), c = pal(), cap = (v) => (v === Infinity || !ok(v) ? null : Math.min(v, 30));
