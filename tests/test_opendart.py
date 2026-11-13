@@ -141,3 +141,13 @@ def test_export_writes_index_and_company_files(tmp_path):
     company = json.loads((out / "credit" / "005930.json").read_text(encoding="utf-8"))
     assert [y["year"] for y in company["years"]] == [2023, 2024, 2025] and company["years"][-1]["ebitda"] == 1650
     assert export.export_credit(tmp_path / "other", tmp_path / "nothing") is None
+
+
+def test_financial_liabilities_stand_in_when_borrowings_arent_itemised():
+    rows = [line("CIS", "ifrs-full_Revenue", "매출액", "100"), line("BS", "ifrs-full_Assets", "자산총계", "900"),
+            line("BS", "ifrs-full_OtherCurrentFinancialLiabilities", "유동금융부채", "40"),
+            line("BS", "ifrs-full_OtherNoncurrentFinancialLiabilities", "비유동금융부채", "60"),
+            line("BS", CUSTOM, "기타금융부채", "5")]  # other payables, not a maturity bucket of debt
+    y = opendart.extract(rows, 2025)[2025]
+    assert y["debt"] == 100 and y["debt_basis"] == "financial liabilities"
+    assert opendart.extract(ROWS, 2025)[2025]["debt_basis"] == "borrowings, bonds and leases"

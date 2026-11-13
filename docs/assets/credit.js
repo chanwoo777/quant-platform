@@ -18,7 +18,10 @@
     return !ok(v) ? "–" : f && f.fmt === "%" ? pct(v, 1, false) : `${num(v, 1)}x`;
   };
   const badge = (g) => `<span class="badge ${GRADE_CLASS(g)}" style="font-size:1.05em">${esc(g)}</span>`;
-  const gradeOf = (y) => Q.creditScore(Q.creditRatios(y), { revenueKrw: y.revenue });
+  // Banks, insurers and brokers file no revenue line and run on borrowed money: industrial ratios don't describe them.
+  const financial = (y) => !ok(y.revenue);
+  const NA = { score: NaN, grade: "n/a", parts: [], missing: [] };
+  const gradeOf = (y) => (financial(y) ? NA : Q.creditScore(Q.creditRatios(y), { revenueKrw: y.revenue }));
 
   async function view(root, arg) {
     root.innerHTML = `<h1>Credit analysis</h1>
@@ -100,7 +103,7 @@
     const row = await rowFor(d.ticker).catch(() => null);
     const years = d.years.map((y) => ({ y, r: Q.creditRatios(y), s: gradeOf(y) }));
     const last = years[years.length - 1], src = { provider: "OpenDART (FSS)", label: "Annual reports", asOf: String(C.index.fetched_at || "").slice(0, 10), expect: 35 };
-    const noDa = !ok(last.y.da), report = d.reports[String(Math.max(...Object.keys(d.reports).map(Number)))];
+    const noDa = !ok(last.y.da) && !financial(last.y), report = d.reports[String(Math.max(...Object.keys(d.reports).map(Number)))];
     out.innerHTML = `
       <div class="pc-title"><h2 style="margin:0">${raw(d.name)} <span class="soft">${raw(d.name_en || "")}</span></h2>
         <span class="muted">${esc(d.ticker)}${row && row.sec ? ` · ${esc(tr(row.sec))}` : ""} · ${esc(last.y.fs === "CFS" ? "consolidated" : "separate")} statements</span>
@@ -112,6 +115,8 @@
         ${kpi("EBITDA margin", ratioText("ebitda_margin", last.r.ebitda_margin), `EBITDA ${won(last.r.ebitda)}`)}
         ${kpi("Debt / (debt + equity)", ratioText("debt_capital", last.r.debt_capital), `debt ${won(last.r.debt)}`)}
       </div>
+      ${financial(last.y) ? '<p class="risk-note" role="note">A bank, insurer or broker: deposits, policy reserves and client money make these industrial ratios meaningless, so no grade is shown. The figures below are as filed.</p>' : ""}
+      ${last.y.debt_basis === "financial liabilities" ? '<p class="caption">This company does not itemise borrowings and bonds on its balance sheet, so debt is its "financial liabilities" lines, which can also hold derivatives and other payables: leverage may look a little higher than it is.</p>' : ""}
       ${noDa ? '<p class="caption">Depreciation and amortisation aren\'t in this company\'s filed cash flow statement, so EBITDA is taken as operating income: leverage looks higher and cover lower than they are.</p>' : ""}
       ${last.s.small ? '<p class="caption">Revenue under ₩100 billion: one notch lower for scale.</p>' : ""}
       <div class="grid g2">

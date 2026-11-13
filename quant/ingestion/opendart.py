@@ -63,6 +63,11 @@ DEBT_IDS = ("ifrs-full_ShorttermBorrowings", "dart_ShortTermBorrowings", "ifrs-f
             "ifrs-full_BondsIssued", "dart_BondsIssued", "ifrs-full_CurrentLeaseLiabilities", "ifrs-full_NoncurrentLeaseLiabilities",
             "ifrs-full_LeaseLiabilities")
 DEBT_NAME = re.compile(r"차입금|사채|유동성장기부채|리스부채")
+# Some filers (KEPCO, LG Display, GS E&C...) show one "financial liabilities" line per maturity and itemise borrowings
+# only in the notes. When no borrowing, bond or lease line exists, those lines stand in for debt (flagged).
+FIN_LIAB_IDS = ("ifrs-full_CurrentFinancialLiabilities", "ifrs-full_NoncurrentFinancialLiabilities",
+                "ifrs-full_OtherCurrentFinancialLiabilities", "ifrs-full_OtherNoncurrentFinancialLiabilities")
+FIN_LIAB_NAME = re.compile(r"^(단기|장기|유동|비유동)?금융부채$")
 DEBT_SKIP = re.compile(r"합계|소계|미지급|이자|전환권|교환권|상환할증|파생")
 DA_IDS = ("ifrs-full_AdjustmentsForDepreciationExpense", "ifrs-full_AdjustmentsForAmortisationExpense",
           "ifrs-full_AdjustmentsForDepreciationAndAmortisationExpense", "ifrs-full_DepreciationExpense", "ifrs-full_AmortisationExpense",
@@ -126,19 +131,28 @@ def _pick(rows: list[dict], sj: tuple[str, ...], ids: tuple[str, ...], pattern: 
     return None
 
 
-def _sum_debt(rows: list[dict], col: str) -> float | None:
-    """Borrowings, bonds and lease liabilities on the balance sheet, each standard account once, plus custom lines."""
+def _sum_lines(rows: list[dict], col: str, ids: tuple[str, ...], name_ok) -> float | None:
     seen, total, found = set(), 0.0, False
     for r in rows:
         if r.get("sj_div") != "BS":
             continue
         aid, name = _std(r), str(r.get("account_nm") or "").replace(" ", "")
-        take = aid in DEBT_IDS and aid not in seen or (aid in (CUSTOM, "") and DEBT_NAME.search(name) and not DEBT_SKIP.search(name))
+        take = aid in ids and aid not in seen or (aid in (CUSTOM, "") and name_ok(name))
         if take and (v := amount(r.get(col))) is not None:
             seen.add(aid)
             total += v
             found = True
     return total if found else None
+
+
+def _sum_debt(rows: list[dict], col: str) -> tuple[float | None, str | None]:
+    """(debt, basis): borrowings, bonds and lease liabilities on the balance sheet, each standard account once, plus
+    custom lines; else the financial-liabilities lines of filers that don't itemise borrowings there."""
+    debt = _sum_lines(rows, col, DEBT_IDS, lambda n: bool(DEBT_NAME.search(n)) and not DEBT_SKIP.search(n))
+    if debt is not None:
+        return debt, "borrowings, bonds and leases"
+    fin = _sum_lines(rows, col, FIN_LIAB_IDS, lambda n: bool(FIN_LIAB_NAME.search(n)))
+    return (fin, "financial liabilities") if fin is not None else (None, None)
 
 
 def _sum_da(rows: list[dict], col: str) -> float | None:
@@ -166,7 +180,7 @@ def extract(rows: list[dict], year: int) -> dict[int, dict]:
         f = {k: _pick(rows, sj, ids, pat, col) for k, (sj, ids, pat) in FIGURES.items()}
         if f["revenue"] is None and f["assets"] is None:
             continue
-        f["debt"] = _sum_debt(rows, col)
+        f["debt"], f["debt_basis"] = _sum_debt(rows, col)
         f["da"] = _sum_da(rows, col)
         f["ebitda"] = f["op_income"] + f["da"] if f["op_income"] is not None and f["da"] is not None else None
         for basis, key in (("interest paid", "interest_paid"), ("interest expense", "interest_expense"), ("finance costs", "finance_costs")):
