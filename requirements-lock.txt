@@ -80,7 +80,7 @@ python-dotenv==1.2.4
 python-multipart==0.0.32
 pytz==2026.5
 PyYAML==6.0.3
-qiskit==2.6.1
+qiskit==2.6.2
 qiskit-algorithms==0.4.0
 qiskit-finance==0.4.1
 qiskit-optimization==0.7.0
